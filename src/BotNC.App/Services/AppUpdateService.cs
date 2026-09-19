@@ -95,8 +95,11 @@ public sealed class AppUpdateService
                 }
             }
 
-            await using var downloadedFile = File.OpenRead(temporaryPath);
-            var actualHash = Convert.ToHexString(await SHA256.HashDataAsync(downloadedFile, cancellationToken));
+            string actualHash;
+            await using (var downloadedFile = File.OpenRead(temporaryPath))
+            {
+                actualHash = Convert.ToHexString(await SHA256.HashDataAsync(downloadedFile, cancellationToken));
+            }
             if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException("A verificação de integridade do instalador falhou. O download foi descartado.");

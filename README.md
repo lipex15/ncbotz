@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.0
+## Ciclo disponível — v0.7.1
 
 ### Sapheras
 
