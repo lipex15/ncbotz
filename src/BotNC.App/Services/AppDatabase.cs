@@ -294,6 +294,20 @@ public sealed class AppDatabase
                 0, 10, 680, 125,
                 0.65),
             new(
+                "entrar_ta2_pronto",
+                "Botão Entrar da T.A 2 pronto",
+                "seletor_ta_tela.png",
+                725, 754, 82, 30,
+                710, 740, 130, 60,
+                0.68),
+            new(
+                "entrar_ta3_pronto",
+                "Botão Entrar da T.A 3 pronto",
+                "seletor_ta_tela.png",
+                725, 754, 82, 30,
+                980, 740, 130, 60,
+                0.68),
+            new(
                 "ta3_chegada",
                 "Serviços da T.A 3",
                 "ta3_chegada.png",
@@ -454,6 +468,20 @@ public sealed class AppDatabase
                 720, 125, 500, 165,
                 610, 80, 720, 270,
                 0.62),
+            new(
+                "morte_titulo",
+                "Título Você morreu em qualquer mapa",
+                "morte_confirmada.png",
+                785, 155, 350, 70,
+                765, 135, 390, 110,
+                0.70),
+            new(
+                "morte_ressuscitar",
+                "Botão Ressuscitar da tela de morte",
+                "morte_confirmada.png",
+                1692, 968, 195, 50,
+                1670, 950, 230, 78,
+                0.72),
             new(
                 "descanso_morte",
                 "Tela de descanso com estado Morte",

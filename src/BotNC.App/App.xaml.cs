@@ -58,6 +58,8 @@ public partial class App : Application
             var frame = await windowCapture.CaptureAsync(probeCancellation.Token);
             var death = await recognition.FindAsync("morte_confirmada", frame, probeCancellation.Token);
             var deathClientTwo = await recognition.FindAsync("morte_confirmada_ta2", frame, probeCancellation.Token);
+            var deathTitle = await recognition.FindAsync("morte_titulo", frame, probeCancellation.Token);
+            var deathButton = await recognition.FindAsync("morte_ressuscitar", frame, probeCancellation.Token);
             var restDeath = await recognition.FindAsync("descanso_morte", frame, probeCancellation.Token);
             var hp = HpBarAnalyzer.Measure(frame);
             await File.WriteAllLinesAsync(
@@ -66,6 +68,8 @@ public partial class App : Application
                     $"frame={frame.Width}x{frame.Height}",
                     $"death={death.Found};confidence={death.Confidence:F4}",
                     $"deathClientTwo={deathClientTwo.Found};confidence={deathClientTwo.Confidence:F4}",
+                    $"deathTitle={deathTitle.Found};confidence={deathTitle.Confidence:F4}",
+                    $"deathButton={deathButton.Found};confidence={deathButton.Confidence:F4}",
                     $"restDeath={restDeath.Found};confidence={restDeath.Confidence:F4}",
                     $"hpFound={hp.Found};hp={hp.Percent:P1}"
                 ]);
@@ -92,13 +96,21 @@ public partial class App : Application
             var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
             var primaryDeath = await recognition.FindInImageAsync("morte_confirmada", imagePath);
             var clientTwoDeath = await recognition.FindInImageAsync("morte_confirmada_ta2", imagePath);
+            var deathTitle = await recognition.FindInImageAsync("morte_titulo", imagePath);
+            var deathButton = await recognition.FindInImageAsync("morte_ressuscitar", imagePath);
             var restDeath = await recognition.FindInImageAsync("descanso_morte", imagePath);
+            var ta2EntryReady = await recognition.FindInImageAsync("entrar_ta2_pronto", imagePath);
+            var ta3EntryReady = await recognition.FindInImageAsync("entrar_ta3_pronto", imagePath);
             await File.WriteAllLinesAsync(
                 imageProbeOutputPath,
                 [
                     $"primaryDeath={primaryDeath.Found};confidence={primaryDeath.Confidence:F4}",
                     $"clientTwoDeath={clientTwoDeath.Found};confidence={clientTwoDeath.Confidence:F4}",
-                    $"restDeath={restDeath.Found};confidence={restDeath.Confidence:F4}"
+                    $"deathTitle={deathTitle.Found};confidence={deathTitle.Confidence:F4}",
+                    $"deathButton={deathButton.Found};confidence={deathButton.Confidence:F4}",
+                    $"restDeath={restDeath.Found};confidence={restDeath.Confidence:F4}",
+                    $"ta2EntryReady={ta2EntryReady.Found};confidence={ta2EntryReady.Confidence:F4}",
+                    $"ta3EntryReady={ta3EntryReady.Found};confidence={ta3EntryReady.Confidence:F4}"
                 ]);
             Shutdown();
             return;
@@ -187,6 +199,8 @@ public partial class App : Application
             ("tela_descanso", "ta2_chegada.png"),
             ("menu_ta", "teste_menu_ta.png"),
             ("seletor_ta", "seletor_ta_tela.png"),
+            ("entrar_ta2_pronto", "seletor_ta_tela.png"),
+            ("entrar_ta3_pronto", "seletor_ta_tela.png"),
             ("ta3_chegada", "ta3_chegada.png"),
             ("ta2_chegada", "ta2_chegada.png"),
             ("ta3_artigos", "teste_ta3_artigos.png"),
@@ -232,6 +246,11 @@ public partial class App : Application
             ("morte_confirmada_ta2", "morte_confirmada_ta2.png"),
             ("morte_confirmada_ta2", "morte_confirmada.png"),
             ("morte_confirmada_ta2", "descanso_generico.png"),
+            ("morte_titulo", "morte_confirmada.png"),
+            ("morte_titulo", "descanso_generico.png"),
+            ("morte_ressuscitar", "morte_confirmada.png"),
+            ("morte_ressuscitar", "descanso_generico.png"),
+            ("morte_ressuscitar", "perda_exp.png"),
             ("descanso_morte", "descanso_morte_ta2.png"),
             ("descanso_morte", "descanso_generico.png"),
             ("descanso_morte", "descanso_aguardando_spot.png"),

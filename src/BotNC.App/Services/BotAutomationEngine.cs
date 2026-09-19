@@ -19,6 +19,7 @@ public sealed class BotAutomationEngine(
     private const int KeyEquals = 0xBB;
     private const double VisualHpEmergencyThreshold = 0.55;
     private const double FullDeathConfidence = 0.66;
+    private const double FixedDeathElementConfidence = 0.82;
     private const double RestDeathConfidence = 0.68;
     private readonly Random _random = new();
     private readonly object _logFileSync = new();
@@ -405,11 +406,15 @@ public sealed class BotAutomationEngine(
         PixelFrame frame,
         CancellationToken cancellationToken)
     {
-        // A morte pode aparecer de duas formas: a tela completa "Você morreu"
-        // ou, por alguns segundos, o estado "Morte" dentro da tela de descanso.
-        // Os clientes também usam mapas/personagens diferentes, por isso há uma
-        // referência independente capturada no Cliente 2.
+        // A morte pode aparecer na tela completa ou no descanso. O texto do
+        // assassino, o mapa e o fundo variam; só elementos fixos confirmam a
+        // tela completa.
         var fullDeath = await FindFullDeathInFrameAsync(frame, cancellationToken);
+        if (fullDeath.Found)
+        {
+            return fullDeath;
+        }
+
         var rest = await recognition.FindAsync("descanso_morte", frame, cancellationToken);
 
         var best = rest.Confidence > fullDeath.Confidence ? rest : fullDeath;
@@ -424,9 +429,24 @@ public sealed class BotAutomationEngine(
         PixelFrame frame,
         CancellationToken cancellationToken)
     {
+        // O botão permanece visível mesmo quando avisos cobrem "Você morreu".
+        // Conferi também contra telas normais, mapa, loja e restauração.
+        var resurrectButton = await recognition.FindAsync("morte_ressuscitar", frame, cancellationToken);
+        if (resurrectButton.Confidence >= FixedDeathElementConfidence)
+        {
+            return resurrectButton with { Found = true };
+        }
+
+        var deathTitle = await recognition.FindAsync("morte_titulo", frame, cancellationToken);
+        if (deathTitle.Confidence >= FixedDeathElementConfidence)
+        {
+            return deathTitle with { Found = true };
+        }
+
         var primary = await recognition.FindAsync("morte_confirmada", frame, cancellationToken);
         var clientTwo = await recognition.FindAsync("morte_confirmada_ta2", frame, cancellationToken);
-        var best = clientTwo.Confidence > primary.Confidence ? clientTwo : primary;
+        var best = new[] { resurrectButton, deathTitle, primary, clientTwo }
+            .MaxBy(result => result.Confidence)!;
         var confirmed = primary.Confidence >= FullDeathConfidence ||
                         clientTwo.Confidence >= FullDeathConfidence;
         return confirmed
@@ -452,6 +472,49 @@ public sealed class BotAutomationEngine(
 
             return new RecognitionResult(false, 0, 0, 0);
         }
+    }
+
+    private async Task<RecognitionResult> FindReferenceOnClientAsync(
+        ClientSession session,
+        string referenceId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var frame = await CaptureClientFrameAsync(session, cancellationToken);
+            return await recognition.FindAsync(referenceId, frame, cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            if (gameWindows.IsForeground(session.Options.Target))
+            {
+                return await recognition.FindAsync(referenceId, cancellationToken);
+            }
+
+            return new RecognitionResult(false, 0, 0, 0);
+        }
+    }
+
+    private async Task<bool> WaitForReferenceOnClientAsync(
+        ClientSession session,
+        string referenceId,
+        TimeSpan timeout,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            if ((await FindReferenceOnClientAsync(session, referenceId, cancellationToken)).Found)
+            {
+                return true;
+            }
+
+            await Task.Delay(350, cancellationToken);
+        }
+
+        return false;
     }
 
     private static async Task<PixelFrame> CaptureClientFrameAsync(
@@ -691,10 +754,16 @@ public sealed class BotAutomationEngine(
         for (var index = 0; index < attempts; index++)
         {
             await input.PressEmergencyKeyAsync(sapheras.EmergencyTeleportVirtualKey, cancellationToken);
+            if (Volatile.Read(ref session.PendingVisualDeath) != 0)
+            {
+                break;
+            }
         }
 
-        await ActionDelayAsync(cancellationToken, 4200, 5600);
-        if ((await FindDeathOnClientAsync(session, cancellationToken)).Found)
+        if (await WaitForDeathAfterEmergencyAsync(
+                session,
+                TimeSpan.FromSeconds(5),
+                cancellationToken) is not null)
         {
             await RecoverDeathDuringSapherasAsync(session, sapheras, antiOverkill, finishesAt, pause, cancellationToken);
             return;
@@ -851,15 +920,28 @@ public sealed class BotAutomationEngine(
         session.IsFarmingTa = false;
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", "Abrindo Terra Avassaladora");
         await ActivateGameAsync(session.Options.Target, cancellationToken);
+        await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir a {taName}", cancellationToken);
         await ExitRestIfNeededAsync(pause, cancellationToken);
-        await OpenTaMenuAsync(session, pause, cancellationToken);
-        await EnterTaFromOpenMenuAsync(session, pause, cancellationToken, isEmergency);
+        await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir o menu da {taName}", cancellationToken);
+        if ((await recognition.FindAsync("seletor_ta", cancellationToken)).Found)
+        {
+            WriteLog(session, "O seletor da T.A já está aberto; retomando exatamente desta etapa.");
+        }
+        else
+        {
+            await OpenTaMenuAsync(session, pause, cancellationToken);
+            WriteLog(session, "Abrindo Terra Avassaladora em (1742, 431).");
+            await input.ClickAsync(1742, 431, cancellationToken);
+        }
+
+        await EnterTaFromSelectorAsync(session, pause, cancellationToken, isEmergency);
     }
 
     private async Task OpenTaMenuAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
     {
         for (var attempt = 1; attempt <= 2; attempt++)
         {
+            await AbortWorkflowIfDeathDetectedAsync(session, "durante a abertura do menu da T.A", cancellationToken);
             await TryDismissAgendaAsync(session, cancellationToken);
             var button = await recognition.FindAsync("menu_ta", cancellationToken);
             if (button.Found)
@@ -880,7 +962,7 @@ public sealed class BotAutomationEngine(
         throw new TimeoutException($"{session.Options.Label}: não foi possível confirmar o menu da T.A. Diagnóstico: {diagnostic}");
     }
 
-    private async Task EnterTaFromOpenMenuAsync(
+    private async Task EnterTaFromSelectorAsync(
         ClientSession session,
         PauseController pause,
         CancellationToken cancellationToken,
@@ -889,20 +971,148 @@ public sealed class BotAutomationEngine(
         var destination = session.Options.Destination;
         var taName = TaName(destination);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", isEmergency ? "Recuperação após alerta de HP" : "Selecionando a T.A");
-        WriteLog(session, "Abrindo Terra Avassaladora em (1742, 431).");
-        await input.ClickAsync(1742, 431, cancellationToken);
-        await WaitForReferenceAsync("seletor_ta", "Piloto da Terra Avassaladora", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await WaitForTaReferenceOrDeathAsync(
+            session,
+            "seletor_ta",
+            "Piloto da Terra Avassaladora",
+            TimeSpan.FromSeconds(45),
+            pause,
+            cancellationToken);
+
+        // Em PCs lentos, o título aparece antes dos cartões e o clique antigo
+        // era enviado para uma tela ainda carregando. O botão correto precisa
+        // estar visualmente pronto; o bot apenas consulta a tela durante a
+        // espera, sem impor uma pausa fixa aos computadores rápidos.
+        var readyReference = destination == TaDestination.Ta2
+            ? "entrar_ta2_pronto"
+            : "entrar_ta3_pronto";
+        await WaitForTaReferenceOrDeathAsync(
+            session,
+            readyReference,
+            $"botão Entrar da {taName}",
+            TimeSpan.FromSeconds(45),
+            pause,
+            cancellationToken);
 
         var entry = TaEntryPoints[destination];
-        WriteLog(session, $"Entrando na {taName} em ({entry.X}, {entry.Y}).");
-        await input.ClickAsync(entry.X, entry.Y, cancellationToken);
+        var arrivalReference = ArrivalReference(destination);
+        var arrivalConfirmed = false;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            var retryEntryClick = false;
+            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+            WriteLog(session, $"Entrando na {taName} em ({entry.X}, {entry.Y}) — tentativa {attempt}/3.");
+            await input.ClickAsync(entry.X, entry.Y, cancellationToken);
+
+            var startedAt = DateTime.UtcNow;
+            while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(75))
+            {
+                await CheckpointAsync(pause, cancellationToken);
+                var death = await FindDeathOnClientAsync(session, cancellationToken);
+                if (death.Found)
+                {
+                    Interlocked.Exchange(ref session.PendingVisualDeath, 1);
+                    throw new InvalidOperationException(
+                        $"{session.Options.Label}: uma morte foi detectada durante a entrada na {taName}; a restauração terá prioridade.");
+                }
+
+                if ((await recognition.FindAsync(arrivalReference, cancellationToken)).Found)
+                {
+                    WriteLog(session, $"Chegada à {taName} confirmada visualmente.");
+                    arrivalConfirmed = true;
+                    break;
+                }
+
+                // Se o botão continua pronto após alguns segundos, o clique não
+                // foi aceito. Repetimos somente nesse caso; se o seletor sumiu,
+                // o carregamento está em andamento e continuamos aguardando.
+                if (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(5) &&
+                    (await recognition.FindAsync(readyReference, cancellationToken)).Found)
+                {
+                    WriteLog(session, "A tela de entrada continuou aberta; o clique ainda não foi aceito.");
+                    retryEntryClick = true;
+                    break;
+                }
+
+                await Task.Delay(450, cancellationToken);
+            }
+
+            if (arrivalConfirmed)
+            {
+                break;
+            }
+
+            if (!retryEntryClick)
+            {
+                // O seletor desapareceu, portanto o clique foi aceito. Não é
+                // seguro clicar novamente em coordenadas sobre outra tela.
+                break;
+            }
+        }
+
+        if (!arrivalConfirmed)
+        {
+            var diagnostic = await recognition.SaveDiagnosticAsync($"entrada_{taName}_{session.Options.Priority}");
+            throw new TimeoutException(
+                $"{session.Options.Label}: a entrada na {taName} não foi confirmada após três tentativas. Diagnóstico: {diagnostic}");
+        }
+
         await TryDismissAgendaAsync(session, cancellationToken);
-        await WaitForReferenceAsync(ArrivalReference(destination), $"chegada à {taName}", TimeSpan.FromSeconds(55), pause, cancellationToken);
 
         WriteLog(session, $"{taName} reconhecida; aguardando o respawn estabilizar.");
         await ActionDelayAsync(cancellationToken, 2200, 3400);
         await BuySuppliesInsideTaAsync(session, pause, cancellationToken);
         await TravelToFarmSpotAsync(session, pause, cancellationToken);
+    }
+
+    private async Task AbortWorkflowIfDeathDetectedAsync(
+        ClientSession session,
+        string context,
+        CancellationToken cancellationToken)
+    {
+        var death = await FindDeathOnClientAsync(session, cancellationToken);
+        if (Volatile.Read(ref session.PendingVisualDeath) == 0 && !death.Found)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref session.PendingVisualDeath, 1);
+        throw new InvalidOperationException(
+            $"{session.Options.Label}: morte detectada {context}; o fluxo normal foi interrompido para priorizar a ressurreição.");
+    }
+
+    private async Task<RecognitionResult> WaitForTaReferenceOrDeathAsync(
+        ClientSession session,
+        string referenceId,
+        string description,
+        TimeSpan timeout,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        var best = new RecognitionResult(false, 0, 0, 0);
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            await AbortWorkflowIfDeathDetectedAsync(session, $"enquanto aguardava {description}", cancellationToken);
+            var current = await recognition.FindAsync(referenceId, cancellationToken);
+            if (current.Confidence > best.Confidence)
+            {
+                best = current;
+            }
+
+            if (current.Found)
+            {
+                return current;
+            }
+
+            await Task.Delay(450, cancellationToken);
+        }
+
+        var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
+        var diagnostic = await recognition.SaveDiagnosticAsync(referenceId, diagnosticFrame);
+        throw new TimeoutException(
+            $"Tempo esgotado procurando {description}. Melhor confiança: {best.Confidence:P0}. Diagnóstico: {diagnostic}");
     }
 
     private async Task BuySuppliesInsideTaAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
@@ -1739,21 +1949,53 @@ public sealed class BotAutomationEngine(
         for (var index = 0; index < attempts; index++)
         {
             await input.PressEmergencyKeyAsync(options.EmergencyTeleportVirtualKey, cancellationToken);
+            if (Volatile.Read(ref session.PendingVisualDeath) != 0)
+            {
+                break;
+            }
         }
 
-        await ActionDelayAsync(cancellationToken, 4200, 5600);
-        var deathAfterTeleport = await FindDeathOnClientAsync(session, cancellationToken);
-        if (Volatile.Read(ref session.PendingVisualDeath) != 0 || deathAfterTeleport.Found)
+        var deathAfterTeleport = await WaitForDeathAfterEmergencyAsync(
+            session,
+            TimeSpan.FromSeconds(5),
+            cancellationToken);
+        if (deathAfterTeleport is not null)
         {
             WriteLog(session, $"Morte ocorreu durante a tentativa de TP ({deathAfterTeleport.Confidence:P0}); iniciando restauração.");
             await HandleDeathAsync(session, options, antiOverkill, pause, cancellationToken);
             return;
         }
 
-        WriteLog(session, $"Retorno confirmado; reentrando na {TaName(session.Options.Destination)} e recompondo o farm.");
+        WriteLog(session, $"TP concluído sem tela de morte; reentrando na {TaName(session.Options.Destination)} e recompondo o farm.");
         // O TP pode terminar com o cliente ainda na tela de descanso. O fluxo
         // completo sai com L antes de tentar abrir qualquer menu.
         await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: true);
+    }
+
+    private async Task<RecognitionResult?> WaitForDeathAfterEmergencyAsync(
+        ClientSession session,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            var death = await FindDeathOnClientAsync(session, cancellationToken);
+            if (death.Found)
+            {
+                Interlocked.Exchange(ref session.PendingVisualDeath, 1);
+                return death;
+            }
+
+            if (Volatile.Read(ref session.PendingVisualDeath) != 0)
+            {
+                return new RecognitionResult(true, death.Confidence, death.X, death.Y);
+            }
+
+            await Task.Delay(300, cancellationToken);
+        }
+
+        return null;
     }
 
     private async Task HandleDeathAsync(
@@ -1855,9 +2097,25 @@ public sealed class BotAutomationEngine(
 
         if (fullDeath.Found)
         {
-            WriteLog(session, $"Tela completa de morte confirmada ({fullDeath.Confidence:P0}); clicando em Ressuscitar (1811, 994).");
+            WriteLog(
+                session,
+                $"Tela completa de morte confirmada ({fullDeath.Confidence:P0}); aguardando 5 segundos antes de Ressuscitar.");
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+            fullDeath = await FindFullDeathOnClientAsync(session, cancellationToken);
+            if (!fullDeath.Found)
+            {
+                WriteLog(session, "O renascimento automático ocorreu durante a espera; não clicando na tela normal.");
+            }
+
             for (var attempt = 1; attempt <= 2; attempt++)
             {
+                if (!fullDeath.Found)
+                {
+                    break;
+                }
+
+                WriteLog(session, $"Clicando em Ressuscitar (1811, 994) — tentativa {attempt}/2.");
                 await input.ClickAsync(1811, 994, cancellationToken);
                 var disappearDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
                 while (DateTime.UtcNow < disappearDeadline)
@@ -1876,6 +2134,8 @@ public sealed class BotAutomationEngine(
                     break;
                 }
 
+                fullDeath = await FindFullDeathOnClientAsync(session, cancellationToken);
+
                 if (attempt < 2)
                 {
                     WriteLog(session, $"Ressuscitar ainda visível; repetindo o clique — tentativa {attempt + 1}/2.");
@@ -1893,46 +2153,77 @@ public sealed class BotAutomationEngine(
             WriteLog(session, "O renascimento automático já ocorreu; seguindo para restaurar a Perda de EXP.");
         }
 
-        WriteLog(session, "Aguardando 5 segundos para o renascimento estabilizar.");
-        await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
-
-        await ActionDelayAsync(cancellationToken, 2200, 3200);
-        if ((await recognition.FindAsync("perda_exp", cancellationToken)).Found)
+        WriteLog(session, "Aguardando o personagem e os indicadores de perda estabilizarem.");
+        await ActionDelayAsync(cancellationToken, 1800, 2600);
+        await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+        if ((await FindReferenceOnClientAsync(session, "perda_exp", cancellationToken)).Found)
         {
             WriteLog(session, "O painel Perda de EXP já está aberto; evitando clique desnecessário.");
         }
         else
         {
-            WriteLog(session, "Localizando o ícone vermelho de Perda de EXP no canto superior.");
-            for (var attempt = 1; attempt <= 3; attempt++)
+            WriteLog(session, "Procurando o ícone vermelho de perda de EXP/item no canto superior.");
+            var iconDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+            var iconFound = false;
+            while (DateTime.UtcNow < iconDeadline)
             {
-                var icon = await recognition.FindAsync(
-                    "icone_perda_exp", 1370, 0, 430, 165, cancellationToken);
-                var iconX = icon.Found ? icon.X : 1532;
-                var iconY = icon.Found ? icon.Y : 70;
-                WriteLog(session, icon.Found
-                    ? $"Ícone de Perda de EXP reconhecido ({icon.Confidence:P0}) em ({iconX}, {iconY})."
-                    : $"Ícone não reconhecido; usando a coordenada segura (1532, 70) — tentativa {attempt}/3.");
-                await input.ClickAsync(iconX, iconY, cancellationToken);
-                if (await WaitForReferenceToAppearAsync("perda_exp", TimeSpan.FromSeconds(8), pause, cancellationToken))
+                await CheckpointAsync(pause, cancellationToken);
+                var icon = await FindReferenceOnClientAsync(session, "icone_perda_exp", cancellationToken);
+                if (icon.Found)
                 {
+                    iconFound = true;
+                    WriteLog(session, $"Ícone de perda reconhecido ({icon.Confidence:P0}); clicando em (1532, 70).");
                     break;
                 }
 
-                if (attempt == 3)
-                {
-                    var diagnostic = await recognition.SaveDiagnosticAsync($"perda_exp_{session.Options.Priority}");
-                    throw new TimeoutException($"{session.Options.Label}: o painel Perda de EXP não abriu. Diagnóstico: {diagnostic}");
-                }
+                await Task.Delay(400, cancellationToken);
+            }
+
+            if (!iconFound)
+            {
+                WriteLog(
+                    session,
+                    "Nenhum ícone de perda apareceu após o renascimento; esta morte não gerou recursos restauráveis.");
+                return;
+            }
+
+            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+            await input.ClickAsync(1532, 70, cancellationToken);
+            if (!await WaitForReferenceOnClientAsync(
+                    session,
+                    "perda_exp",
+                    TimeSpan.FromSeconds(12),
+                    pause,
+                    cancellationToken))
+            {
+                var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
+                var diagnostic = await recognition.SaveDiagnosticAsync(
+                    $"perda_exp_{session.Options.Priority}",
+                    diagnosticFrame);
+                throw new TimeoutException(
+                    $"{session.Options.Label}: o painel Perda de EXP não abriu após o ícone ser confirmado. Diagnóstico: {diagnostic}");
             }
         }
 
         WriteLog(session, "Verificando as duas abas de restauração.");
+        await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
         await input.ClickAsync(282, 889, cancellationToken);
         await input.ClickAsync(41, 267, cancellationToken);
         await input.ClickAsync(282, 889, cancellationToken);
         await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-        await WaitForReferenceToDisappearAsync("perda_exp", TimeSpan.FromSeconds(10), pause, cancellationToken);
+        var closeDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < closeDeadline &&
+               (await FindReferenceOnClientAsync(session, "perda_exp", cancellationToken)).Found)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            await Task.Delay(350, cancellationToken);
+        }
+
+        if ((await FindReferenceOnClientAsync(session, "perda_exp", cancellationToken)).Found)
+        {
+            throw new TimeoutException($"{session.Options.Label}: o painel de restauração não fechou após Esc.");
+        }
+
         WriteLog(session, "Painel de restauração fechado.");
     }
 
