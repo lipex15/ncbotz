@@ -1264,18 +1264,50 @@ public sealed class BotAutomationEngine(
             WriteLog(session, "Sem segundo favorito de teleporte; seguindo direto ao primeiro favorito.");
         }
 
-        var spotLevel = await RecognizeFavoriteSpotLevelAsync(session, pause, cancellationToken);
-        WriteLog(session, $"Primeiro favorito reconhecido como spot Nv. {spotLevel}.");
+        int? spotLevel = null;
+        if (session.Options.CustomFarmCoordinate is null)
+        {
+            spotLevel = await RecognizeFavoriteSpotLevelAsync(session, pause, cancellationToken);
+            WriteLog(session, $"Primeiro favorito reconhecido como spot Nv. {spotLevel}.");
+        }
+        else
+        {
+            WriteLog(
+                session,
+                $"Coordenada personalizada ativa: ({session.Options.CustomFarmCoordinate.X}, " +
+                $"{session.Options.CustomFarmCoordinate.Y}). A leitura do nível e o sorteio serão ignorados.");
+        }
+
         WriteLog(session, "Selecionando o primeiro favorito (área de farm) em (1702, 285).");
         await input.ClickAsync(1702, 285, cancellationToken);
         await ActionDelayAsync(cancellationToken, 1800, 2200);
         await input.ClickAsync(444, 531, cancellationToken);
         await input.ClickAsync(1484, 532, cancellationToken);
 
-        var spots = FarmSpots[session.Options.Destination][spotLevel];
-        var spotIndex = ChooseNextSpot(session, spotLevel, spots.Length);
-        var spot = spots[spotIndex];
-        WriteLog(session, $"Spot Nv. {spotLevel}, posição aleatória {spotIndex + 1}/{spots.Length}: ({spot.X}, {spot.Y}), sem repetir a anterior.");
+        (int X, int Y) spot;
+        if (session.Options.CustomFarmCoordinate is { } customCoordinate)
+        {
+            spot = gameWindows.MapReferencePoint(
+                session.Options.Target,
+                customCoordinate.X,
+                customCoordinate.Y);
+            WriteLog(
+                session,
+                $"Usando ponto personalizado fixo ({customCoordinate.X}, {customCoordinate.Y}) " +
+                $"na janela atual: ({spot.X}, {spot.Y}).");
+        }
+        else
+        {
+            var confirmedLevel = spotLevel ??
+                throw new InvalidOperationException("O nível do spot não foi reconhecido.");
+            var spots = FarmSpots[session.Options.Destination][confirmedLevel];
+            var spotIndex = ChooseNextSpot(session, confirmedLevel, spots.Length);
+            spot = spots[spotIndex];
+            WriteLog(
+                session,
+                $"Spot Nv. {confirmedLevel}, posição aleatória {spotIndex + 1}/{spots.Length}: " +
+                $"({spot.X}, {spot.Y}), sem repetir a anterior.");
+        }
 
         var goReferences = session.Options.Destination == TaDestination.Ta2
             ? new[] { "botao_ir_ta2", "botao_ir", "botao_ir_legado" }
@@ -1661,7 +1693,18 @@ public sealed class BotAutomationEngine(
                             var resumed = await RunRecoveryActionSafelyAsync(
                                 session,
                                 "retomada do fluxo após falha",
-                                actionToken => EnterTaAndStartFarmAsync(session, pause, actionToken, isEmergency: true),
+                                async actionToken =>
+                                {
+                                    if (session.NeedsDeathRestoration)
+                                    {
+                                        WriteLog(session, "Restauração pendente: concluindo a lápide antes de voltar à T.A.");
+                                        await ActivateGameForEmergencyAsync(session.Options.Target, actionToken);
+                                        await RestoreDeathResourcesAsync(session, pause, actionToken);
+                                        session.NeedsDeathRestoration = false;
+                                    }
+
+                                    await EnterTaAndStartFarmAsync(session, pause, actionToken, isEmergency: true);
+                                },
                                 cancellationToken);
                             if (!resumed)
                             {
@@ -2185,6 +2228,7 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        session.NeedsDeathRestoration = true;
         // O Cliente 2 pode sinalizar "Morte" primeiro dentro do descanso e só
         // depois abrir a tela completa com o botão Ressuscitar. Esperamos essa
         // transição sem clicar às cegas na tela normal.
@@ -2290,7 +2334,7 @@ public sealed class BotAutomationEngine(
                 if (icon.Found)
                 {
                     iconFound = true;
-                    WriteLog(session, $"Ícone de perda reconhecido ({icon.Confidence:P0}); clicando em (1532, 70).");
+                    WriteLog(session, $"Ícone de perda reconhecido ({icon.Confidence:P0}); abrindo a lápide em (1537, 72).");
                     break;
                 }
 
@@ -2302,6 +2346,7 @@ public sealed class BotAutomationEngine(
                 WriteLog(
                     session,
                     "Nenhum ícone de perda apareceu após o renascimento; esta morte não gerou recursos restauráveis.");
+                session.NeedsDeathRestoration = false;
                 return;
             }
 
@@ -2309,8 +2354,8 @@ public sealed class BotAutomationEngine(
             for (var attempt = 1; attempt <= 3 && !panelOpened; attempt++)
             {
                 await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
-                WriteLog(session, $"Abrindo restauração pelo ícone em (1532, 70) — tentativa {attempt}/3.");
-                await input.ClickAsync(1532, 70, cancellationToken);
+                WriteLog(session, $"Clicando na lápide em (1537, 72) — tentativa {attempt}/3.");
+                await input.MoveAndClickAsync(1537, 72, TimeSpan.FromMilliseconds(450), cancellationToken);
                 panelOpened = await WaitForReferenceOnClientAsync(
                     session,
                     "painel_restauracao",
@@ -2333,20 +2378,43 @@ public sealed class BotAutomationEngine(
         WriteLog(session, "Painel confirmado; restaurando separadamente as duas abas.");
         await ActionDelayAsync(cancellationToken, 900, 1400);
         await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
-        await RestoreVisibleResourceTabAsync(session, "EXP", pause, cancellationToken);
+        var xpRestored = await RestoreVisibleResourceTabAsync(
+            session, "EXP", 285, 886, pause, cancellationToken);
 
-        WriteLog(session, "Selecionando a segunda aba de restauração em (41, 267).");
-        var beforeSecondTab = await CaptureClientFrameAsync(session, cancellationToken);
-        await input.ClickAsync(41, 267, cancellationToken);
-        await WaitForRegionChangeAsync(
-            session,
-            beforeSecondTab,
-            0, 175, 460, 760,
-            TimeSpan.FromSeconds(4),
-            pause,
-            cancellationToken);
-        await ActionDelayAsync(cancellationToken, 900, 1400);
-        await RestoreVisibleResourceTabAsync(session, "item/equipamento", pause, cancellationToken);
+        WriteLog(session, "Selecionando a segunda aba de restauração em (47, 275).");
+        var secondTabOpened = false;
+        for (var attempt = 1; attempt <= 3 && !secondTabOpened; attempt++)
+        {
+            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+            var beforeSecondTab = await CaptureClientFrameAsync(session, cancellationToken);
+            await input.ClickAsync(47, 275, cancellationToken);
+            secondTabOpened = await WaitForRegionChangeAsync(
+                session,
+                beforeSecondTab,
+                0, 175, 460, 760,
+                TimeSpan.FromSeconds(4),
+                pause,
+                cancellationToken);
+        }
+
+        var equipmentRestored = false;
+        if (secondTabOpened)
+        {
+            await ActionDelayAsync(cancellationToken, 900, 1400);
+            equipmentRestored = await RestoreVisibleResourceTabAsync(
+                session, "item/equipamento", 259, 886, pause, cancellationToken);
+        }
+        else
+        {
+            WriteLog(session, "A segunda aba não abriu; ela pode estar indisponível nesta morte.");
+        }
+
+        if (!xpRestored && !equipmentRestored)
+        {
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: nenhum recurso respondeu à restauração; " +
+                "não é seguro retornar ao farm enquanto a perda indicada continuar pendente.");
+        }
 
         if (!(await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
         {
@@ -2374,11 +2442,14 @@ public sealed class BotAutomationEngine(
         }
 
         WriteLog(session, "Painel de restauração fechado.");
+        session.NeedsDeathRestoration = false;
     }
 
-    private async Task RestoreVisibleResourceTabAsync(
+    private async Task<bool> RestoreVisibleResourceTabAsync(
         ClientSession session,
         string tabName,
+        int clickX,
+        int clickY,
         PauseController pause,
         CancellationToken cancellationToken)
     {
@@ -2387,8 +2458,8 @@ public sealed class BotAutomationEngine(
             await CheckpointAsync(pause, cancellationToken);
             await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
             var beforeClick = await CaptureClientFrameAsync(session, cancellationToken);
-            WriteLog(session, $"Restaurando aba de {tabName} em (282, 889) — tentativa {attempt}/3.");
-            await input.ClickAsync(282, 889, cancellationToken);
+            WriteLog(session, $"Restaurando aba de {tabName} em ({clickX}, {clickY}) — tentativa {attempt}/3.");
+            await input.ClickAsync(clickX, clickY, cancellationToken);
             var changed = await WaitForRegionChangeAsync(
                 session,
                 beforeClick,
@@ -2400,7 +2471,7 @@ public sealed class BotAutomationEngine(
             {
                 WriteLog(session, $"Aba de {tabName} respondeu ao clique de restauração.");
                 await ActionDelayAsync(cancellationToken, 900, 1400);
-                return;
+                return true;
             }
 
             if (attempt < 3)
@@ -2409,7 +2480,8 @@ public sealed class BotAutomationEngine(
             }
         }
 
-        WriteLog(session, $"Aba de {tabName} não apresentou mudança visual; seguindo porque ela pode estar sem perda restaurável.");
+        WriteLog(session, $"Aba de {tabName} não apresentou mudança visual; ela pode estar sem perda restaurável.");
+        return false;
     }
 
     private async Task<bool> WaitForRegionChangeAsync(
@@ -3002,6 +3074,7 @@ public sealed class BotAutomationEngine(
         public bool IsFarmingTa { get; set; }
         public bool InAgenda { get; set; }
         public bool HandlingDeath { get; set; }
+        public bool NeedsDeathRestoration { get; set; }
         public bool AudioFailureLogged { get; set; }
         public bool PendingAgendaAfterSapheras { get; set; }
         public DateTime AgendaUntil { get; set; }

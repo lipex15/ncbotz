@@ -20,12 +20,15 @@ public enum TaDestination
     Ta3
 }
 
+public sealed record FarmCoordinate(int X, int Y);
+
 public sealed record AutomationClientOptions(
     string Label,
     GameWindowTarget Target,
     TaDestination Destination,
     bool UseSapheras,
-    int Priority);
+    int Priority,
+    FarmCoordinate? CustomFarmCoordinate);
 
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,

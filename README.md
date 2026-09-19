@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.4
+## Ciclo disponível — v0.7.5
 
 ### Sapheras
 
@@ -31,6 +31,7 @@ Aplicativo modular de automação visual para Night Crows.
 - na T.A 2, reconhece os níveis 68, 72, 76, 80, 84 e 88;
 - na T.A 3, reconhece os níveis 84, 88, 90, 92, 94, 96, 98 e 100;
 - escolhe aleatoriamente uma das três posições do nível reconhecido, sem repetir a anterior;
+- permite capturar um ponto fixo no mapa separadamente por cliente, substituindo o sorteio quando ativado;
 - reconhece dinamicamente o botão **Ir** no mapa;
 - acompanha `Movendo-se`, `Aguardando no ponto fixo` e a chegada ao spot;
 - confirma o descanso pelo estado realmente exibido, sem repetir `L` quando ele já está aberto;
@@ -51,6 +52,7 @@ Aplicativo modular de automação visual para Night Crows.
 - confirma a abertura do painel e restaura as duas abas de recursos separadamente após o renascimento;
 - aguarda a resposta visual de cada aba e repete somente o clique que não respondeu;
 - não retoma a T.A enquanto o painel de restauração continuar aberto;
+- tenta abrir a lápide em `(1537,72)` e restaura XP/equipamento nos pontos configurados antes de retomar;
 - registra as mortes separadamente para cada cliente;
 - ao atingir o limite configurado dentro da janela escolhida, inicia a Agenda segura;
 - permanece na Agenda pelo tempo definido e depois retorna à cidade com o TP de emergência;
@@ -63,6 +65,16 @@ Os eventos da execução e do detector de HP também são gravados em
 `%LOCALAPPDATA%\PEXBOT\Logs`.
 
 O ciclo continua até o usuário pausar ou parar o bot.
+
+O início pode ser programado para depois de 1 a 1440 minutos. A contagem ocorre no próprio
+aplicativo; se ele for fechado, o início programado é cancelado. Ainda não existem rotinas
+diárias de guilda ou missões: essas atividades precisarão de mapeamento e regras próprias.
+
+Para usar um ponto personalizado, abra no jogo o mapa, selecione o primeiro favorito e o
+zoom desejado; no PEXBOT, clique em **Capturar ponto** do cliente certo e então clique no
+local do mapa. A posição é salva por cliente. Marque **Usar personalizada** para sempre
+usar esse ponto em vez das três posições aleatórias. O segundo favorito continua sendo
+um teleporte opcional.
 
 ## Instalação e atualizações
 

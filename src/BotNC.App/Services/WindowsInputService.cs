@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 
 namespace BotNC.App.Services;
 
+public sealed record CapturedScreenPoint(int X, int Y);
+
 public sealed class WindowsInputService
 {
     private static readonly TimeSpan CommandCooldown = TimeSpan.FromMilliseconds(1800);
@@ -139,6 +141,39 @@ public sealed class WindowsInputService
         await Task.Delay(CommandCooldown, cancellationToken);
     }
 
+    public static async Task<CapturedScreenPoint> CaptureNextLeftClickAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline && IsLeftButtonPressed())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(30, cancellationToken);
+        }
+
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsLeftButtonPressed() && NativeMethods.GetCursorPos(out var point))
+            {
+                while (IsLeftButtonPressed())
+                {
+                    await Task.Delay(20, cancellationToken);
+                }
+
+                return new CapturedScreenPoint(point.X, point.Y);
+            }
+
+            await Task.Delay(20, cancellationToken);
+        }
+
+        throw new TimeoutException("Nenhum clique foi capturado em 60 segundos.");
+    }
+
+    private static bool IsLeftButtonPressed() =>
+        (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
+
     private static void KeyDown(int virtualKey) =>
         Send(CreateKeyboardInput(virtualKey, keyUp: false));
 
@@ -254,5 +289,8 @@ public sealed class WindowsInputService
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetCursorPos(out CursorPoint point);
+
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int virtualKey);
     }
 }

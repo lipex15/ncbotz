@@ -15,6 +15,9 @@ public sealed class GameWindowService
             "NIGHT CROWS(2)"
         };
 
+    public static int GetSystemScalePercent() =>
+        (int)Math.Round(NativeMethods.GetDpiForSystem() * 100d / 96d);
+
     public IReadOnlyList<GameWindowTarget> Discover()
     {
         var windows = new List<GameWindowTarget>();
@@ -177,6 +180,32 @@ public sealed class GameWindowService
         return (rectangle.Right - rectangle.Left, rectangle.Bottom - rectangle.Top);
     }
 
+    public (int X, int Y) MapScreenPointToReference(
+        GameWindowTarget target,
+        int screenX,
+        int screenY)
+    {
+        if (!NativeMethods.IsWindow(target.Handle) ||
+            !NativeMethods.GetWindowRect(target.Handle, out var rectangle))
+        {
+            throw new InvalidOperationException($"Não foi possível medir a janela {target.Title}.");
+        }
+
+        var width = rectangle.Right - rectangle.Left;
+        var height = rectangle.Bottom - rectangle.Top;
+        if (screenX < rectangle.Left || screenX >= rectangle.Right ||
+            screenY < rectangle.Top || screenY >= rectangle.Bottom)
+        {
+            throw new InvalidOperationException("O clique precisa ser feito dentro da janela selecionada do Night Crows.");
+        }
+
+        var x = (int)Math.Round((screenX - rectangle.Left) * ReferenceWindowWidth / (double)width);
+        var y = (int)Math.Round((screenY - rectangle.Top) * ReferenceWindowHeight / (double)height);
+        return (
+            Math.Clamp(x, 0, ReferenceWindowWidth - 1),
+            Math.Clamp(y, 0, ReferenceWindowHeight - 1));
+    }
+
     private static string ReadTitle(IntPtr handle)
     {
         var length = NativeMethods.GetWindowTextLength(handle);
@@ -229,6 +258,9 @@ public sealed class GameWindowService
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetWindowRect(IntPtr windowHandle, out WindowRectangle rectangle);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForSystem();
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]

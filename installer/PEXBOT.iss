@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.7.4"
+  #define AppVersion "0.7.5"
 #endif
 #ifndef PublishDir
   #define PublishDir "..\publish"
@@ -9,7 +9,7 @@
 AppId={{C29A523E-2908-45F7-A258-B54EFCA8A713}
 AppName=PEXBOT
 AppVersion={#AppVersion}
-AppPublisher=LIPEX
+AppPublisher=PEXBOT
 AppPublisherURL=https://github.com/lipex15/ncbotz
 AppUpdatesURL=https://github.com/lipex15/ncbotz/releases
 DefaultDirName={localappdata}\Programs\PEXBOT

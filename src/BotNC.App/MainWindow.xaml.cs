@@ -13,10 +13,12 @@ public partial class MainWindow : Window
     private readonly ScreenCaptureService _capture = new();
     private readonly AppDatabase _database = new();
     private readonly PauseController _pause = new();
+    private readonly WindowsInputService _input = new();
     private readonly BotAutomationEngine _engine;
     private readonly AppUpdateService _updates = new();
     private CancellationTokenSource? _runCancellation;
     private CancellationTokenSource? _updateDownloadCancellation;
+    private CancellationTokenSource? _scheduledStartCancellation;
     private TaskCompletionSource<bool>? _runFinished;
     private AvailableUpdate? _availableUpdate;
     private bool _updateBusy;
@@ -25,6 +27,9 @@ public partial class MainWindow : Window
     private BotRunState _stateBeforePause = BotRunState.Waiting;
     private string? _savedClient1Title;
     private string? _savedClient2Title;
+    private FarmCoordinate? _client1CustomCoordinate;
+    private FarmCoordinate? _client2CustomCoordinate;
+    private bool _capturingCustomCoordinate;
 
     public MainWindow()
     {
@@ -32,7 +37,7 @@ public partial class MainWindow : Window
         var recognition = new VisualRecognitionService(_database, _capture);
         _engine = new BotAutomationEngine(
             _gameWindows,
-            new WindowsInputService(),
+            _input,
             recognition,
             _capture);
         _engine.Log += OnEngineLog;
@@ -64,6 +69,18 @@ public partial class MainWindow : Window
         UpdatesPanel.Visibility = Visibility.Collapsed;
         OverviewNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
         UpdatesNavigationButton.Background = Brushes.Transparent;
+    }
+
+    private void OnShowSapheras(object sender, RoutedEventArgs e)
+    {
+        OnShowOverview(sender, e);
+        SapherasSettingsSection.BringIntoView();
+    }
+
+    private void OnShowFarm(object sender, RoutedEventArgs e)
+    {
+        OnShowOverview(sender, e);
+        OverviewScrollViewer.ScrollToTop();
     }
 
     private void OnShowUpdates(object sender, RoutedEventArgs e)
@@ -224,6 +241,7 @@ public partial class MainWindow : Window
         Client1ComboBox.IsEnabled = enabled && _runCancellation is null;
         Ta1ComboBox.IsEnabled = enabled && _runCancellation is null;
         Client1SapherasCheckBox.IsEnabled = enabled && _runCancellation is null;
+        UpdateCustomCoordinateControls();
     }
 
     private void OnClient2EnabledChanged(object sender, RoutedEventArgs e)
@@ -237,6 +255,155 @@ public partial class MainWindow : Window
         Client2ComboBox.IsEnabled = enabled && _runCancellation is null;
         Ta2ComboBox.IsEnabled = enabled && _runCancellation is null;
         Client2SapherasCheckBox.IsEnabled = enabled && _runCancellation is null;
+        UpdateCustomCoordinateControls();
+    }
+
+    private async void OnCustomCoordinateModeChanged(object sender, RoutedEventArgs e)
+    {
+        UpdateCustomCoordinateControls();
+        if (!_databaseReady)
+        {
+            return;
+        }
+
+        try
+        {
+            if (sender == Client1CustomCoordinateCheckBox)
+            {
+                await _database.SaveSettingAsync(
+                    "client1.customFarm.enabled",
+                    (Client1CustomCoordinateCheckBox.IsChecked == true).ToString().ToLowerInvariant());
+            }
+            else if (sender == Client2CustomCoordinateCheckBox)
+            {
+                await _database.SaveSettingAsync(
+                    "client2.customFarm.enabled",
+                    (Client2CustomCoordinateCheckBox.IsChecked == true).ToString().ToLowerInvariant());
+            }
+        }
+        catch (Exception exception)
+        {
+            AddLog($"Não foi possível salvar o modo de coordenada personalizada: {exception.GetBaseException().Message}");
+        }
+    }
+
+    private async void OnCaptureClient1Coordinate(object sender, RoutedEventArgs e) =>
+        await CaptureCustomCoordinateAsync(1);
+
+    private async void OnCaptureClient2Coordinate(object sender, RoutedEventArgs e) =>
+        await CaptureCustomCoordinateAsync(2);
+
+    private async Task CaptureCustomCoordinateAsync(int clientNumber)
+    {
+        if (_capturingCustomCoordinate || _runCancellation is not null)
+        {
+            return;
+        }
+
+        if (!_databaseReady)
+        {
+            ShowValidation("Aguarde o carregamento das configurações antes de capturar o ponto.");
+            return;
+        }
+
+        var target = clientNumber == 1
+            ? Client1ComboBox.SelectedItem as GameWindowTarget
+            : Client2ComboBox.SelectedItem as GameWindowTarget;
+        if (target is null)
+        {
+            ShowValidation($"Selecione a janela do Cliente {clientNumber} antes de capturar a coordenada.");
+            return;
+        }
+
+        _capturingCustomCoordinate = true;
+        UpdateCustomCoordinateControls();
+        AddLog(
+            $"Cliente {clientNumber}: captura iniciada. Clique no ponto desejado do mapa dentro da janela do jogo.");
+        try
+        {
+            await Task.Delay(250);
+            WindowState = WindowState.Minimized;
+            await Task.Delay(300);
+            if (!_gameWindows.Activate(target))
+            {
+                throw new InvalidOperationException($"Não foi possível trazer {target.Title} para frente.");
+            }
+
+            var clicked = await WindowsInputService.CaptureNextLeftClickAsync(
+                TimeSpan.FromSeconds(60),
+                CancellationToken.None);
+            var mapped = _gameWindows.MapScreenPointToReference(target, clicked.X, clicked.Y);
+            var coordinate = new FarmCoordinate(mapped.X, mapped.Y);
+            if (clientNumber == 1)
+            {
+                _client1CustomCoordinate = coordinate;
+                Client1CustomCoordinateCheckBox.IsChecked = true;
+            }
+            else
+            {
+                _client2CustomCoordinate = coordinate;
+                Client2CustomCoordinateCheckBox.IsChecked = true;
+            }
+
+            await SaveCustomCoordinateAsync(clientNumber, coordinate, enabled: true);
+            UpdateCustomCoordinateLabels();
+            AddLog($"Cliente {clientNumber}: coordenada personalizada salva em ({coordinate.X}, {coordinate.Y}).");
+        }
+        catch (Exception exception)
+        {
+            ShowValidation($"A coordenada não foi capturada: {exception.GetBaseException().Message}");
+            AddLog($"Cliente {clientNumber}: captura de coordenada cancelada ou inválida.");
+        }
+        finally
+        {
+            WindowState = WindowState.Normal;
+            Activate();
+            _capturingCustomCoordinate = false;
+            UpdateCustomCoordinateControls();
+        }
+    }
+
+    private async Task SaveCustomCoordinateAsync(
+        int clientNumber,
+        FarmCoordinate coordinate,
+        bool enabled)
+    {
+        var prefix = $"client{clientNumber}.customFarm";
+        await _database.SaveSettingAsync($"{prefix}.enabled", enabled.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync($"{prefix}.x", coordinate.X.ToString(CultureInfo.InvariantCulture));
+        await _database.SaveSettingAsync($"{prefix}.y", coordinate.Y.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private void UpdateCustomCoordinateLabels()
+    {
+        if (Client1CustomCoordinateText is null || Client2CustomCoordinateText is null)
+        {
+            return;
+        }
+
+        Client1CustomCoordinateText.Text = _client1CustomCoordinate is { } client1
+            ? $"({client1.X}, {client1.Y})"
+            : "Não definida";
+        Client2CustomCoordinateText.Text = _client2CustomCoordinate is { } client2
+            ? $"({client2.X}, {client2.Y})"
+            : "Não definida";
+    }
+
+    private void UpdateCustomCoordinateControls()
+    {
+        if (Client1CustomCoordinateCheckBox is null || Client2CustomCoordinateCheckBox is null ||
+            CaptureClient1CoordinateButton is null || CaptureClient2CoordinateButton is null)
+        {
+            return;
+        }
+
+        var editable = _runCancellation is null && !_capturingCustomCoordinate;
+        var client1Enabled = EnableClient1CheckBox?.IsChecked == true;
+        var client2Enabled = EnableClient2CheckBox?.IsChecked == true;
+        Client1CustomCoordinateCheckBox.IsEnabled = editable && client1Enabled;
+        Client2CustomCoordinateCheckBox.IsEnabled = editable && client2Enabled;
+        CaptureClient1CoordinateButton.IsEnabled = editable && client1Enabled;
+        CaptureClient2CoordinateButton.IsEnabled = editable && client2Enabled;
     }
 
     private void OnUseNow(object sender, RoutedEventArgs e)
@@ -246,6 +413,7 @@ public partial class MainWindow : Window
 
     private async void OnStartBot(object sender, RoutedEventArgs e)
     {
+        CancelScheduledStart();
         if (!_databaseReady)
         {
             ShowValidation("O banco visual ainda não terminou de carregar.");
@@ -299,6 +467,20 @@ public partial class MainWindow : Window
             }
 
             client2 = selectedClient2;
+        }
+
+        if (client1 is not null && Client1CustomCoordinateCheckBox.IsChecked == true &&
+            _client1CustomCoordinate is null)
+        {
+            ShowValidation("A coordenada personalizada do Cliente 1 está ativa, mas ainda não foi capturada.");
+            return;
+        }
+
+        if (client2 is not null && Client2CustomCoordinateCheckBox.IsChecked == true &&
+            _client2CustomCoordinate is null)
+        {
+            ShowValidation("A coordenada personalizada do Cliente 2 está ativa, mas ainda não foi capturada.");
+            return;
         }
 
         foreach (var selectedClient in new[] { client1, client2 }.Where(client => client is not null))
@@ -377,7 +559,10 @@ public partial class MainWindow : Window
                 client1,
                 ParseTaDestination(Ta1ComboBox.SelectedItem),
                 Client1SapherasCheckBox.IsChecked == true,
-                1));
+                1,
+                Client1CustomCoordinateCheckBox.IsChecked == true
+                    ? _client1CustomCoordinate
+                    : null));
         }
 
         if (client2 is not null)
@@ -388,7 +573,10 @@ public partial class MainWindow : Window
                     client2,
                     ParseTaDestination(Ta2ComboBox.SelectedItem),
                     Client2SapherasCheckBox.IsChecked == true,
-                    client1 is null ? 1 : 2));
+                    client1 is null ? 1 : 2,
+                    Client2CustomCoordinateCheckBox.IsChecked == true
+                        ? _client2CustomCoordinate
+                        : null));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -459,7 +647,81 @@ public partial class MainWindow : Window
 
     private void OnStopBot(object sender, RoutedEventArgs e)
     {
+        CancelScheduledStart();
         _runCancellation?.Cancel();
+    }
+
+    private async void OnScheduleStart(object sender, RoutedEventArgs e)
+    {
+        if (_scheduledStartCancellation is not null)
+        {
+            CancelScheduledStart();
+            SetStatus(BotRunState.Stopped, "Início programado cancelado", "O bot não será iniciado automaticamente.");
+            return;
+        }
+
+        if (_runCancellation is not null || !_databaseReady || !_environmentReady)
+        {
+            ShowValidation("Aguarde o aplicativo estar pronto e o bot parado para programar o início.");
+            return;
+        }
+
+        if (!int.TryParse(StartDelayMinutesTextBox.Text.Trim(), out var minutes) || minutes is < 1 or > 1440)
+        {
+            ShowValidation("Informe de 1 a 1440 minutos para programar o início.");
+            return;
+        }
+
+        try
+        {
+            await _database.SaveSettingAsync(
+                "bot.startDelayMinutes", minutes.ToString(CultureInfo.InvariantCulture));
+        }
+        catch (Exception exception)
+        {
+            ShowValidation($"Não foi possível salvar o agendamento: {exception.GetBaseException().Message}");
+            return;
+        }
+        var cancellation = new CancellationTokenSource();
+        _scheduledStartCancellation = cancellation;
+        ScheduleStartButton.Content = "Cancelar início";
+        StartDelayMinutesTextBox.IsEnabled = false;
+        var startsAt = DateTime.Now.AddMinutes(minutes);
+        AddLog($"Início programado para {startsAt:HH:mm:ss} ({minutes} min).");
+        try
+        {
+            while (DateTime.Now < startsAt)
+            {
+                var remaining = startsAt - DateTime.Now;
+                SetStatus(
+                    BotRunState.Waiting,
+                    "Início programado",
+                    $"O bot começará às {startsAt:HH:mm:ss} (faltam {remaining:hh\\:mm\\:ss}).");
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellation.Token);
+            }
+
+            if (!cancellation.IsCancellationRequested)
+            {
+                CancelScheduledStart();
+                OnStartBot(StartButton, new RoutedEventArgs());
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void CancelScheduledStart()
+    {
+        var cancellation = _scheduledStartCancellation;
+        _scheduledStartCancellation = null;
+        cancellation?.Cancel();
+        if (ScheduleStartButton is not null)
+        {
+            ScheduleStartButton.Content = "Programar início";
+            ScheduleStartButton.IsEnabled = _runCancellation is null;
+            StartDelayMinutesTextBox.IsEnabled = _runCancellation is null;
+        }
     }
 
     private void OnClearLog(object sender, RoutedEventArgs e) => LogListBox.Items.Clear();
@@ -477,6 +739,13 @@ public partial class MainWindow : Window
         {
             throw new InvalidOperationException(
                 $"A resolução precisa ser 1920×1080. Detectado: {width}×{height}. Ajuste a tela do Windows antes de iniciar o bot.");
+        }
+
+        var scale = GameWindowService.GetSystemScalePercent();
+        if (scale != 100)
+        {
+            throw new InvalidOperationException(
+                $"A escala do Windows precisa estar em 100%. Detectado: {scale}%. Ajuste a escala antes de iniciar o bot.");
         }
 
         if (!GameWindowCaptureSession.IsCaptureSupported)
@@ -590,6 +859,9 @@ public partial class MainWindow : Window
         DeathThresholdTextBox.IsEnabled = !isRunning;
         DeathWindowTextBox.IsEnabled = !isRunning;
         AgendaDurationTextBox.IsEnabled = !isRunning;
+        ScheduleStartButton.IsEnabled = !isRunning;
+        StartDelayMinutesTextBox.IsEnabled = !isRunning && _scheduledStartCancellation is null;
+        UpdateCustomCoordinateControls();
         if (!isRunning)
         {
             PauseButton.Content = "Pausar";
@@ -624,6 +896,13 @@ public partial class MainWindow : Window
         var deathThreshold = await _database.GetSettingAsync("antiOverkill.deathThreshold");
         var deathWindow = await _database.GetSettingAsync("antiOverkill.deathWindowMinutes");
         var agendaDuration = await _database.GetSettingAsync("antiOverkill.agendaDurationMinutes");
+        var startDelay = await _database.GetSettingAsync("bot.startDelayMinutes");
+        var client1CustomEnabled = await _database.GetSettingAsync("client1.customFarm.enabled");
+        var client1CustomX = await _database.GetSettingAsync("client1.customFarm.x");
+        var client1CustomY = await _database.GetSettingAsync("client1.customFarm.y");
+        var client2CustomEnabled = await _database.GetSettingAsync("client2.customFarm.enabled");
+        var client2CustomX = await _database.GetSettingAsync("client2.customFarm.x");
+        var client2CustomY = await _database.GetSettingAsync("client2.customFarm.y");
         if (!string.IsNullOrWhiteSpace(schedule))
         {
             ScheduleTextBox.Text = schedule;
@@ -658,6 +937,17 @@ public partial class MainWindow : Window
         DeathThresholdTextBox.Text = string.IsNullOrWhiteSpace(deathThreshold) ? "3" : deathThreshold;
         DeathWindowTextBox.Text = string.IsNullOrWhiteSpace(deathWindow) ? "30" : deathWindow;
         AgendaDurationTextBox.Text = string.IsNullOrWhiteSpace(agendaDuration) ? "60" : agendaDuration;
+        StartDelayMinutesTextBox.Text = string.IsNullOrWhiteSpace(startDelay) ? "10" : startDelay;
+        _client1CustomCoordinate = ParseFarmCoordinate(client1CustomX, client1CustomY);
+        _client2CustomCoordinate = ParseFarmCoordinate(client2CustomX, client2CustomY);
+        Client1CustomCoordinateCheckBox.IsChecked =
+            _client1CustomCoordinate is not null &&
+            string.Equals(client1CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        Client2CustomCoordinateCheckBox.IsChecked =
+            _client2CustomCoordinate is not null &&
+            string.Equals(client2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        UpdateCustomCoordinateLabels();
+        UpdateCustomCoordinateControls();
     }
 
     private async Task SaveSettingsAsync(BotRunOptions runOptions)
@@ -672,6 +962,7 @@ public partial class MainWindow : Window
             await _database.SaveSettingAsync("client1.title", client1.Target.Title);
             await _database.SaveSettingAsync("client1.ta", client1.Destination.ToString());
             await _database.SaveSettingAsync("client1.sapheras", client1.UseSapheras.ToString().ToLowerInvariant());
+            await SaveClientCustomCoordinateSettingsAsync(1, client1.CustomFarmCoordinate);
         }
 
         if (client2 is not null)
@@ -679,6 +970,7 @@ public partial class MainWindow : Window
             await _database.SaveSettingAsync("client2.title", client2.Target.Title);
             await _database.SaveSettingAsync("client2.ta", client2.Destination.ToString());
             await _database.SaveSettingAsync("client2.sapheras", client2.UseSapheras.ToString().ToLowerInvariant());
+            await SaveClientCustomCoordinateSettingsAsync(2, client2.CustomFarmCoordinate);
         }
 
         await _database.SaveSettingAsync("sapheras.schedule", options.ScheduledAt.ToString("HH:mm:ss"));
@@ -699,6 +991,35 @@ public partial class MainWindow : Window
         await _database.SaveSettingAsync(
             "antiOverkill.agendaDurationMinutes",
             runOptions.AntiOverkill.AgendaDuration.TotalMinutes.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private async Task SaveClientCustomCoordinateSettingsAsync(
+        int clientNumber,
+        FarmCoordinate? coordinate)
+    {
+        var prefix = $"client{clientNumber}.customFarm";
+        await _database.SaveSettingAsync(
+            $"{prefix}.enabled",
+            (coordinate is not null).ToString().ToLowerInvariant());
+        if (coordinate is null)
+        {
+            return;
+        }
+
+        await _database.SaveSettingAsync($"{prefix}.x", coordinate.X.ToString(CultureInfo.InvariantCulture));
+        await _database.SaveSettingAsync($"{prefix}.y", coordinate.Y.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static FarmCoordinate? ParseFarmCoordinate(string? xText, string? yText)
+    {
+        if (!int.TryParse(xText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var x) ||
+            !int.TryParse(yText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var y) ||
+            x is < 0 or >= 1920 || y is < 0 or >= 1040)
+        {
+            return null;
+        }
+
+        return new FarmCoordinate(x, y);
     }
 
     private static TaDestination ParseTaDestination(object? selectedItem) =>
@@ -793,6 +1114,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        CancelScheduledStart();
         _runCancellation?.Cancel();
         _updateDownloadCancellation?.Cancel();
         _engine.Log -= OnEngineLog;
