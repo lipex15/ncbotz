@@ -25,6 +25,7 @@ public sealed class BotAutomationEngine(
     private readonly Random _random = new();
     private readonly object _logFileSync = new();
     private readonly string _runtimeLogPath = CreateRuntimeLogPath();
+    private readonly SpotLevelRecognitionService _spotLevelRecognition = new();
 
     private static readonly IReadOnlyDictionary<TaDestination, (int X, int Y)> TaEntryPoints =
         new Dictionary<TaDestination, (int X, int Y)>
@@ -33,11 +34,29 @@ public sealed class BotAutomationEngine(
             [TaDestination.Ta3] = (1126, 775)
         };
 
-    private static readonly IReadOnlyDictionary<TaDestination, (int X, int Y)[]> FarmSpots =
-        new Dictionary<TaDestination, (int X, int Y)[]>
+    private static readonly IReadOnlyDictionary<TaDestination, IReadOnlyDictionary<int, (int X, int Y)[]>> FarmSpots =
+        new Dictionary<TaDestination, IReadOnlyDictionary<int, (int X, int Y)[]>>
         {
-            [TaDestination.Ta2] = [(825, 230), (856, 570), (636, 229)],
-            [TaDestination.Ta3] = [(1168, 502), (1422, 745), (1096, 683)]
+            [TaDestination.Ta2] = new Dictionary<int, (int X, int Y)[]>
+            {
+                [68] = [(825, 230), (856, 570), (636, 229)],
+                [72] = [(410, 488), (874, 649), (1125, 488)],
+                [76] = [(774, 426), (1246, 219), (1135, 710)],
+                [80] = [(878, 317), (748, 684), (791, 493)],
+                [84] = [(458, 319), (1229, 428), (880, 416)],
+                [88] = [(989, 744), (1477, 163), (1262, 730)]
+            },
+            [TaDestination.Ta3] = new Dictionary<int, (int X, int Y)[]>
+            {
+                [84] = [(1446, 343), (1341, 452), (1086, 635)],
+                [88] = [(1657, 641), (1067, 662), (928, 331)],
+                [90] = [(411, 138), (1104, 392), (897, 826)],
+                [92] = [(1196, 452), (864, 534), (1337, 611)],
+                [94] = [(994, 331), (983, 445), (501, 669)],
+                [96] = [(719, 254), (1069, 550), (867, 705)],
+                [98] = [(607, 784), (968, 713), (1101, 595)],
+                [100] = [(1168, 502), (1422, 745), (1096, 683)]
+            }
         };
 
     private static readonly string[] RestStateReferences =
@@ -1245,16 +1264,18 @@ public sealed class BotAutomationEngine(
             WriteLog(session, "Sem segundo favorito de teleporte; seguindo direto ao primeiro favorito.");
         }
 
+        var spotLevel = await RecognizeFavoriteSpotLevelAsync(session, pause, cancellationToken);
+        WriteLog(session, $"Primeiro favorito reconhecido como spot Nv. {spotLevel}.");
         WriteLog(session, "Selecionando o primeiro favorito (área de farm) em (1702, 285).");
         await input.ClickAsync(1702, 285, cancellationToken);
         await ActionDelayAsync(cancellationToken, 1800, 2200);
         await input.ClickAsync(444, 531, cancellationToken);
         await input.ClickAsync(1484, 532, cancellationToken);
 
-        var spots = FarmSpots[session.Options.Destination];
-        var spotIndex = ChooseNextSpot(session, spots.Length);
+        var spots = FarmSpots[session.Options.Destination][spotLevel];
+        var spotIndex = ChooseNextSpot(session, spotLevel, spots.Length);
         var spot = spots[spotIndex];
-        WriteLog(session, $"Spot aleatório {spotIndex + 1}/{spots.Length}: ({spot.X}, {spot.Y}), sem repetir o anterior.");
+        WriteLog(session, $"Spot Nv. {spotLevel}, posição aleatória {spotIndex + 1}/{spots.Length}: ({spot.X}, {spot.Y}), sem repetir a anterior.");
 
         var goReferences = session.Options.Destination == TaDestination.Ta2
             ? new[] { "botao_ir_ta2", "botao_ir", "botao_ir_legado" }
@@ -1301,6 +1322,40 @@ public sealed class BotAutomationEngine(
         WriteLog(session, "Abrindo Favoritos em (1819, 191).");
         await input.ClickAsync(1819, 191, cancellationToken);
         await WaitForReferenceAsync("aba_favoritos", "aba Favoritos", TimeSpan.FromSeconds(12), pause, cancellationToken);
+    }
+
+    private async Task<int> RecognizeFavoriteSpotLevelAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var levels = FarmSpots[session.Options.Destination].Keys.ToHashSet();
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(8);
+        string lastText = string.Empty;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var frame = await CaptureClientFrameAsync(session, cancellationToken);
+            var result = await _spotLevelRecognition.RecognizeFirstFavoriteAsync(
+                frame,
+                levels,
+                cancellationToken);
+            lastText = result.Text;
+            if (result.Level is { } level)
+            {
+                return level;
+            }
+
+            await Task.Delay(450, cancellationToken);
+        }
+
+        var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
+        var diagnostic = await recognition.SaveDiagnosticAsync(
+            $"nivel_spot_{session.Options.Priority}",
+            diagnosticFrame);
+        throw new InvalidOperationException(
+            $"{session.Options.Label}: não foi possível reconhecer o nível do primeiro favorito da " +
+            $"{TaName(session.Options.Destination)}. Texto lido: '{lastText}'. Diagnóstico: {diagnostic}");
     }
 
     private async Task ClickGoButtonWithConfirmationAsync(
@@ -2219,9 +2274,9 @@ public sealed class BotAutomationEngine(
         WriteLog(session, "Aguardando o personagem e os indicadores de perda estabilizarem.");
         await ActionDelayAsync(cancellationToken, 1800, 2600);
         await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
-        if ((await FindReferenceOnClientAsync(session, "perda_exp", cancellationToken)).Found)
+        if ((await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
         {
-            WriteLog(session, "O painel Perda de EXP já está aberto; evitando clique desnecessário.");
+            WriteLog(session, "O painel de restauração já está aberto; evitando clique desnecessário.");
         }
         else
         {
@@ -2250,44 +2305,178 @@ public sealed class BotAutomationEngine(
                 return;
             }
 
-            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
-            await input.ClickAsync(1532, 70, cancellationToken);
-            if (!await WaitForReferenceOnClientAsync(
+            var panelOpened = false;
+            for (var attempt = 1; attempt <= 3 && !panelOpened; attempt++)
+            {
+                await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+                WriteLog(session, $"Abrindo restauração pelo ícone em (1532, 70) — tentativa {attempt}/3.");
+                await input.ClickAsync(1532, 70, cancellationToken);
+                panelOpened = await WaitForReferenceOnClientAsync(
                     session,
-                    "perda_exp",
-                    TimeSpan.FromSeconds(12),
+                    "painel_restauracao",
+                    TimeSpan.FromSeconds(5),
                     pause,
-                    cancellationToken))
+                    cancellationToken);
+            }
+
+            if (!panelOpened)
             {
                 var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
                 var diagnostic = await recognition.SaveDiagnosticAsync(
-                    $"perda_exp_{session.Options.Priority}",
+                    $"painel_restauracao_{session.Options.Priority}",
                     diagnosticFrame);
                 throw new TimeoutException(
-                    $"{session.Options.Label}: o painel Perda de EXP não abriu após o ícone ser confirmado. Diagnóstico: {diagnostic}");
+                    $"{session.Options.Label}: o painel de restauração não abriu após três tentativas. Diagnóstico: {diagnostic}");
             }
         }
 
-        WriteLog(session, "Verificando as duas abas de restauração.");
+        WriteLog(session, "Painel confirmado; restaurando separadamente as duas abas.");
+        await ActionDelayAsync(cancellationToken, 900, 1400);
         await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
-        await input.ClickAsync(282, 889, cancellationToken);
+        await RestoreVisibleResourceTabAsync(session, "EXP", pause, cancellationToken);
+
+        WriteLog(session, "Selecionando a segunda aba de restauração em (41, 267).");
+        var beforeSecondTab = await CaptureClientFrameAsync(session, cancellationToken);
         await input.ClickAsync(41, 267, cancellationToken);
-        await input.ClickAsync(282, 889, cancellationToken);
+        await WaitForRegionChangeAsync(
+            session,
+            beforeSecondTab,
+            0, 175, 460, 760,
+            TimeSpan.FromSeconds(4),
+            pause,
+            cancellationToken);
+        await ActionDelayAsync(cancellationToken, 900, 1400);
+        await RestoreVisibleResourceTabAsync(session, "item/equipamento", pause, cancellationToken);
+
+        if (!(await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
+        {
+            var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
+            var diagnostic = await recognition.SaveDiagnosticAsync(
+                $"restauracao_fechou_antes_{session.Options.Priority}",
+                diagnosticFrame);
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: o painel de restauração fechou antes da conclusão das duas abas. Diagnóstico: {diagnostic}");
+        }
+
+        WriteLog(session, "As duas abas foram processadas; fechando o painel com Esc.");
         await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
         var closeDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (DateTime.UtcNow < closeDeadline &&
-               (await FindReferenceOnClientAsync(session, "perda_exp", cancellationToken)).Found)
+               (await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
         {
             await CheckpointAsync(pause, cancellationToken);
             await Task.Delay(350, cancellationToken);
         }
 
-        if ((await FindReferenceOnClientAsync(session, "perda_exp", cancellationToken)).Found)
+        if ((await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
         {
             throw new TimeoutException($"{session.Options.Label}: o painel de restauração não fechou após Esc.");
         }
 
         WriteLog(session, "Painel de restauração fechado.");
+    }
+
+    private async Task RestoreVisibleResourceTabAsync(
+        ClientSession session,
+        string tabName,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+            var beforeClick = await CaptureClientFrameAsync(session, cancellationToken);
+            WriteLog(session, $"Restaurando aba de {tabName} em (282, 889) — tentativa {attempt}/3.");
+            await input.ClickAsync(282, 889, cancellationToken);
+            var changed = await WaitForRegionChangeAsync(
+                session,
+                beforeClick,
+                70, 105, 390, 830,
+                TimeSpan.FromSeconds(4),
+                pause,
+                cancellationToken);
+            if (changed)
+            {
+                WriteLog(session, $"Aba de {tabName} respondeu ao clique de restauração.");
+                await ActionDelayAsync(cancellationToken, 900, 1400);
+                return;
+            }
+
+            if (attempt < 3)
+            {
+                WriteLog(session, $"Aba de {tabName} ainda não respondeu; repetindo somente este clique.");
+            }
+        }
+
+        WriteLog(session, $"Aba de {tabName} não apresentou mudança visual; seguindo porque ela pode estar sem perda restaurável.");
+    }
+
+    private async Task<bool> WaitForRegionChangeAsync(
+        ClientSession session,
+        PixelFrame baseline,
+        int x,
+        int y,
+        int width,
+        int height,
+        TimeSpan timeout,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var current = await CaptureClientFrameAsync(session, cancellationToken);
+            if (MeasureRegionDifference(baseline, current, x, y, width, height) >= 5.5)
+            {
+                return true;
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        return false;
+    }
+
+    private static double MeasureRegionDifference(
+        PixelFrame first,
+        PixelFrame second,
+        int referenceX,
+        int referenceY,
+        int referenceWidth,
+        int referenceHeight)
+    {
+        if (first.Width != second.Width || first.Height != second.Height)
+        {
+            return double.MaxValue;
+        }
+
+        var scaleX = first.Width / 1920d;
+        var scaleY = first.Height / 1040d;
+        var left = Math.Clamp((int)Math.Round(referenceX * scaleX), 0, first.Width - 1);
+        var top = Math.Clamp((int)Math.Round(referenceY * scaleY), 0, first.Height - 1);
+        var right = Math.Clamp((int)Math.Round((referenceX + referenceWidth) * scaleX), left + 1, first.Width);
+        var bottom = Math.Clamp((int)Math.Round((referenceY + referenceHeight) * scaleY), top + 1, first.Height);
+        double difference = 0;
+        var samples = 0;
+        for (var sampleY = top; sampleY < bottom; sampleY += 4)
+        {
+            for (var sampleX = left; sampleX < right; sampleX += 4)
+            {
+                var offset = (sampleY * first.Stride) + (sampleX * 4);
+                var firstLuma = ((first.Pixels[offset + 2] * 77) +
+                                 (first.Pixels[offset + 1] * 150) +
+                                 (first.Pixels[offset] * 29)) >> 8;
+                var secondLuma = ((second.Pixels[offset + 2] * 77) +
+                                  (second.Pixels[offset + 1] * 150) +
+                                  (second.Pixels[offset] * 29)) >> 8;
+                difference += Math.Abs(firstLuma - secondLuma);
+                samples++;
+            }
+        }
+
+        return samples == 0 ? 0 : difference / samples;
     }
 
     private async Task StartAgendaAsync(
@@ -2688,8 +2877,14 @@ public sealed class BotAutomationEngine(
     private Task ActionDelayAsync(CancellationToken cancellationToken, int minimumMilliseconds = 1800, int maximumMilliseconds = 2200) =>
         Task.Delay(_random.Next(minimumMilliseconds, maximumMilliseconds + 1), cancellationToken);
 
-    private int ChooseNextSpot(ClientSession session, int count)
+    private int ChooseNextSpot(ClientSession session, int level, int count)
     {
+        if (session.LastFarmSpotLevel != level)
+        {
+            session.LastFarmSpot = -1;
+            session.LastFarmSpotLevel = level;
+        }
+
         var choices = Enumerable.Range(0, count).Where(index => index != session.LastFarmSpot).ToArray();
         session.LastFarmSpot = choices[_random.Next(choices.Length)];
         return session.LastFarmSpot;
@@ -2797,6 +2992,7 @@ public sealed class BotAutomationEngine(
         public Task? WindowWatchdogTask { get; set; }
         public CancellationTokenSource? RecoveryActionCancellation;
         public int LastFarmSpot { get; set; } = -1;
+        public int LastFarmSpotLevel { get; set; } = -1;
         public int PendingVisualDeath;
         public int PendingVisualLowHp;
         public int VisualLowHpHits { get; set; }

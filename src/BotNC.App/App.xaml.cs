@@ -93,6 +93,20 @@ public partial class App : Application
             return;
         }
 
+        var spotLevelProbeIndex = Array.IndexOf(e.Args, "--spot-level-probe");
+        if (spotLevelProbeIndex >= 0 && spotLevelProbeIndex + 2 < e.Args.Length)
+        {
+            var service = new SpotLevelRecognitionService();
+            var result = await service.RecognizeFirstFavoriteInImageAsync(
+                Path.GetFullPath(e.Args[spotLevelProbeIndex + 1]),
+                new HashSet<int> { 68, 72, 76, 80, 84, 88, 90, 92, 94, 96, 98, 100 });
+            await File.WriteAllTextAsync(
+                Path.GetFullPath(e.Args[spotLevelProbeIndex + 2]),
+                $"level={result.Level};text={result.Text}");
+            Shutdown();
+            return;
+        }
+
         var imageProbeIndex = Array.IndexOf(e.Args, "--image-probe");
         if (imageProbeIndex >= 0 && imageProbeIndex + 2 < e.Args.Length)
         {
@@ -266,6 +280,8 @@ public partial class App : Application
             ("menu_agenda", "agenda_tela.png"),
             ("perda_exp", "perda_exp.png"),
             ("perda_exp", "agenda_tela.png"),
+            ("painel_restauracao", "perda_exp.png"),
+            ("painel_restauracao", "agenda_tela.png"),
             ("icone_perda_exp", "perda_exp.png"),
             ("icone_perda_exp", "agenda_tela.png"),
             ("agenda_tela", "agenda_tela.png"),
@@ -293,6 +309,12 @@ public partial class App : Application
                 45);
             lines.Add($"comprar_lote|image={fileName}|luma={luma:F2}|available={luma >= 72}");
         }
+
+        var spotLevel = await new SpotLevelRecognitionService().RecognizeFirstFavoriteInImageAsync(
+            Path.Combine(referenceDirectory, "mapa_ta2_favorito_unico.png"),
+            new HashSet<int> { 68, 72, 76, 80, 84, 88 });
+        lines.Add(
+            $"nivel_spot|image=mapa_ta2_favorito_unico.png|level={spotLevel.Level}|text={spotLevel.Text}");
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         await File.WriteAllLinesAsync(outputPath, lines);

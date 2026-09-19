@@ -504,6 +504,13 @@ public sealed class AppDatabase
                 0, 55, 520, 280,
                 0.61),
             new(
+                "painel_restauracao",
+                "Painel lateral de restauração de recursos",
+                "perda_exp.png",
+                15, 82, 62, 72,
+                0, 50, 135, 150,
+                0.66),
+            new(
                 "icone_perda_exp",
                 "Ícone vermelho de restauração de morte",
                 "perda_exp.png",

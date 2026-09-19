@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.3
+## Ciclo disponível — v0.7.4
 
 ### Sapheras
 
@@ -27,7 +27,10 @@ Aplicativo modular de automação visual para Night Crows.
 - compra o lote configurado no NPC **Artigos** dentro da própria T.A;
 - usa o primeiro favorito como área de farm e o segundo como teleporte opcional;
 - quando não existe o segundo favorito, segue direto para a área de farm;
-- escolhe aleatoriamente um entre três spots da T.A escolhida, sem repetir o anterior;
+- reconhece o nível do primeiro favorito e seleciona o conjunto correto de coordenadas;
+- na T.A 2, reconhece os níveis 68, 72, 76, 80, 84 e 88;
+- na T.A 3, reconhece os níveis 84, 88, 90, 92, 94, 96, 98 e 100;
+- escolhe aleatoriamente uma das três posições do nível reconhecido, sem repetir a anterior;
 - reconhece dinamicamente o botão **Ir** no mapa;
 - acompanha `Movendo-se`, `Aguardando no ponto fixo` e a chegada ao spot;
 - confirma o descanso pelo estado realmente exibido, sem repetir `L` quando ele já está aberto;
@@ -45,7 +48,9 @@ Aplicativo modular de automação visual para Night Crows.
 ### Morte e Anti Over Kill
 
 - confirma visualmente a tela **Você morreu** antes de agir;
-- restaura preventivamente as duas abas de recursos após o renascimento;
+- confirma a abertura do painel e restaura as duas abas de recursos separadamente após o renascimento;
+- aguarda a resposta visual de cada aba e repete somente o clique que não respondeu;
+- não retoma a T.A enquanto o painel de restauração continuar aberto;
 - registra as mortes separadamente para cada cliente;
 - ao atingir o limite configurado dentro da janela escolhida, inicia a Agenda segura;
 - permanece na Agenda pelo tempo definido e depois retorna à cidade com o TP de emergência;
