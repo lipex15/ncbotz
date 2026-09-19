@@ -1,0 +1,67 @@
+name: Build installer and publish update
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check release version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content 'src/BotNC.App/BotNC.App.csproj'
+          $expected = 'v' + $project.Project.PropertyGroup.Version
+          if ($env:GITHUB_REF_NAME -ne $expected) {
+            throw "Tag $env:GITHUB_REF_NAME does not match application version $expected."
+          }
+      - name: Publish application
+        shell: pwsh
+        run: |
+          dotnet publish src/BotNC.App/BotNC.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o publish
+          if ($LASTEXITCODE -ne 0) { throw 'Application publish failed.' }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
+      - name: Build installer and checksum
+        shell: pwsh
+        run: |
+          $compiler = @(
+            'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+            'C:\Program Files\Inno Setup 6\ISCC.exe',
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $compiler) { throw 'Inno Setup compiler was not found.' }
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $published = (Resolve-Path 'publish').Path
+          & $compiler "/dPublishDir=$published" "/dAppVersion=$version" 'installer/PEXBOT.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
+          $installer = "artifacts/PEXBOT-Setup-v$version.exe"
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath "artifacts/PEXBOT-Setup-v$version.sha256" -Value "$hash  PEXBOT-Setup-v$version.exe" -Encoding ascii
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $installer = "artifacts/PEXBOT-Setup-v$version.exe"
+          $checksum = "artifacts/PEXBOT-Setup-v$version.sha256"
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME $installer $checksum --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME $installer $checksum --verify-tag --title "PEXBOT v$version" --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed.' }

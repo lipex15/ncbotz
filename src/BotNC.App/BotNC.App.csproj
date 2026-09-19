@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>BotNC.App</RootNamespace>
+    <AssemblyName>PEXBOT</AssemblyName>
+    <Version>0.7.0</Version>
+    <ApplicationIcon>..\..\branding\PEXBOT.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="NAudio" Version="3.1.1-preview.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="..\..\branding\PEXBOT.ico" Link="Assets\Brand\PEXBOT.ico" />
+    <Resource Include="..\..\branding\pexbot-mark.png" Link="Assets\Brand\pexbot-mark.png" />
+    <Content Include="Assets\References\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <VisualReferenceFile Include="Assets\References\*.png" />
+    <Content Include="Assets\Audio\*.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Name="CopyAllVisualReferences" AfterTargets="Publish">
+    <MakeDir Directories="$(PublishDir)Assets\References" />
+    <Copy SourceFiles="@(VisualReferenceFile)" DestinationFolder="$(PublishDir)Assets\References" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

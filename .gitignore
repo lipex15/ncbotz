@@ -1,0 +1,15 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+rotas/
+publish/
+artifacts/
+Atalhos de Teste/
+Simbolos/
+selftest*.txt
+audio-selftest*.txt
+audio-probe*.txt
+window-probe*.txt
+ui-*.png
