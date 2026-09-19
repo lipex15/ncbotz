@@ -21,6 +21,7 @@ public sealed class BotAutomationEngine(
     private const double FullDeathConfidence = 0.66;
     private const double FixedDeathElementConfidence = 0.82;
     private const double RestDeathConfidence = 0.68;
+    private const double TaContextConfidence = 0.48;
     private readonly Random _random = new();
     private readonly object _logFileSync = new();
     private readonly string _runtimeLogPath = CreateRuntimeLogPath();
@@ -366,13 +367,19 @@ public sealed class BotAutomationEngine(
             return;
         }
 
-        var currentHunt = await recognition.FindAsync("caca_automatica", cancellationToken);
+        var currentHunt = await FindReferenceOnClientAsync(
+            session,
+            "caca_automatica",
+            cancellationToken);
         if (currentHunt.Found)
         {
             session.SafeInRest = true;
             session.IsFarmingTa = true;
             session.Audio.Armed = true;
-            WriteLog(session, $"Caça automática já ativa; mantendo o farm atual {context}.");
+            WriteLog(
+                session,
+                $"Bot iniciado com descanso e caça automática ativos ({currentHunt.Confidence:P0}); " +
+                $"mantendo o farm atual e seguindo diretamente para o monitoramento {context}.");
             return;
         }
 
@@ -923,7 +930,8 @@ public sealed class BotAutomationEngine(
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir a {taName}", cancellationToken);
         await ExitRestIfNeededAsync(pause, cancellationToken);
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir o menu da {taName}", cancellationToken);
-        if ((await recognition.FindAsync("seletor_ta", cancellationToken)).Found)
+        var readyReference = EntryReadyReference(session.Options.Destination);
+        if (await IsTaSelectorContextVisibleAsync(readyReference, cancellationToken))
         {
             WriteLog(session, "O seletor da T.A já está aberto; retomando exatamente desta etapa.");
         }
@@ -971,11 +979,11 @@ public sealed class BotAutomationEngine(
         var destination = session.Options.Destination;
         var taName = TaName(destination);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", isEmergency ? "Recuperação após alerta de HP" : "Selecionando a T.A");
-        await WaitForTaReferenceOrDeathAsync(
+        var readyReference = EntryReadyReference(destination);
+        await WaitForTaSelectorContextAsync(
             session,
-            "seletor_ta",
-            "Piloto da Terra Avassaladora",
-            TimeSpan.FromSeconds(45),
+            readyReference,
+            TimeSpan.FromSeconds(35),
             pause,
             cancellationToken);
 
@@ -983,16 +991,15 @@ public sealed class BotAutomationEngine(
         // era enviado para uma tela ainda carregando. O botão correto precisa
         // estar visualmente pronto; o bot apenas consulta a tela durante a
         // espera, sem impor uma pausa fixa aos computadores rápidos.
-        var readyReference = destination == TaDestination.Ta2
-            ? "entrar_ta2_pronto"
-            : "entrar_ta3_pronto";
-        await WaitForTaReferenceOrDeathAsync(
+        var entryVisuallyReady = await WaitForTaEntryReadyAsync(
             session,
             readyReference,
-            $"botão Entrar da {taName}",
-            TimeSpan.FromSeconds(45),
+            TimeSpan.FromSeconds(18),
             pause,
             cancellationToken);
+        WriteLog(session, entryVisuallyReady
+            ? $"Botão Entrar da {taName} reconhecido; preparando o clique."
+            : $"O texto do botão variou neste PC; usando a posição proporcional da janela com confirmação posterior.");
 
         var entry = TaEntryPoints[destination];
         var arrivalReference = ArrivalReference(destination);
@@ -1001,8 +1008,18 @@ public sealed class BotAutomationEngine(
         {
             var retryEntryClick = false;
             await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
-            WriteLog(session, $"Entrando na {taName} em ({entry.X}, {entry.Y}) — tentativa {attempt}/3.");
-            await input.ClickAsync(entry.X, entry.Y, cancellationToken);
+            var mappedEntry = gameWindows.MapReferencePoint(
+                session.Options.Target,
+                entry.X,
+                entry.Y);
+            WriteLog(
+                session,
+                $"Movendo o cursor até Entrar da {taName} em ({mappedEntry.X}, {mappedEntry.Y}) — tentativa {attempt}/3.");
+            await input.MoveAndClickAsync(
+                mappedEntry.X,
+                mappedEntry.Y,
+                TimeSpan.FromMilliseconds(attempt == 1 ? 900 : 650),
+                cancellationToken);
 
             var startedAt = DateTime.UtcNow;
             while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(75))
@@ -1026,8 +1043,8 @@ public sealed class BotAutomationEngine(
                 // Se o botão continua pronto após alguns segundos, o clique não
                 // foi aceito. Repetimos somente nesse caso; se o seletor sumiu,
                 // o carregamento está em andamento e continuamos aguardando.
-                if (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(5) &&
-                    (await recognition.FindAsync(readyReference, cancellationToken)).Found)
+                if (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(10) &&
+                    await IsTaSelectorContextVisibleAsync(readyReference, cancellationToken))
                 {
                     WriteLog(session, "A tela de entrada continuou aberta; o clique ainda não foi aceito.");
                     retryEntryClick = true;
@@ -1081,38 +1098,84 @@ public sealed class BotAutomationEngine(
             $"{session.Options.Label}: morte detectada {context}; o fluxo normal foi interrompido para priorizar a ressurreição.");
     }
 
-    private async Task<RecognitionResult> WaitForTaReferenceOrDeathAsync(
+    private async Task WaitForTaSelectorContextAsync(
         ClientSession session,
-        string referenceId,
-        string description,
+        string readyReference,
         TimeSpan timeout,
         PauseController pause,
         CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + timeout;
-        var best = new RecognitionResult(false, 0, 0, 0);
+        double bestSelector = 0;
+        double bestButton = 0;
         while (DateTime.UtcNow < deadline)
         {
             await CheckpointAsync(pause, cancellationToken);
-            await AbortWorkflowIfDeathDetectedAsync(session, $"enquanto aguardava {description}", cancellationToken);
-            var current = await recognition.FindAsync(referenceId, cancellationToken);
-            if (current.Confidence > best.Confidence)
+            await AbortWorkflowIfDeathDetectedAsync(
+                session,
+                "enquanto aguardava o seletor da T.A",
+                cancellationToken);
+            var selector = await recognition.FindAsync("seletor_ta", cancellationToken);
+            var button = await recognition.FindAsync(readyReference, cancellationToken);
+            bestSelector = Math.Max(bestSelector, selector.Confidence);
+            bestButton = Math.Max(bestButton, button.Confidence);
+            if (selector.Found || button.Found ||
+                (selector.Confidence >= TaContextConfidence &&
+                 button.Confidence >= TaContextConfidence))
             {
-                best = current;
-            }
-
-            if (current.Found)
-            {
-                return current;
+                WriteLog(
+                    session,
+                    $"Tela da T.A confirmada (título {selector.Confidence:P0}; botão {button.Confidence:P0}).");
+                return;
             }
 
             await Task.Delay(450, cancellationToken);
         }
 
         var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
-        var diagnostic = await recognition.SaveDiagnosticAsync(referenceId, diagnosticFrame);
+        var diagnostic = await recognition.SaveDiagnosticAsync("seletor_ta", diagnosticFrame);
         throw new TimeoutException(
-            $"Tempo esgotado procurando {description}. Melhor confiança: {best.Confidence:P0}. Diagnóstico: {diagnostic}");
+            $"A tela da T.A não foi confirmada. Título: {bestSelector:P0}; botão: {bestButton:P0}. Diagnóstico: {diagnostic}");
+    }
+
+    private async Task<bool> WaitForTaEntryReadyAsync(
+        ClientSession session,
+        string referenceId,
+        TimeSpan timeout,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            await AbortWorkflowIfDeathDetectedAsync(
+                session,
+                "enquanto aguardava a tela de entrada da T.A",
+                cancellationToken);
+            var button = await recognition.FindAsync(referenceId, cancellationToken);
+            if (button.Found || button.Confidence >= TaContextConfidence)
+            {
+                return true;
+            }
+
+            // O seletor já aberto continua sendo uma prova suficiente para o
+            // fallback proporcional; não há pausa fixa depois deste limite.
+            await Task.Delay(400, cancellationToken);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> IsTaSelectorContextVisibleAsync(
+        string readyReference,
+        CancellationToken cancellationToken)
+    {
+        var selector = await recognition.FindAsync("seletor_ta", cancellationToken);
+        var button = await recognition.FindAsync(readyReference, cancellationToken);
+        return selector.Found || button.Found ||
+               (selector.Confidence >= TaContextConfidence &&
+                button.Confidence >= TaContextConfidence);
     }
 
     private async Task BuySuppliesInsideTaAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
@@ -2633,6 +2696,7 @@ public sealed class BotAutomationEngine(
     }
 
     private static string ArrivalReference(TaDestination destination) => destination == TaDestination.Ta2 ? "ta2_chegada" : "ta3_chegada";
+    private static string EntryReadyReference(TaDestination destination) => destination == TaDestination.Ta2 ? "entrar_ta2_pronto" : "entrar_ta3_pronto";
     private static string TaName(TaDestination destination) => destination == TaDestination.Ta2 ? "T.A 2" : "T.A 3";
 
     private static string FormatDuration(TimeSpan duration)

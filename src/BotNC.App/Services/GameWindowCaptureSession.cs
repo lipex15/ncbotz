@@ -27,9 +27,11 @@ public sealed class GameWindowCaptureSession : IAsyncDisposable
     private readonly object _frameSync = new();
     private bool _disposed;
 
+    public static bool IsCaptureSupported => GraphicsCaptureSession.IsSupported();
+
     public GameWindowCaptureSession(GameWindowTarget target)
     {
-        if (!GraphicsCaptureSession.IsSupported())
+        if (!IsCaptureSupported)
         {
             throw new PlatformNotSupportedException(
                 "A captura independente das janelas requer Windows Graphics Capture.");

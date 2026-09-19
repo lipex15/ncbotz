@@ -10,6 +10,7 @@ namespace BotNC.App;
 public partial class MainWindow : Window
 {
     private readonly GameWindowService _gameWindows = new();
+    private readonly ScreenCaptureService _capture = new();
     private readonly AppDatabase _database = new();
     private readonly PauseController _pause = new();
     private readonly BotAutomationEngine _engine;
@@ -20,6 +21,7 @@ public partial class MainWindow : Window
     private AvailableUpdate? _availableUpdate;
     private bool _updateBusy;
     private bool _databaseReady;
+    private bool _environmentReady;
     private BotRunState _stateBeforePause = BotRunState.Waiting;
     private string? _savedClient1Title;
     private string? _savedClient2Title;
@@ -27,13 +29,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        var capture = new ScreenCaptureService();
-        var recognition = new VisualRecognitionService(_database, capture);
+        var recognition = new VisualRecognitionService(_database, _capture);
         _engine = new BotAutomationEngine(
             _gameWindows,
             new WindowsInputService(),
             recognition,
-            capture);
+            _capture);
         _engine.Log += OnEngineLog;
         _engine.StatusChanged += OnEngineStatusChanged;
         _engine.AudioStatusChanged += OnEngineAudioStatusChanged;
@@ -133,14 +134,14 @@ public partial class MainWindow : Window
             });
             var installer = await _updates.DownloadAndVerifyAsync(
                 _availableUpdate, progress, _updateDownloadCancellation.Token);
-            UpdateStatusText.Text = "Instalador conferido. Encerrando o bot para atualizar…";
+            UpdateStatusText.Text = "Pacote conferido. O PEXBOT será atualizado e reaberto automaticamente…";
             if (_runFinished is { } activeRun)
             {
                 _runCancellation?.Cancel();
                 await activeRun.Task.WaitAsync(TimeSpan.FromSeconds(30));
             }
 
-            AppUpdateService.LaunchInstaller(installer);
+            AppUpdateService.LaunchSilentUpdate(installer);
             Close();
         }
         catch (Exception exception)
@@ -165,11 +166,15 @@ public partial class MainWindow : Window
         {
             await _database.InitializeAsync();
             _databaseReady = true;
+            ValidateEnvironment();
+            _environmentReady = true;
             await LoadSettingsAsync();
             RefreshClients();
             SetStatus(BotRunState.Stopped, "Bot parado", "Configure o módulo e clique em Iniciar.");
             AddLog("PEXBOT iniciado.");
             AddLog("Banco de imagens carregado com sucesso.");
+            AddLog("Ambiente validado: Windows, captura visual e resolução compatíveis.");
+            AddLog("O instalador do PEXBOT já inclui o runtime necessário; nenhuma instalação adicional é exigida.");
         }
         catch (Exception exception)
         {
@@ -247,6 +252,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!_environmentReady)
+        {
+            ShowValidation("O ambiente do Windows não passou pela validação inicial.");
+            return;
+        }
+
         if (_runCancellation is not null)
         {
             return;
@@ -288,6 +299,16 @@ public partial class MainWindow : Window
             }
 
             client2 = selectedClient2;
+        }
+
+        foreach (var selectedClient in new[] { client1, client2 }.Where(client => client is not null))
+        {
+            var size = _gameWindows.GetWindowSize(selectedClient!);
+            if (size.Width <= 0 || size.Height <= 0)
+            {
+                ShowValidation($"A janela {selectedClient!.Title} não está mais disponível. Atualize a lista de clientes.");
+                return;
+            }
         }
 
         if (!TryParseSchedule(ScheduleTextBox.Text, out var scheduledAt))
@@ -442,6 +463,28 @@ public partial class MainWindow : Window
     }
 
     private void OnClearLog(object sender, RoutedEventArgs e) => LogListBox.Items.Clear();
+
+    private void ValidateEnvironment()
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        {
+            throw new PlatformNotSupportedException(
+                "O PEXBOT requer Windows 10 versão 2004 ou mais recente, ou Windows 11.");
+        }
+
+        var (width, height) = _capture.GetPrimaryScreenSize();
+        if (width != 1920 || height != 1080)
+        {
+            throw new InvalidOperationException(
+                $"A resolução precisa ser 1920×1080. Detectado: {width}×{height}. Ajuste a tela do Windows antes de iniciar o bot.");
+        }
+
+        if (!GameWindowCaptureSession.IsCaptureSupported)
+        {
+            throw new PlatformNotSupportedException(
+                "A captura individual das janelas não está disponível neste Windows. Instale as atualizações do Windows e tente novamente.");
+        }
+    }
 
     private void OnEngineLog(string message) =>
         Dispatcher.BeginInvoke(() => AddLog(message));

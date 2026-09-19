@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BotNC.App.Models;
@@ -9,6 +10,10 @@ public sealed class VisualRecognitionService(
     AppDatabase database,
     ScreenCaptureService capture)
 {
+    private const int ReferenceWidth = 1920;
+    private const int ReferenceDesktopHeight = 1080;
+    private const int ReferenceWindowHeight = 1040;
+    private static readonly ConditionalWeakTable<PixelFrame, PixelFrame> NormalizedFrames = new();
     public async Task<RecognitionResult> FindAsync(
         string referenceId,
         CancellationToken cancellationToken = default)
@@ -140,6 +145,7 @@ public sealed class VisualRecognitionService(
         VisualReference reference,
         CancellationToken cancellationToken)
     {
+        screen = NormalizeForReferenceMatching(screen);
         var template = Decode(reference.Image);
         ValidateSource(reference, template);
 
@@ -258,6 +264,60 @@ public sealed class VisualRecognitionService(
         var pixels = new byte[stride * converted.PixelHeight];
         converted.CopyPixels(pixels, stride, 0);
         return new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
+    }
+
+    private static PixelFrame NormalizeForReferenceMatching(PixelFrame frame)
+    {
+        if (Math.Abs(frame.Width - ReferenceWidth) <= 2 &&
+            (Math.Abs(frame.Height - ReferenceDesktopHeight) <= 2 ||
+             Math.Abs(frame.Height - ReferenceWindowHeight) <= 2))
+        {
+            return frame;
+        }
+
+        if (frame.Width < 640 || frame.Height < 360)
+        {
+            return frame;
+        }
+
+        return NormalizedFrames.GetValue(
+            frame,
+            source =>
+            {
+                var aspect = source.Width / (double)source.Height;
+                var desktopDistance = Math.Abs(aspect - (ReferenceWidth / (double)ReferenceDesktopHeight));
+                var windowDistance = Math.Abs(aspect - (ReferenceWidth / (double)ReferenceWindowHeight));
+                var targetHeight = windowDistance < desktopDistance
+                    ? ReferenceWindowHeight
+                    : ReferenceDesktopHeight;
+                return ResizeFrame(source, ReferenceWidth, targetHeight);
+            });
+    }
+
+    private static PixelFrame ResizeFrame(PixelFrame source, int width, int height)
+    {
+        var stride = checked(width * 4);
+        var pixels = new byte[checked(stride * height)];
+        var xScale = source.Width / (double)width;
+        var yScale = source.Height / (double)height;
+        for (var y = 0; y < height; y++)
+        {
+            var sourceY = Math.Min(source.Height - 1, (int)((y + 0.5) * yScale));
+            var sourceRow = sourceY * source.Stride;
+            var targetRow = y * stride;
+            for (var x = 0; x < width; x++)
+            {
+                var sourceX = Math.Min(source.Width - 1, (int)((x + 0.5) * xScale));
+                var sourceIndex = sourceRow + (sourceX * 4);
+                var targetIndex = targetRow + (x * 4);
+                pixels[targetIndex] = source.Pixels[sourceIndex];
+                pixels[targetIndex + 1] = source.Pixels[sourceIndex + 1];
+                pixels[targetIndex + 2] = source.Pixels[sourceIndex + 2];
+                pixels[targetIndex + 3] = source.Pixels[sourceIndex + 3];
+            }
+        }
+
+        return new PixelFrame(width, height, stride, pixels);
     }
 
     private static void ValidateSource(VisualReference reference, PixelFrame template)

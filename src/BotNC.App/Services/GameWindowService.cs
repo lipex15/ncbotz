@@ -6,6 +6,8 @@ namespace BotNC.App.Services;
 
 public sealed class GameWindowService
 {
+    private const int ReferenceWindowWidth = 1920;
+    private const int ReferenceWindowHeight = 1040;
     private static readonly HashSet<string> SupportedTitles =
         new(StringComparer.Ordinal)
         {
@@ -136,6 +138,45 @@ public sealed class GameWindowService
         return processId == target.ProcessId;
     }
 
+    public (int X, int Y) MapReferencePoint(
+        GameWindowTarget target,
+        int referenceX,
+        int referenceY)
+    {
+        if (!NativeMethods.IsWindow(target.Handle) ||
+            !NativeMethods.GetWindowRect(target.Handle, out var rectangle))
+        {
+            throw new InvalidOperationException($"Não foi possível medir a janela {target.Title}.");
+        }
+
+        var width = rectangle.Right - rectangle.Left;
+        var height = rectangle.Bottom - rectangle.Top;
+        if (width < 640 || height < 360)
+        {
+            throw new InvalidOperationException(
+                $"A janela {target.Title} está pequena demais para uma ação segura ({width}×{height}).");
+        }
+
+        var x = rectangle.Left + (int)Math.Round(
+            Math.Clamp(referenceX, 0, ReferenceWindowWidth - 1) *
+            width / (double)ReferenceWindowWidth);
+        var y = rectangle.Top + (int)Math.Round(
+            Math.Clamp(referenceY, 0, ReferenceWindowHeight - 1) *
+            height / (double)ReferenceWindowHeight);
+        return (x, y);
+    }
+
+    public (int Width, int Height) GetWindowSize(GameWindowTarget target)
+    {
+        if (!NativeMethods.IsWindow(target.Handle) ||
+            !NativeMethods.GetWindowRect(target.Handle, out var rectangle))
+        {
+            return (0, 0);
+        }
+
+        return (rectangle.Right - rectangle.Left, rectangle.Bottom - rectangle.Top);
+    }
+
     private static string ReadTitle(IntPtr handle)
     {
         var length = NativeMethods.GetWindowTextLength(handle);
@@ -187,6 +228,10 @@ public sealed class GameWindowService
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetWindowRect(IntPtr windowHandle, out WindowRectangle rectangle);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetForegroundWindow(IntPtr windowHandle);
 
         [DllImport("user32.dll")]
@@ -216,6 +261,15 @@ public sealed class GameWindowService
 
         [DllImport("user32.dll")]
         public static extern IntPtr SetFocus(IntPtr windowHandle);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WindowRectangle
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
 
     }
 }

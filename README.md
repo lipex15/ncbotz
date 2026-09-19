@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.1
+## Ciclo disponível — v0.7.3
 
 ### Sapheras
 
@@ -63,7 +63,7 @@ O ciclo continua até o usuário pausar ou parar o bot.
 
 Baixe o instalador `PEXBOT-Setup-vX.Y.Z.exe` na seção **Releases** deste repositório. Ele instala `PEXBOT.exe`, cria atalhos PEXBOT no menu Iniciar e na área de trabalho e mantém as configurações em `%LOCALAPPDATA%\PEXBOT` durante atualizações. Na primeira abertura, as configurações da versão BOT NC anterior são copiadas automaticamente, quando existirem.
 
-Dentro do app, abra **Atualizações**, clique em **Verificar atualizações** e, quando houver uma versão nova, em **Baixar e instalar**. O app baixa apenas os dois arquivos de uma release deste repositório, confere o SHA-256 do instalador, encerra o bot e abre o instalador. Se a verificação falhar, o instalador baixado é descartado. A primeira instalação precisa ser feita com o instalador, não com o executável portátil antigo.
+Dentro do app, abra **Atualizações**, clique em **Verificar atualizações** e, quando houver uma versão nova, em **Baixar e instalar**. O app baixa apenas os dois arquivos de uma release deste repositório, confere o SHA-256 do pacote, encerra, atualiza a instalação silenciosamente e reabre sozinho já na versão nova. O assistente de instalação não reaparece durante uma atualização. Se a verificação falhar, o pacote baixado é descartado. A primeira instalação precisa ser feita com o instalador, não com o executável portátil antigo.
 
 O instalador é compilado para Windows x64 e inclui o .NET necessário. Os binários ainda não têm assinatura Authenticode; a assinatura requer um certificado de publicação do proprietário. A checagem SHA-256 protege a integridade do download, mas não substitui uma assinatura de código.
 

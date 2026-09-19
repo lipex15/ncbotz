@@ -95,6 +95,50 @@ public sealed class WindowsInputService
         await Task.Delay(CommandCooldown, cancellationToken);
     }
 
+    public async Task MoveAndClickAsync(
+        int screenX,
+        int screenY,
+        TimeSpan movementDuration,
+        CancellationToken cancellationToken)
+    {
+        var width = NativeMethods.GetSystemMetrics(SmCxScreen);
+        var height = NativeMethods.GetSystemMetrics(SmCyScreen);
+        if (!NativeMethods.GetCursorPos(out var current))
+        {
+            current = new CursorPoint { X = screenX, Y = screenY };
+        }
+
+        var steps = Math.Clamp((int)(movementDuration.TotalMilliseconds / 22), 8, 48);
+        var delay = TimeSpan.FromMilliseconds(
+            Math.Max(8, movementDuration.TotalMilliseconds / steps));
+        for (var step = 1; step <= steps; step++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var progress = step / (double)steps;
+            // Curva suave: começa e termina devagar, evitando que o jogo perca
+            // um salto instantâneo do ponteiro em máquinas mais lentas.
+            var eased = progress * progress * (3 - (2 * progress));
+            var x = (int)Math.Round(current.X + ((screenX - current.X) * eased));
+            var y = (int)Math.Round(current.Y + ((screenY - current.Y) * eased));
+            Send(CreateAbsoluteMouseMove(x, y, width, height));
+            await Task.Delay(delay, cancellationToken);
+        }
+
+        var normalizedX = (int)Math.Round(screenX * 65535d / Math.Max(1, width - 1));
+        var normalizedY = (int)Math.Round(screenY * 65535d / Math.Max(1, height - 1));
+        await Task.Delay(140, cancellationToken);
+        Send(CreateMouseInput(
+            normalizedX,
+            normalizedY,
+            MouseMove | MouseAbsolute | MouseLeftDown));
+        await Task.Delay(110, cancellationToken);
+        Send(CreateMouseInput(
+            normalizedX,
+            normalizedY,
+            MouseMove | MouseAbsolute | MouseLeftUp));
+        await Task.Delay(CommandCooldown, cancellationToken);
+    }
+
     private static void KeyDown(int virtualKey) =>
         Send(CreateKeyboardInput(virtualKey, keyUp: false));
 
@@ -132,6 +176,12 @@ public sealed class WindowsInputService
                 }
             }
         };
+
+    private static NativeInput CreateAbsoluteMouseMove(int x, int y, int width, int height) =>
+        CreateMouseInput(
+            (int)Math.Round(x * 65535d / Math.Max(1, width - 1)),
+            (int)Math.Round(y * 65535d / Math.Max(1, height - 1)),
+            MouseMove | MouseAbsolute);
 
     private static void Send(NativeInput input)
     {
@@ -180,6 +230,13 @@ public sealed class WindowsInputService
         public nuint ExtraInfo;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CursorPoint
+    {
+        public int X;
+        public int Y;
+    }
+
     private static class NativeMethods
     {
         [DllImport("user32.dll", SetLastError = true)]
@@ -193,5 +250,9 @@ public sealed class WindowsInputService
 
         [DllImport("user32.dll")]
         public static extern int GetSystemMetrics(int index);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetCursorPos(out CursorPoint point);
     }
 }

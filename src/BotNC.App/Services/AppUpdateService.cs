@@ -118,19 +118,28 @@ public sealed class AppUpdateService
         }
     }
 
-    public static void LaunchInstaller(string verifiedInstallerPath)
+    public static void LaunchSilentUpdate(string verifiedInstallerPath)
     {
         if (!File.Exists(verifiedInstallerPath))
         {
             throw new FileNotFoundException("O instalador verificado não foi encontrado.", verifiedInstallerPath);
         }
 
+        var logDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PEXBOT",
+            "Logs");
+        Directory.CreateDirectory(logDirectory);
+        var logPath = Path.Combine(logDirectory, "update-install.log");
+
         _ = Process.Start(new ProcessStartInfo
         {
             FileName = verifiedInstallerPath,
-            Arguments = "/CLOSEAPPLICATIONS /NORESTART",
+            Arguments =
+                $"/SP- /VERYSILENT /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS /NORESTART " +
+                $"/RESTARTAPP=1 /LOG=\"{logPath}\"",
             UseShellExecute = true
-        }) ?? throw new InvalidOperationException("O Windows não conseguiu iniciar o instalador.");
+        }) ?? throw new InvalidOperationException("O Windows não conseguiu iniciar a atualização silenciosa.");
     }
 
     private static async Task<string> ReadExpectedHashAsync(string checksumUrl, CancellationToken cancellationToken)

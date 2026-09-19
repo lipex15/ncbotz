@@ -43,7 +43,8 @@ public partial class App : Application
         {
             var processId = int.Parse(e.Args[windowProbeIndex + 1]);
             var probeOutputPath = Path.GetFullPath(e.Args[windowProbeIndex + 2]);
-            var target = new GameWindowService().Discover()
+            var gameWindows = new GameWindowService();
+            var target = gameWindows.Discover()
                 .FirstOrDefault(candidate => candidate.ProcessId == processId);
             if (target is null)
             {
@@ -62,10 +63,16 @@ public partial class App : Application
             var deathButton = await recognition.FindAsync("morte_ressuscitar", frame, probeCancellation.Token);
             var restDeath = await recognition.FindAsync("descanso_morte", frame, probeCancellation.Token);
             var hp = HpBarAnalyzer.Measure(frame);
+            var windowSize = gameWindows.GetWindowSize(target);
+            var mappedTa2 = gameWindows.MapReferencePoint(target, 842, 772);
+            var mappedTa3 = gameWindows.MapReferencePoint(target, 1126, 775);
             await File.WriteAllLinesAsync(
                 probeOutputPath,
                 [
                     $"frame={frame.Width}x{frame.Height}",
+                    $"window={windowSize.Width}x{windowSize.Height}",
+                    $"mappedTa2={mappedTa2.X},{mappedTa2.Y}",
+                    $"mappedTa3={mappedTa3.X},{mappedTa3.Y}",
                     $"death={death.Found};confidence={death.Confidence:F4}",
                     $"deathClientTwo={deathClientTwo.Found};confidence={deathClientTwo.Confidence:F4}",
                     $"deathTitle={deathTitle.Found};confidence={deathTitle.Confidence:F4}",
@@ -101,6 +108,7 @@ public partial class App : Application
             var restDeath = await recognition.FindInImageAsync("descanso_morte", imagePath);
             var ta2EntryReady = await recognition.FindInImageAsync("entrar_ta2_pronto", imagePath);
             var ta3EntryReady = await recognition.FindInImageAsync("entrar_ta3_pronto", imagePath);
+            var taSelector = await recognition.FindInImageAsync("seletor_ta", imagePath);
             await File.WriteAllLinesAsync(
                 imageProbeOutputPath,
                 [
@@ -110,7 +118,8 @@ public partial class App : Application
                     $"deathButton={deathButton.Found};confidence={deathButton.Confidence:F4}",
                     $"restDeath={restDeath.Found};confidence={restDeath.Confidence:F4}",
                     $"ta2EntryReady={ta2EntryReady.Found};confidence={ta2EntryReady.Confidence:F4}",
-                    $"ta3EntryReady={ta3EntryReady.Found};confidence={ta3EntryReady.Confidence:F4}"
+                    $"ta3EntryReady={ta3EntryReady.Found};confidence={ta3EntryReady.Confidence:F4}",
+                    $"taSelector={taSelector.Found};confidence={taSelector.Confidence:F4}"
                 ]);
             Shutdown();
             return;
