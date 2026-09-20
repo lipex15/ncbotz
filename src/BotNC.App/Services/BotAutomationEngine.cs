@@ -666,6 +666,18 @@ public sealed class BotAutomationEngine(
                                 : "retomada da T.A durante Sapheras",
                             async actionToken =>
                             {
+                                if (session.NeedsDeathRestoration)
+                                {
+                                    WriteLog(session, "Restauração pendente: concluindo a lápide antes de reiniciar a rota.");
+                                    await ActivateGameForEmergencyAsync(session.Options.Target, actionToken);
+                                    await RestoreDeathResourcesAsync(session, pause, actionToken);
+                                }
+
+                                if (session.RequiresHardFlowReset)
+                                {
+                                    await ResetStalledClientRouteAsync(session, sapheras, pause, actionToken);
+                                }
+
                                 if (session.Options.UseSapheras)
                                 {
                                     await ActivateGameAsync(session.Options.Target, actionToken);
@@ -790,17 +802,17 @@ public sealed class BotAutomationEngine(
             return;
         }
 
-        await ConfirmEmergencyTeleportDestinationAsync(
-            session, pause, cancellationToken, returnToSapheras: true);
         if (DateTime.Now < finishesAt - TimeSpan.FromMinutes(1))
         {
-            WriteLog(session, "Menu de retorno confirmado após o TP; reentrando em Sapheras por prioridade máxima.");
+            WriteLog(
+                session,
+                "TP enviado sem tela de morte; reentrando em Sapheras. " +
+                "A retomada só será concluída após a Atalaia Erodida ser confirmada visualmente.");
             await EnterSapherasAsync(session, sapheras, pause, cancellationToken);
             session.SafeInRest = true;
         }
         else
         {
-            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
             session.SafeInRest = false;
             WriteLog(session, "Sapheras termina em menos de 1 minuto; permanecendo na cidade para o retorno ao ciclo normal.");
         }
@@ -893,6 +905,8 @@ public sealed class BotAutomationEngine(
         }
 
         await StartAutomaticHuntAsync(session, pause, cancellationToken);
+        session.ConsecutiveRecoveryFailures = 0;
+        session.RequiresHardFlowReset = false;
     }
 
     private async Task OpenDungeonMenuAsync(
@@ -1344,6 +1358,7 @@ public sealed class BotAutomationEngine(
         session.SafeInRest = true;
         session.Audio.Armed = true;
         session.ConsecutiveRecoveryFailures = 0;
+        session.RequiresHardFlowReset = false;
         WriteLog(session, $"Farm da {taName} iniciado e confirmado.");
     }
 
@@ -1685,7 +1700,7 @@ public sealed class BotAutomationEngine(
                         !session.InAgenda && !session.HandlingDeath)
                     {
                         session.NextRecoveryAttemptAt = default;
-                        WriteLog(session, "Proteção rearmada após falha recuperável; retomando a vigilância.");
+                        WriteLog(session, "Intervalo de segurança concluído; retomando o fluxo interrompido.");
                         if (!session.IsFarmingTa)
                         {
                             var resumed = await RunRecoveryActionSafelyAsync(
@@ -1698,7 +1713,11 @@ public sealed class BotAutomationEngine(
                                         WriteLog(session, "Restauração pendente: concluindo a lápide antes de voltar à T.A.");
                                         await ActivateGameForEmergencyAsync(session.Options.Target, actionToken);
                                         await RestoreDeathResourcesAsync(session, pause, actionToken);
-                                        session.NeedsDeathRestoration = false;
+                                    }
+
+                                    if (session.RequiresHardFlowReset)
+                                    {
+                                        await ResetStalledClientRouteAsync(session, sapheras, pause, actionToken);
                                     }
 
                                     await EnterTaAndStartFarmAsync(session, pause, actionToken, isEmergency: true);
@@ -1944,37 +1963,102 @@ public sealed class BotAutomationEngine(
         session.Audio.Armed = false;
         session.SafeInRest = false;
         session.ConsecutiveRecoveryFailures++;
-        if (exception is EmergencyTeleportUnconfirmedException)
+        session.RequiresHardFlowReset = session.ConsecutiveRecoveryFailures >= 2;
+        var retryDelaySeconds = session.ConsecutiveRecoveryFailures switch
         {
-            session.NextRecoveryAttemptAt = default;
-            session.Audio.Armed = true;
-            WriteLog(
-                session,
-                $"ATENÇÃO: {exception.Message} Não vou repetir a entrada na T.A sem confirmação. " +
-                "A detecção de morte continua ativa; um novo alerta sonoro poderá solicitar outro TP.");
-            WritePersistentOnly(session, exception.ToString());
-            return;
-        }
-
-        if (session.ConsecutiveRecoveryFailures >= 3)
-        {
-            session.NextRecoveryAttemptAt = default;
-            session.Audio.Armed = true;
-            WriteLog(
-                session,
-                $"ATENÇÃO: {action} falhou {session.ConsecutiveRecoveryFailures} vezes. " +
-                "Suspendi a reentrada automática para não repetir cliques indefinidamente. " +
-                "A vigilância de morte e o alerta sonoro continuam ativos; verifique o cliente e reinicie o bot para retomar o ciclo.");
-            WritePersistentOnly(session, exception.ToString());
-            return;
-        }
-
+            1 => 5,
+            2 => 10,
+            3 => 20,
+            _ => 30
+        };
+        session.NextRecoveryAttemptAt = DateTime.UtcNow + TimeSpan.FromSeconds(retryDelaySeconds);
         WriteLog(
             session,
             $"FALHA RECUPERÁVEL durante {action}: {exception.GetBaseException().Message}. " +
-            "O outro cliente continua sendo monitorado; nova tentativa será feita no próximo ciclo.");
+            $"O outro cliente continua sendo monitorado; retomarei este fluxo automaticamente em {retryDelaySeconds}s " +
+            "sem repetir cliques durante a espera." +
+            (session.RequiresHardFlowReset
+                ? " A próxima retomada fará um reset controlado da rota com o TP de emergência."
+                : string.Empty));
         WritePersistentOnly(session, exception.ToString());
-        session.NextRecoveryAttemptAt = DateTime.UtcNow + TimeSpan.FromSeconds(6);
+    }
+
+    private async Task ResetStalledClientRouteAsync(
+        ClientSession session,
+        SapherasOptions options,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        SetStatus(
+            BotRunState.Running,
+            $"{session.Options.Label}: reiniciando rota",
+            $"Fechando telas e usando TP {options.EmergencyTeleportKeyName}");
+        await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+        var death = await FindDeathOnClientAsync(session, cancellationToken);
+        if (death.Found || Volatile.Read(ref session.PendingVisualDeath) != 0)
+        {
+            Interlocked.Exchange(ref session.PendingVisualDeath, 1);
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: morte detectada antes do reset da rota; a ressurreição terá prioridade.");
+        }
+
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            if (!await IsKnownBlockingOverlayVisibleAsync(cancellationToken))
+            {
+                break;
+            }
+
+            WriteLog(session, $"Reset de rota: fechando a tela atual com Esc — tentativa {attempt}/3.");
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            await Task.Delay(350, cancellationToken);
+        }
+
+        session.Audio.Armed = false;
+        session.SafeInRest = false;
+        session.IsFarmingTa = false;
+        WriteLog(
+            session,
+            $"Reset de rota: usando uma vez o TP {options.EmergencyTeleportKeyName} e reiniciando o fluxo completo.");
+        await input.PressEmergencyKeyAsync(options.EmergencyTeleportVirtualKey, cancellationToken);
+        await ActionDelayAsync(cancellationToken, 1800, 2800);
+
+        death = await FindDeathOnClientAsync(session, cancellationToken);
+        if (death.Found || Volatile.Read(ref session.PendingVisualDeath) != 0)
+        {
+            Interlocked.Exchange(ref session.PendingVisualDeath, 1);
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: morte detectada durante o reset da rota; a ressurreição terá prioridade.");
+        }
+
+        session.RequiresHardFlowReset = false;
+        WriteLog(session, "Reset de rota executado; retomando desde o menu inicial do destino.");
+    }
+
+    private async Task<bool> IsKnownBlockingOverlayVisibleAsync(CancellationToken cancellationToken)
+    {
+        string[] references =
+        [
+            "mapa_aberto",
+            "mapa_aberto_ta2_ir",
+            "loja_artigos",
+            "seletor_ta",
+            "tela_masmorras",
+            "painel_restauracao",
+            "agenda_tela",
+            "menu_ta",
+            "menu_masmorra"
+        ];
+        foreach (var reference in references)
+        {
+            if ((await recognition.FindAsync(reference, cancellationToken)).Found)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task<bool> RunSessionActionSafelyAsync(
@@ -2095,56 +2179,14 @@ public sealed class BotAutomationEngine(
             return;
         }
 
-        // Ausência de morte não prova que o TP funcionou. Em particular, uma
-        // tecla ignorada dentro da T.A deixava o cliente no mesmo farm e a
-        // recuperação tentava reentrar indefinidamente na T.A já aberta.
-        await ConfirmEmergencyTeleportDestinationAsync(
-            session, pause, cancellationToken, returnToSapheras: false);
-        WriteLog(session, $"Retorno do TP confirmado; reentrando na {TaName(session.Options.Destination)} e recompondo o farm.");
+        // Não tentamos deduzir qual cidade abriu por um nome de mapa. A prova
+        // útil é o fluxo completo responder e a chegada à T.A configurada ser
+        // confirmada antes de declarar a recuperação concluída.
+        WriteLog(
+            session,
+            $"TP enviado sem tela de morte; reentrando na {TaName(session.Options.Destination)}. " +
+            "A recuperação só será concluída após a chegada ser confirmada visualmente.");
         await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: true);
-    }
-
-    private async Task ConfirmEmergencyTeleportDestinationAsync(
-        ClientSession session,
-        PauseController pause,
-        CancellationToken cancellationToken,
-        bool returnToSapheras)
-    {
-        await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
-        try
-        {
-            var reachedSafePost = await WaitForReferenceOnClientAsync(
-                session,
-                "posto_patrulha_sul",
-                TimeSpan.FromSeconds(60),
-                pause,
-                cancellationToken);
-            if (!reachedSafePost)
-            {
-                throw new TimeoutException("o Posto de Patrulha Sul não apareceu após o TP");
-            }
-
-            WriteLog(session, "Destino do TP confirmado visualmente: Posto de Patrulha Sul.");
-            await ExitRestIfNeededAsync(pause, cancellationToken);
-            // Além do nome da área segura, o menu correto precisa ficar
-            // disponível. O próximo fluxo o reaproveita sem alternar '='.
-            if (returnToSapheras)
-            {
-                await OpenDungeonMenuAsync(session, pause, cancellationToken);
-            }
-            else
-            {
-                await OpenTaMenuAsync(session, pause, cancellationToken);
-            }
-        }
-        catch (Exception exception) when (
-            exception is not OperationCanceledException &&
-            !cancellationToken.IsCancellationRequested)
-        {
-            throw new EmergencyTeleportUnconfirmedException(
-                $"{session.Options.Label}: não foi possível confirmar o retorno seguro do TP.",
-                exception);
-        }
     }
 
     private async Task<RecognitionResult?> WaitForDeathAfterEmergencyAsync(
@@ -3081,9 +3123,6 @@ public sealed class BotAutomationEngine(
         return Path.Combine(directory, $"pexbot-{DateTime.Now:yyyyMMdd-HHmmss}.log");
     }
 
-    private sealed class EmergencyTeleportUnconfirmedException(string message, Exception innerException)
-        : Exception(message, innerException);
-
     private sealed class ClientSession(AutomationClientOptions options)
     {
         public AutomationClientOptions Options { get; } = options;
@@ -3098,6 +3137,7 @@ public sealed class BotAutomationEngine(
         public int PendingVisualDeath;
         public int DeathVisualHits { get; set; }
         public int ConsecutiveRecoveryFailures { get; set; }
+        public bool RequiresHardFlowReset { get; set; }
         public bool SafeInRest { get; set; }
         public bool IsFarmingTa { get; set; }
         public bool InAgenda { get; set; }

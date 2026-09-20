@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.6
+## Ciclo disponível — v0.7.7
 
 ### Sapheras
 
@@ -42,8 +42,9 @@ Aplicativo modular de automação visual para Night Crows.
 - somente o alerta sonoro de HP baixo pode acionar o TP; a leitura visual continua detectando morte, mas não HP baixo;
 - ao reconhecer o som de HP baixo, traz a janela correta para frente e usa o TP configurado
   entre 3 e 5 vezes;
-- depois do TP, confirma visualmente o **Posto de Patrulha Sul** e o menu de retorno antes de tentar reentrar na T.A; se isso falhar, não repete indefinidamente;
-- após três falhas consecutivas, suspende a reentrada automática daquele cliente até reiniciar o bot, mantendo a vigilância de morte e do alerta sonoro;
+- depois do TP, não tenta deduzir a cidade por um nome de mapa; a recuperação só é declarada concluída quando a chegada à T.A ou Sapheras for confirmada visualmente;
+- se uma retomada falhar, repete o fluxo automaticamente com espera progressiva de até 30 segundos, sem martelar cliques e sem deixar o cliente bloqueado;
+- após duas falhas consecutivas, fecha apenas sobreposições reconhecidas com `Esc`, usa uma vez o TP de emergência configurado e reinicia a rota completa do cliente;
 - retorna à T.A configurada, compra poções no NPC interno e escolhe outro spot;
 - reconhece e fecha com `Y` o aviso visual de agenda indisponível.
 - reconhece qualquer tela de descanso e sai com `L` antes de abrir menus.
