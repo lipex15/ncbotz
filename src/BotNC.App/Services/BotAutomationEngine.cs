@@ -2125,6 +2125,14 @@ public sealed class BotAutomationEngine(
         session.NextMailAttemptAt = DateTime.UtcNow.AddMinutes(3);
         try
         {
+            // Uma confirmação de teleporte já aberta tem precedência: abrir o
+            // Correio sobre o popup poderia descartar a próxima Diária.
+            if (await FindDailyTeleportPopupOnClientAsync(session, cancellationToken) is not null)
+            {
+                session.NextMailAttemptAt = DateTime.UtcNow.AddSeconds(30);
+                return false;
+            }
+
             var claimed = await CollectServerMailAsync(session, pause, cancellationToken);
             // O servidor pode entregar o lote poucos minutos depois da hora
             // cheia. Se a caixa estiver vazia nesse intervalo, reabrimos em

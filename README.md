@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.9.10
+## Ciclo disponível — v0.9.11
 
 ### Rotinas Diárias e Diretivas
 
@@ -32,6 +32,7 @@ Aplicativo modular de automação visual para Night Crows.
 - confere o Correio do Servidor diariamente às 01:00 e às 07:00, por cliente, inclusive após iniciar o bot mais tarde;
 - abre pelo menu `=`, usa **Receber Tudo** somente quando há notificação vermelha, fecha **Item Obtido** e retorna ao jogo;
 - reabre o descanso quando o cliente estava farmando, inclusive em Diária automática; espera a caixa carregar e, se a entrega atrasar alguns minutos, reavalia antes de encerrar o horário;
+- não abre o Correio sobre um popup de teleporte diário ainda pendente;
 - a conferência de cada horário é persistida para não repetir a coleta no mesmo dia.
 
 ### Atualizações
