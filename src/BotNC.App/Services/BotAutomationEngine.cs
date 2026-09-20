@@ -106,6 +106,8 @@ public sealed class BotAutomationEngine(
             session.DailyStartedCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyStartedCycle");
             session.DailyCompletedCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle");
             session.DirectiveCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle");
+            session.RestorationAbsentCycle =
+                await database.GetSettingAsync($"{SessionSettingPrefix(session)}.restoration.absentCycle");
             session.Mail01Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.01Date");
             session.Mail07Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.07Date");
 
@@ -444,10 +446,23 @@ public sealed class BotAutomationEngine(
 
         var pendingRestorationPanel = await WaitForRestorationCounterAsync(
             session, TimeSpan.FromSeconds(2), pause, cancellationToken);
-        var pendingRestorationIcon = pendingRestorationPanel.State == RestorationCountState.Unknown
-            ? await FindReferenceOnClientAsync(
-                session, "icone_perda_exp", cancellationToken, requireObservable: true)
-            : new RecognitionResult(false, 0, 0, 0);
+        var pendingRestorationIcon = new RecognitionResult(false, 0, 0, 0);
+        if (pendingRestorationPanel.State == RestorationCountState.Unknown &&
+            session.RestorationAbsentCycle != DailyCycleKey(DateTime.Now))
+        {
+            var firstIcon = await FindReferenceOnClientAsync(
+                session, "icone_perda_exp", cancellationToken, requireObservable: true);
+            if (firstIcon.Found && firstIcon.Confidence >= 0.80)
+            {
+                await Task.Delay(400, cancellationToken);
+                var secondIcon = await FindReferenceOnClientAsync(
+                    session, "icone_perda_exp", cancellationToken, requireObservable: true);
+                if (secondIcon.Found && secondIcon.Confidence >= 0.80)
+                {
+                    pendingRestorationIcon = secondIcon;
+                }
+            }
+        }
         if (pendingRestorationPanel.State != RestorationCountState.Unknown || pendingRestorationIcon.Found)
         {
             WriteLog(
@@ -927,6 +942,7 @@ public sealed class BotAutomationEngine(
         Interlocked.Exchange(ref session.PendingVisualDeath, 0);
         try
         {
+            await ClearRestorationIconAbsenceAsync(session);
             SetStatus(BotRunState.Running, $"{session.Options.Label}: morte em Sapheras", "Restaurando antes de retomar a prioridade");
             await ActivateGameAsync(session, cancellationToken);
             await RestoreDeathResourcesAsync(session, pause, cancellationToken);
@@ -2367,7 +2383,7 @@ public sealed class BotAutomationEngine(
         var dailyAlreadyAccepted = session.DailyCycle == cycle;
         if (dailyDue && !dailyAlreadyAccepted)
         {
-            await AcceptDailyMissionsAsync(session, pause, cancellationToken);
+            dailyAlreadyAccepted = await AcceptDailyMissionsAsync(session, pause, cancellationToken);
             session.DailyCycle = cycle;
             await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCycle", cycle);
         }
@@ -2461,6 +2477,7 @@ public sealed class BotAutomationEngine(
         catch (Exception exception)
         {
             session.NextDailyRoutineAttemptAt = DateTime.UtcNow.AddSeconds(15);
+            session.NextRoutinePanelRecoveryAt = DateTime.UtcNow.AddSeconds(15);
             session.Audio.Armed = !session.InAgenda;
             WriteLog(session, $"Falha recuperável na rotina diária: {exception.GetBaseException().Message}. O bot continuará ativo e reavaliará este cliente em 15 segundos.");
             WritePersistentOnly(session, exception.ToString());
@@ -2601,9 +2618,9 @@ public sealed class BotAutomationEngine(
             if (await IsGuildDirectiveCompletedAsync(cancellationToken))
             {
                 WriteLog(session, "Diretivas 5/5 já concluídas ao iniciar; fechando a Guilda sem recarregar.");
-                await CloseGuildScreenAsync(session, pause, cancellationToken);
                 session.DirectiveCycle = cycle;
                 await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+                await CloseGuildScreenAsync(session, pause, cancellationToken);
             }
             else if ((await recognition.FindAsync("guild_page", cancellationToken)).Found)
             {
@@ -2706,7 +2723,31 @@ public sealed class BotAutomationEngine(
         await input.MoveAndClickAsync(1603, 340, TimeSpan.FromMilliseconds(320), cancellationToken);
         await WaitForReferenceAsync("guild_page", "página da Guilda", TimeSpan.FromSeconds(15), pause, cancellationToken);
         await input.MoveAndClickAsync(523, 143, TimeSpan.FromMilliseconds(320), cancellationToken);
-        await WaitForReferenceAsync("guild_directive_page", "página de Diretivas", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        var directivePageDeadline = DateTime.UtcNow.AddSeconds(15);
+        var directivePageVisible = false;
+        while (DateTime.UtcNow < directivePageDeadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+            {
+                return;
+            }
+
+            if ((await recognition.FindAsync("guild_directive_page", cancellationToken)).Found)
+            {
+                directivePageVisible = true;
+                break;
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        if (!directivePageVisible)
+        {
+            var diagnostic = await recognition.SaveDiagnosticAsync($"guild_directive_page_{session.Options.Priority}");
+            throw new TimeoutException($"{session.Options.Label}: a página de Diretivas não foi reconhecida. Diagnóstico: {diagnostic}");
+        }
+
         await Task.Delay(400, cancellationToken);
         if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
         {
@@ -2760,6 +2801,9 @@ public sealed class BotAutomationEngine(
         }
 
         WriteLog(session, "As cinco Diretivas da Guilda já estão concluídas. Fechando a tela sem usar recarga.");
+        var cycle = DailyCycleKey(DateTime.Now);
+        session.DirectiveCycle = cycle;
+        await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
         await CloseGuildScreenAsync(session, pause, cancellationToken);
         return true;
     }
@@ -2773,10 +2817,12 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        for (var attempt = 1; attempt <= 3; attempt++)
+        for (var attempt = 1; attempt <= 5; attempt++)
         {
+            await EnsureGameForegroundAsync(session, cancellationToken);
             await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
             await CheckpointAsync(pause, cancellationToken);
+            await Task.Delay(300, cancellationToken);
             var directiveVisible = (await recognition.FindAsync("guild_directive_page", cancellationToken)).Found;
             var guildVisible = (await recognition.FindAsync("guild_page", cancellationToken)).Found;
             var completedVisible = await IsGuildDirectiveCompletedAsync(cancellationToken);
@@ -2793,10 +2839,10 @@ public sealed class BotAutomationEngine(
 
         var diagnostic = await recognition.SaveDiagnosticAsync($"guild_directive_close_{session.Options.Priority}");
         throw new TimeoutException(
-            $"{session.Options.Label}: a tela da Guilda não fechou após três ESC. Diagnóstico: {diagnostic}");
+            $"{session.Options.Label}: a tela da Guilda não fechou após cinco ESC. Diagnóstico: {diagnostic}");
     }
 
-    private async Task AcceptDailyMissionsAsync(
+    private async Task<bool> AcceptDailyMissionsAsync(
         ClientSession session,
         PauseController pause,
         CancellationToken cancellationToken)
@@ -2808,6 +2854,16 @@ public sealed class BotAutomationEngine(
         await WaitForReferenceAsync("campaign_page", "página Campanha", TimeSpan.FromSeconds(15), pause, cancellationToken);
         await input.MoveAndClickAsync(728, 144, TimeSpan.FromMilliseconds(320), cancellationToken);
         await WaitForReferenceAsync("daily_page", "aba Diário", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        if (VisualRecognitionService.HasDailyThirtyCounter(capture.CapturePrimaryScreen()))
+        {
+            WriteLog(session, "Diárias 30/30 já aceitas neste ciclo; não clicando em Aceitar Tudo.");
+            var cycle = DailyCycleKey(DateTime.Now);
+            session.DailyCycle = cycle;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCycle", cycle);
+            await CloseCampaignScreenAsync(session, pause, cancellationToken);
+            return true;
+        }
+
         await input.MoveAndClickAsync(142, 992, TimeSpan.FromMilliseconds(320), cancellationToken);
         var confirmationDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(12);
         var accepted = false;
@@ -2833,6 +2889,7 @@ public sealed class BotAutomationEngine(
 
         await CloseCampaignScreenAsync(session, pause, cancellationToken);
         WriteLog(session, "As 30 Missões Diárias foram aceitas.");
+        return false;
     }
 
     private async Task CloseCampaignScreenAsync(
@@ -4135,6 +4192,7 @@ public sealed class BotAutomationEngine(
         session.AwaitingHuntActivationAtSpot = false;
         try
         {
+            await ClearRestorationIconAbsenceAsync(session);
             session.AbbeyInside = false;
             SetStatus(BotRunState.Running, $"{session.Options.Label}: personagem morreu", "Ressuscitando e restaurando recursos");
             // A tela de morte tem contagem regressiva curta; devolver o foco
@@ -4179,6 +4237,20 @@ public sealed class BotAutomationEngine(
         return session.Deaths.Count >= antiOverkill.DeathThreshold;
     }
 
+    private async Task RememberRestorationIconAbsenceAsync(ClientSession session)
+    {
+        session.RestorationAbsentCycle = DailyCycleKey(DateTime.Now);
+        await database.SaveSettingAsync(
+            $"{SessionSettingPrefix(session)}.restoration.absentCycle",
+            session.RestorationAbsentCycle);
+    }
+
+    private async Task ClearRestorationIconAbsenceAsync(ClientSession session)
+    {
+        session.RestorationAbsentCycle = null;
+        await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.restoration.absentCycle", "");
+    }
+
     private async Task RestoreDeathResourcesAsync(
         ClientSession session,
         PauseController pause,
@@ -4213,6 +4285,7 @@ public sealed class BotAutomationEngine(
             }
         }
 
+        var confirmedDeathScreen = fullDeath.Found;
         if (fullDeath.Found)
         {
             WriteLog(
@@ -4290,7 +4363,10 @@ public sealed class BotAutomationEngine(
             }
 
             WriteLog(session, "Verificando se esta morte gerou lápide de restauração.");
-            var iconDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+            // Após um TP por HP, a ausência estável da lápide não é uma falha
+            // recuperável: pode não ter ocorrido morte nem perda neste servidor.
+            var iconTimeout = confirmedDeathScreen ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(6);
+            var iconDeadline = DateTime.UtcNow + iconTimeout;
             var iconFound = false;
             var iconConfirmations = 0;
             while (DateTime.UtcNow < iconDeadline)
@@ -4320,8 +4396,9 @@ public sealed class BotAutomationEngine(
             {
                 WriteLog(
                     session,
-                    "Lápide ausente após 30 segundos de observação estável; esta morte não possui restauração disponível. Seguindo o fluxo.");
+                    "Lápide ausente após verificação limitada; não há EXP ou equipamento para restaurar. Retomando o fluxo sem repetir a busca.");
                 session.NeedsDeathRestoration = false;
+                await RememberRestorationIconAbsenceAsync(session);
                 return;
             }
 
@@ -4344,6 +4421,16 @@ public sealed class BotAutomationEngine(
                 {
                     WriteLog(session, "Lápide não está presente após os cliques; não há restauração desta morte. Seguindo para o farm.");
                     session.NeedsDeathRestoration = false;
+                    await RememberRestorationIconAbsenceAsync(session);
+                    return;
+                }
+
+                if (!(await FindReferenceOnClientAsync(
+                        session, "painel_restauracao", cancellationToken, requireObservable: true)).Found)
+                {
+                    WriteLog(session, "A lápide não abriu um painel após três tentativas; deixando de procurar nesta ocorrência e retomando o farm.");
+                    session.NeedsDeathRestoration = false;
+                    await RememberRestorationIconAbsenceAsync(session);
                     return;
                 }
 
@@ -5270,6 +5357,7 @@ public sealed class BotAutomationEngine(
         public bool InAgenda { get; set; }
         public bool HandlingDeath { get; set; }
         public bool NeedsDeathRestoration { get; set; }
+        public string? RestorationAbsentCycle { get; set; }
         public bool AudioFailureLogged { get; set; }
         public bool PendingAgendaAfterSapheras { get; set; }
         public DateTime AgendaUntil { get; set; }

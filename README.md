@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.9.12
+## Ciclo disponível — v0.9.13
 
 ### Rotinas Diárias e Diretivas
 
@@ -19,7 +19,8 @@ Aplicativo modular de automação visual para Night Crows.
 - confirma o teleporte pelo botão e pela área de recursos, independentemente do nome do mapa; lê o popup na janela do cliente e recupera falhas transitórias sem encerrar o bot;
 - se a captura independente não reconhecer o popup, confere novamente na tela do cliente em primeiro plano antes de enviar Y;
 - aceita Diretiva de Guilda em Mapa Aberto, T.A ou Masmorras; o jogo conclui as cinco do local escolhido;
-- reconhece os dois enquadramentos de Diretivas já concluídas (5/5), fecha o painel com ESC sem tentar aceitar nem usar recarga e continua normalmente; ao iniciar, também sincroniza painéis de Diárias 30/30 já abertos;
+- reconhece Diretivas já concluídas (5/5), registra o ciclo antes de fechar a Guilda e não tenta aceitar de novo mesmo se o fechamento precisar ser recuperado; só volta a executar no próximo ciclo, no horário configurado;
+- consulta o contador das Diárias antes de clicar em Aceitar Tudo: se já estiver 30/30, verifica as missões roxas pendentes e, na ausência delas, volta ao farm até o próximo ciclo;
 - confirma a Diretiva pelo aviso ou pelo estado permanente `Em andamento` e fecha completamente a tela da Guilda;
 - Diretiva de Mapa Aberto é aceita junto das Diárias;
 - a execução realizada é persistida por cliente para não repetir após reiniciar o aplicativo;
@@ -58,7 +59,7 @@ Aplicativo modular de automação visual para Night Crows.
 - na morte sem lápide de restauração, segue o fluxo sem insistir em restaurar recursos inexistentes;
 - o agendamento de início passa a começar em zero minuto por padrão.
 - reconhece diretamente o mapa aberto da Abadia antes de selecionar a coordenada de farm.
-- restaura uma lápide pendente mesmo quando o bot é iniciado depois da morte e aguarda até 30 segundos pelo indicador após ressuscitar.
+- restaura uma lápide pendente mesmo quando o bot é iniciado depois da morte; exige confirmação forte do ícone na inicialização e, se não houver painel, registra a ausência por cliente para não reiniciar a busca ao reiniciar o bot no mesmo ciclo.
 - Anti Over Kill fica na aba **Proteção**; os quadros informativos “Etapas protegidas” e “Base modular” foram removidos da interface.
 
 ### Sapheras
