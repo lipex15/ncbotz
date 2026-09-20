@@ -14,6 +14,7 @@ public sealed class WindowsInputService
     private const uint MouseLeftDown = 0x0002;
     private const uint MouseLeftUp = 0x0004;
     private const uint MouseAbsolute = 0x8000;
+    private const uint MouseWheel = 0x0800;
     private const uint KeyboardScanCode = 0x0008;
     private const uint KeyboardKeyUp = 0x0002;
     private const uint MapVkToVsc = 0;
@@ -138,6 +139,20 @@ public sealed class WindowsInputService
             normalizedX,
             normalizedY,
             MouseMove | MouseAbsolute | MouseLeftUp));
+        await Task.Delay(CommandCooldown, cancellationToken);
+    }
+
+    public async Task ScrollAsync(int wheelDelta, int repetitions, CancellationToken cancellationToken)
+    {
+        for (var index = 0; index < repetitions; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var wheel = CreateMouseInput(0, 0, MouseWheel);
+            wheel.Union.Mouse.MouseData = unchecked((uint)wheelDelta);
+            Send(wheel);
+            await Task.Delay(180, cancellationToken);
+        }
+
         await Task.Delay(CommandCooldown, cancellationToken);
     }
 

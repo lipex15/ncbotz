@@ -8,7 +8,8 @@ public sealed class BotAutomationEngine(
     GameWindowService gameWindows,
     WindowsInputService input,
     VisualRecognitionService recognition,
-    ScreenCaptureService capture)
+    ScreenCaptureService capture,
+    AppDatabase database)
 {
     private const int KeyEscape = 0x1B;
     private const int KeyW = 0x57;
@@ -30,6 +31,7 @@ public sealed class BotAutomationEngine(
     private static readonly IReadOnlyDictionary<TaDestination, (int X, int Y)> TaEntryPoints =
         new Dictionary<TaDestination, (int X, int Y)>
         {
+            [TaDestination.Ta1Codex] = (574, 773),
             [TaDestination.Ta2] = (842, 772),
             [TaDestination.Ta3] = (1126, 775)
         };
@@ -98,6 +100,12 @@ public sealed class BotAutomationEngine(
             .Select(client => new ClientSession(client))
             .ToArray();
 
+        foreach (var session in sessions)
+        {
+            session.DailyCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCycle");
+            session.DirectiveCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle");
+        }
+
         EnsureResolution();
         using var watchdogCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
@@ -158,7 +166,7 @@ public sealed class BotAutomationEngine(
 
             WriteLog($"Log persistente desta execução: {_runtimeLogPath}");
 
-            await RunCoreAsync(sessions, runOptions.Sapheras, runOptions.AntiOverkill, pause, cancellationToken);
+            await RunCoreAsync(sessions, runOptions.Sapheras, runOptions.AntiOverkill, runOptions.DailyRoutines, pause, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -212,6 +220,7 @@ public sealed class BotAutomationEngine(
         IReadOnlyList<ClientSession> sessions,
         SapherasOptions sapheras,
         AntiOverkillOptions antiOverkill,
+        DailyRoutineOptions dailyRoutines,
         PauseController pause,
         CancellationToken cancellationToken)
     {
@@ -221,6 +230,10 @@ public sealed class BotAutomationEngine(
             WriteLog("Sapheras desativada para todos os clientes. Mantendo o farm contínuo nos destinos configurados.");
             foreach (var session in sessions)
             {
+                if (await RunDueDailyRoutinesAsync(session, dailyRoutines, pause, cancellationToken))
+                {
+                    continue;
+                }
                 await RunSessionActionSafelyAsync(
                     session,
                     "preparação inicial do farm",
@@ -229,7 +242,7 @@ public sealed class BotAutomationEngine(
                     cancellationToken);
             }
 
-            await MonitorFarmsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken, stopAt: null);
+            await MonitorFarmsAsync(sessions, sapheras, antiOverkill, dailyRoutines, pause, cancellationToken, stopAt: null);
             return;
         }
 
@@ -243,6 +256,10 @@ public sealed class BotAutomationEngine(
             {
                 foreach (var session in sessions)
                 {
+                    if (await RunDueDailyRoutinesAsync(session, dailyRoutines, pause, sapherasPriority.Token))
+                    {
+                        continue;
+                    }
                     await RunSessionActionSafelyAsync(
                         session,
                         "preparação do farm antes de Sapheras",
@@ -251,7 +268,7 @@ public sealed class BotAutomationEngine(
                         sapherasPriority.Token);
                 }
 
-                await MonitorFarmsAsync(sessions, sapheras, antiOverkill, pause, sapherasPriority.Token, sapheras.ScheduledAt);
+                await MonitorFarmsAsync(sessions, sapheras, antiOverkill, dailyRoutines, pause, sapherasPriority.Token, sapheras.ScheduledAt);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && sapherasPriority.IsCancellationRequested)
             {
@@ -353,7 +370,7 @@ public sealed class BotAutomationEngine(
 
         var nextSapheras = sapheras with { ScheduledAt = sapheras.ScheduledAt.AddDays(1) };
         WriteLog($"Ciclo diário mantido: próxima Sapheras programada para {nextSapheras.ScheduledAt:dd/MM HH:mm:ss}.");
-        await RunCoreAsync(sessions, nextSapheras, antiOverkill, pause, cancellationToken);
+        await RunCoreAsync(sessions, nextSapheras, antiOverkill, dailyRoutines, pause, cancellationToken);
     }
 
     private async Task PrepareClientForFarmAsync(
@@ -991,6 +1008,17 @@ public sealed class BotAutomationEngine(
         CancellationToken cancellationToken,
         bool isEmergency)
     {
+        if (session.InDailyCampaign)
+        {
+            if (await ResumeDailyCampaignAsync(session, pause, cancellationToken))
+            {
+                return;
+            }
+
+            session.InDailyCampaign = false;
+            WriteLog(session, "Nenhuma missão roxa restante; retomando o ciclo de farm configurado.");
+        }
+
         if (session.Options.UseAbbey && session.AbbeyEntryMayHaveBeenCharged)
         {
             await ActivateGameAsync(session, cancellationToken);
@@ -998,7 +1026,14 @@ public sealed class BotAutomationEngine(
             {
                 session.AbbeyEntryMayHaveBeenCharged = false;
                 session.AbbeyInside = true;
-                session.AbbeyEntries++;
+                if (!session.AbbeyScheduledResumePending)
+                {
+                    session.AbbeyEntries++;
+                }
+                else
+                {
+                    session.AbbeyScheduledResumePending = false;
+                }
                 WriteLog(session, "Chegada à Abadia reconhecida após atraso; retomando sem pagar outra entrada.");
             }
         }
@@ -1019,7 +1054,8 @@ public sealed class BotAutomationEngine(
         }
 
         if (session.Options.UseAbbey && !session.AbbeyEntryMayHaveBeenCharged &&
-            session.AbbeyEntries < 1 + session.Options.AbbeyReturnLimit)
+            (session.AbbeyScheduledResumePending ||
+             session.AbbeyEntries < 1 + session.Options.AbbeyReturnLimit))
         {
             await EnterAbbeyAndStartFarmAsync(session, pause, cancellationToken);
             return;
@@ -1065,9 +1101,16 @@ public sealed class BotAutomationEngine(
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         await WaitForAbbeyArrivalAsync(session, pause, cancellationToken);
         session.AbbeyEntryMayHaveBeenCharged = false;
-        session.AbbeyEntries++;
+        var scheduledResume = session.AbbeyScheduledResumePending;
+        session.AbbeyScheduledResumePending = false;
+        if (!scheduledResume)
+        {
+            session.AbbeyEntries++;
+        }
         session.AbbeyInside = true;
-        WriteLog(session, $"Entrada na Abadia comprovada ({session.AbbeyEntries}/{1 + session.Options.AbbeyReturnLimit}).");
+        WriteLog(session, scheduledResume
+            ? "Reentrada na Abadia após rotina programada confirmada; limite de retornos preservado."
+            : $"Entrada na Abadia comprovada ({session.AbbeyEntries}/{1 + session.Options.AbbeyReturnLimit}).");
         await TravelToAbbeySpotAsync(session, pause, cancellationToken);
     }
 
@@ -1503,7 +1546,15 @@ public sealed class BotAutomationEngine(
         if (!await IsMapOpenAsync(session, cancellationToken))
         {
             await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
-            await WaitForReferenceAsync("mapa_aberto", "mapa aberto", TimeSpan.FromSeconds(15), pause, cancellationToken);
+            await WaitForReferenceAsync(
+                session.Options.Destination == TaDestination.Ta1Codex ? "mapa_ta1" : "mapa_aberto",
+                "mapa aberto", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        }
+
+        if (session.Options.Destination == TaDestination.Ta1Codex)
+        {
+            await TravelToTa1CodexSpotAsync(session, pause, cancellationToken);
+            return;
         }
 
         if (!(await recognition.FindAsync("aba_favoritos", cancellationToken)).Found)
@@ -1619,6 +1670,48 @@ public sealed class BotAutomationEngine(
         session.ConsecutiveRecoveryFailures = 0;
         session.RequiresHardFlowReset = false;
         WriteLog(session, $"Farm da {taName} iniciado e confirmado.");
+    }
+
+    private async Task TravelToTa1CodexSpotAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var custom = session.Options.CustomFarmCoordinate ??
+            throw new InvalidOperationException("A T.A 1 (Codex) exige uma coordenada personalizada.");
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: T.A 1 (Codex)", "Abrindo todo o mapa e indo ao ponto personalizado");
+        await WaitForReferenceAsync("mapa_ta1", "mapa de Kildebat", TimeSpan.FromSeconds(15), pause, cancellationToken);
+
+        // Fecha as duas laterais antes do zoom para manter a mesma geometria da captura do usuário.
+        await input.MoveAndClickAsync(444, 531, TimeSpan.FromMilliseconds(250), cancellationToken);
+        await input.MoveAndClickAsync(1484, 532, TimeSpan.FromMilliseconds(250), cancellationToken);
+        await input.MoveAndClickAsync(1000, 520, TimeSpan.FromMilliseconds(180), cancellationToken);
+        await input.ScrollAsync(-120, 12, cancellationToken);
+        await WaitForReferenceAsync("mapa_ta1_zoom_max", "mapa de Kildebat no zoom mínimo", TimeSpan.FromSeconds(12), pause, cancellationToken);
+
+        var spot = gameWindows.MapReferencePoint(session.Options.Target, custom.X, custom.Y);
+        WriteLog(session, $"T.A 1 no zoom mínimo confirmada; selecionando o ponto Codex ({custom.X}, {custom.Y}).");
+        await input.ClickAsync(spot.X, spot.Y, cancellationToken);
+        var goReferences = new[] { "botao_ir", "botao_ir_legado", "botao_ir_ta2" };
+        var searchX = Math.Max(0, spot.X - 220);
+        var searchY = Math.Max(0, spot.Y - 210);
+        var go = await WaitForAnyReferenceInRegionAsync(
+            goReferences, searchX, searchY, 470, 230, TimeSpan.FromSeconds(8), pause, cancellationToken);
+        await ClickGoButtonWithConfirmationAsync(
+            session, goReferences, searchX, searchY,
+            go?.X ?? spot.X + 16, go?.Y ?? spot.Y - 76,
+            pause, cancellationToken);
+        await CloseMapAfterGoAsync(session, pause, cancellationToken);
+        await OpenRestForTravelAsync(session, pause, cancellationToken);
+        await WaitForFarmArrivalAsync(session, pause, cancellationToken, "T.A 1 (Codex)");
+        session.AwaitingHuntActivationAtSpot = true;
+        await StartAutomaticHuntAsync(session, pause, cancellationToken);
+        session.IsFarmingTa = true;
+        session.SafeInRest = true;
+        session.Audio.Armed = true;
+        session.ConsecutiveRecoveryFailures = 0;
+        session.RequiresHardFlowReset = false;
+        WriteLog(session, "Farm da T.A 1 (Codex) iniciado no ponto personalizado.");
     }
 
     private async Task OpenFavoritesAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
@@ -1772,6 +1865,13 @@ public sealed class BotAutomationEngine(
     private async Task<bool> IsMapOpenAsync(ClientSession session, CancellationToken cancellationToken)
     {
         if ((await recognition.FindAsync("mapa_abadia", cancellationToken)).Found)
+        {
+            return true;
+        }
+
+        if (session.Options.Destination == TaDestination.Ta1Codex &&
+            ((await recognition.FindAsync("mapa_ta1", cancellationToken)).Found ||
+             (await recognition.FindAsync("mapa_ta1_zoom_max", cancellationToken)).Found))
         {
             return true;
         }
@@ -1959,10 +2059,210 @@ public sealed class BotAutomationEngine(
         throw new TimeoutException($"{session.Options.Label}: não foi possível confirmar a caça automática após três ciclos seguros. Diagnóstico: {diagnostic}");
     }
 
+    private async Task<bool> RunDueDailyRoutinesAsync(
+        ClientSession session,
+        DailyRoutineOptions options,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        if (session.InAgenda || session.HandlingDeath || session.NextRecoveryAttemptAt != default)
+        {
+            return false;
+        }
+
+        var cycle = DailyCycleKey(DateTime.Now);
+        var dailyDue = options.EnableDailyMissions && session.DailyCycle != cycle &&
+                       DateTime.Now >= ScheduledInCycle(DateTime.Now, options.DailyMissionsAt);
+        var directiveDue = options.EnableGuildDirective && session.DirectiveCycle != cycle &&
+                           DateTime.Now >= ScheduledInCycle(DateTime.Now, options.GuildDirectiveAt);
+
+        // Mapa Aberto é aceito junto das Diárias para que ambas progridam no mesmo deslocamento.
+        if (options.GuildDirectiveArea == GuildDirectiveArea.OpenMap && options.EnableDailyMissions)
+        {
+            directiveDue = dailyDue && session.DirectiveCycle != cycle;
+        }
+
+        if (!dailyDue && !directiveDue)
+        {
+            return false;
+        }
+
+        await ActivateGameAsync(session, cancellationToken);
+        var death = await FindDeathOnClientAsync(session, cancellationToken);
+        if (death.Found)
+        {
+            Interlocked.Exchange(ref session.PendingVisualDeath, 1);
+            return false;
+        }
+
+        if (session.Options.UseAbbey && session.AbbeyInside)
+        {
+            session.AbbeyScheduledResumePending = true;
+            session.AbbeyInside = false;
+            WriteLog(session, "Saída programada da Abadia: a reentrada após a rotina não consumirá o limite de retornos.");
+        }
+
+        session.Audio.Armed = false;
+        session.IsFarmingTa = false;
+        session.SafeInRest = false;
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+
+        if (dailyDue)
+        {
+            await AcceptDailyMissionsAsync(session, pause, cancellationToken);
+            session.DailyCycle = cycle;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCycle", cycle);
+        }
+
+        if (directiveDue)
+        {
+            await AcceptGuildDirectiveAsync(session, options.GuildDirectiveArea, pause, cancellationToken);
+            session.DirectiveCycle = cycle;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+        }
+
+        if (dailyDue)
+        {
+            await StartDailyCampaignAsync(session, pause, cancellationToken);
+            session.InDailyCampaign = true;
+            session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
+            session.IsFarmingTa = true;
+            session.SafeInRest = true;
+            session.Audio.Armed = true;
+            WriteLog(session, "Campanha automática das Diárias iniciada; o jogo seguirá as 30 missões e coletará as recompensas.");
+        }
+        else
+        {
+            await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+        }
+
+        return true;
+    }
+
+    private async Task AcceptGuildDirectiveAsync(
+        ClientSession session,
+        GuildDirectiveArea area,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: Diretiva de Guilda", "Abrindo a Guilda e aceitando o local configurado");
+        await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
+        await WaitForReferenceAsync("menu_guild", "ícone Guilda", TimeSpan.FromSeconds(10), pause, cancellationToken);
+        await input.MoveAndClickAsync(1603, 340, TimeSpan.FromMilliseconds(320), cancellationToken);
+        await WaitForReferenceAsync("guild_page", "página da Guilda", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await input.MoveAndClickAsync(523, 143, TimeSpan.FromMilliseconds(320), cancellationToken);
+        await WaitForReferenceAsync("guild_directive_page", "página de Diretivas", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        var point = area switch
+        {
+            GuildDirectiveArea.Ta => (1160, 809),
+            GuildDirectiveArea.Dungeon => (1507, 805),
+            _ => (834, 805)
+        };
+        await input.MoveAndClickAsync(point.Item1, point.Item2, TimeSpan.FromMilliseconds(350), cancellationToken);
+        await WaitForReferenceAsync("guild_directive_accepted", "confirmação Campanha Aceita", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        WriteLog(session, $"Diretiva aceita em {DirectiveAreaName(area)}; o jogo executará as cinco automaticamente.");
+    }
+
+    private async Task AcceptDailyMissionsAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: Missões Diárias", "Aceitando as 30 campanhas do ciclo");
+        await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
+        await WaitForReferenceAsync("menu_campaign", "ícone Camp.", TimeSpan.FromSeconds(10), pause, cancellationToken);
+        await input.MoveAndClickAsync(1606, 264, TimeSpan.FromMilliseconds(320), cancellationToken);
+        await WaitForReferenceAsync("campaign_page", "página Campanha", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await input.MoveAndClickAsync(728, 144, TimeSpan.FromMilliseconds(320), cancellationToken);
+        await WaitForReferenceAsync("daily_page", "aba Diário", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await input.MoveAndClickAsync(142, 992, TimeSpan.FromMilliseconds(320), cancellationToken);
+        await WaitForReferenceAsync("daily_all_accepted", "Todas as campanhas foram aceitas", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        WriteLog(session, "As 30 Missões Diárias foram aceitas.");
+    }
+
+    private async Task StartDailyCampaignAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        await input.MoveAndClickAsync(1848, 178, TimeSpan.FromMilliseconds(280), cancellationToken);
+        await ActionDelayAsync(cancellationToken, 800, 1200);
+        var missionY = FindPurpleDailyMissionY(capture.CapturePrimaryScreen());
+        if (missionY is null)
+        {
+            throw new InvalidOperationException("As Missões Diárias foram aceitas, mas nenhuma missão roxa 'Derrote todos os monstros' apareceu na lista.");
+        }
+
+        WriteLog(session, $"Missão Diária roxa localizada na linha y={missionY}; selecionando a seta de teleporte.");
+        await input.MoveAndClickAsync(1535, missionY.Value, TimeSpan.FromMilliseconds(280), cancellationToken);
+        await WaitForReferenceAsync("daily_teleport", "confirmação de teleporte da campanha", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+        await ActionDelayAsync(cancellationToken, 5000, 7000);
+        await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
+        await WaitForReferenceAsync("daily_automatic", "Campanha automática em andamento", TimeSpan.FromSeconds(20), pause, cancellationToken);
+    }
+
+    private static int? FindPurpleDailyMissionY(PixelFrame frame)
+    {
+        var rows = new List<(int Y, int Count)>();
+        for (var y = 250; y < Math.Min(920, frame.Height); y++)
+        {
+            var count = 0;
+            for (var x = 1480; x < Math.Min(1880, frame.Width); x++)
+            {
+                var offset = (y * frame.Stride) + (x * 4);
+                var blue = frame.Pixels[offset];
+                var green = frame.Pixels[offset + 1];
+                var red = frame.Pixels[offset + 2];
+                if (red >= 115 && blue >= 120 && green <= 125 && red >= green + 25 && blue >= green + 25)
+                {
+                    count++;
+                }
+            }
+
+            if (count >= 16)
+            {
+                rows.Add((y, count));
+            }
+        }
+
+        if (rows.Count == 0)
+        {
+            return null;
+        }
+
+        var best = rows.GroupBy(item => item.Y / 24)
+            .OrderByDescending(group => group.Sum(item => item.Count))
+            .First();
+        return (int)Math.Round(best.Average(item => item.Y));
+    }
+
+    private static string DailyCycleKey(DateTime now) =>
+        (now.TimeOfDay < TimeSpan.FromHours(4) ? now.Date.AddDays(-1) : now.Date).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static DateTime ScheduledInCycle(DateTime now, TimeSpan selectedTime)
+    {
+        var cycleStart = now.TimeOfDay < TimeSpan.FromHours(4) ? now.Date.AddDays(-1) : now.Date;
+        return cycleStart + selectedTime + (selectedTime < TimeSpan.FromHours(4) ? TimeSpan.FromDays(1) : TimeSpan.Zero);
+    }
+
+    private static string DirectiveAreaName(GuildDirectiveArea area) => area switch
+    {
+        GuildDirectiveArea.Ta => "T.A",
+        GuildDirectiveArea.Dungeon => "Masmorras",
+        _ => "Mapa Aberto"
+    };
+
+    private static string SessionSettingPrefix(ClientSession session) =>
+        session.Options.Label.EndsWith("2", StringComparison.Ordinal) ? "client2" : "client1";
+
     private async Task MonitorFarmsAsync(
         IReadOnlyList<ClientSession> sessions,
         SapherasOptions sapheras,
         AntiOverkillOptions antiOverkill,
+        DailyRoutineOptions dailyRoutines,
         PauseController pause,
         CancellationToken cancellationToken,
         DateTime? stopAt)
@@ -1978,6 +2278,7 @@ public sealed class BotAutomationEngine(
         WriteLog(stopAt.HasValue
             ? $"Proteção de HP ativa nos {sessions.Count} cliente(s) até Sapheras.{priorityDetail}"
             : $"Monitoramento contínuo ativo nos {sessions.Count} cliente(s).{priorityDetail}");
+        var nextRoutineCheckAt = DateTime.MinValue;
         try
         {
             while (true)
@@ -1988,8 +2289,35 @@ public sealed class BotAutomationEngine(
                     return;
                 }
 
+                if (DateTime.Now >= nextRoutineCheckAt)
+                {
+                    nextRoutineCheckAt = DateTime.Now.AddSeconds(20);
+                    foreach (var routineSession in sessions.OrderBy(item => item.Options.Priority))
+                    {
+                        if (await RunDueDailyRoutinesAsync(routineSession, dailyRoutines, pause, cancellationToken))
+                        {
+                            break;
+                        }
+                    }
+                }
+
                 foreach (var session in sessions.OrderBy(session => session.Options.Priority))
                 {
+                    if (session.InDailyCampaign && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
+                    {
+                        session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
+                        var purpleMission = await CheckDailyMissionListAsync(session, pause, cancellationToken);
+                        session.DailyNoMissionHits = purpleMission is null ? session.DailyNoMissionHits + 1 : 0;
+                        if (session.DailyNoMissionHits >= 3)
+                        {
+                            session.InDailyCampaign = false;
+                            session.DailyNoMissionHits = 0;
+                            WriteLog(session, "Missões roxas ausentes por três verificações da lista; Diárias concluídas. Retornando ao farm anterior.");
+                            await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+                            break;
+                        }
+                    }
+
                     // Morte sempre vence uma retomada pendente. Antes, uma falha no
                     // retorno à T.A podia manter o cliente preso em novas tentativas
                     // de menu e nunca deixar a sinalização de morte ser atendida.
@@ -2148,6 +2476,63 @@ public sealed class BotAutomationEngine(
                 }
             }
         }
+    }
+
+    private async Task<bool> ResumeDailyCampaignAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        await ActivateGameAsync(session, cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        await input.MoveAndClickAsync(1848, 178, TimeSpan.FromMilliseconds(280), cancellationToken);
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            await ActionDelayAsync(cancellationToken, 650, 900);
+            var missionY = FindPurpleDailyMissionY(capture.CapturePrimaryScreen());
+            if (missionY is null)
+            {
+                continue;
+            }
+
+            await input.MoveAndClickAsync(1535, missionY.Value, TimeSpan.FromMilliseconds(260), cancellationToken);
+            await WaitForReferenceAsync("daily_teleport", "confirmação de teleporte da campanha", TimeSpan.FromSeconds(12), pause, cancellationToken);
+            await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+            await ActionDelayAsync(cancellationToken, 5000, 7000);
+            await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
+            await WaitForReferenceAsync("daily_automatic", "Campanha automática em andamento", TimeSpan.FromSeconds(20), pause, cancellationToken);
+            session.IsFarmingTa = true;
+            session.SafeInRest = true;
+            session.Audio.Armed = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<int?> CheckDailyMissionListAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        await ActivateGameAsync(session, cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        await input.MoveAndClickAsync(1848, 178, TimeSpan.FromMilliseconds(250), cancellationToken);
+        await ActionDelayAsync(cancellationToken, 800, 1100);
+        var missionY = FindPurpleDailyMissionY(capture.CapturePrimaryScreen());
+        WriteLog(session, missionY is null
+            ? "Verificação das Diárias: nenhuma missão roxa visível."
+            : $"Verificação das Diárias: missão roxa ainda ativa na linha y={missionY}.");
+        await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
+        var automaticVisible = await WaitForReferenceToAppearAsync(
+            "daily_automatic", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        if (missionY is not null && !automaticVisible)
+        {
+            throw new TimeoutException($"{session.Options.Label}: a missão diária continua ativa, mas a Campanha automática não reapareceu.");
+        }
+        session.SafeInRest = true;
+        return missionY;
     }
 
     private async Task MonitorClientWindowAsync(
@@ -3588,9 +3973,24 @@ public sealed class BotAutomationEngine(
         return session.LastFarmSpot;
     }
 
-    private static string ArrivalReference(TaDestination destination) => destination == TaDestination.Ta2 ? "ta2_chegada" : "ta3_chegada";
-    private static string EntryReadyReference(TaDestination destination) => destination == TaDestination.Ta2 ? "entrar_ta2_pronto" : "entrar_ta3_pronto";
-    private static string TaName(TaDestination destination) => destination == TaDestination.Ta2 ? "T.A 2" : "T.A 3";
+    private static string ArrivalReference(TaDestination destination) => destination switch
+    {
+        TaDestination.Ta1Codex => "ta1_chegada",
+        TaDestination.Ta2 => "ta2_chegada",
+        _ => "ta3_chegada"
+    };
+    private static string EntryReadyReference(TaDestination destination) => destination switch
+    {
+        TaDestination.Ta1Codex => "entrar_ta1_pronto",
+        TaDestination.Ta2 => "entrar_ta2_pronto",
+        _ => "entrar_ta3_pronto"
+    };
+    private static string TaName(TaDestination destination) => destination switch
+    {
+        TaDestination.Ta1Codex => "T.A 1 (Codex)",
+        TaDestination.Ta2 => "T.A 2",
+        _ => "T.A 3"
+    };
     private static string ConfiguredFarmName(ClientSession session) =>
         session.Options.UseAbbey && (session.AbbeyInside ||
         (!session.AbbeyEntryMayHaveBeenCharged &&
@@ -3708,6 +4108,12 @@ public sealed class BotAutomationEngine(
         public int AbbeyEntries { get; set; }
         public bool AbbeyEntryMayHaveBeenCharged { get; set; }
         public bool AbbeyInside { get; set; }
+        public bool AbbeyScheduledResumePending { get; set; }
+        public bool InDailyCampaign { get; set; }
+        public string? DailyCycle { get; set; }
+        public string? DirectiveCycle { get; set; }
+        public DateTime NextDailyMissionCheckAt { get; set; }
+        public int DailyNoMissionHits { get; set; }
         public bool InAgenda { get; set; }
         public bool HandlingDeath { get; set; }
         public bool NeedsDeathRestoration { get; set; }

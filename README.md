@@ -2,7 +2,25 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.8.2
+## Ciclo disponível — v0.9.0
+
+### Rotinas Diárias e Diretivas
+
+- horários configuráveis por ciclo, cujo reset diário ocorre às 04:00;
+- executa as rotinas em todos os clientes ativos e mantém Sapheras com prioridade máxima;
+- aceita as 30 Missões Diárias, encontra a missão roxa, teleporta e inicia a Campanha automática;
+- confirma a conclusão pela ausência estável das missões roxas e retorna ao farm anterior;
+- aceita Diretiva de Guilda em Mapa Aberto, T.A ou Masmorras; o jogo conclui as cinco do local escolhido;
+- Diretiva de Mapa Aberto é aceita junto das Diárias;
+- a execução realizada é persistida por cliente para não repetir após reiniciar o aplicativo;
+- sair da Abadia para uma rotina programada preserva o limite configurado de retornos.
+
+### T.A 1 (Codex)
+
+- entra em Kildebat e compra Artigos pelo mesmo fluxo das outras T.A;
+- exige coordenada personalizada capturada no mapa com zoom mínimo;
+- recolhe as laterais, reduz o zoom automaticamente ao máximo e seleciona o ponto sem Favoritos;
+- acompanha deslocamentos longos pela tela de descanso antes de ativar a caça.
 
 ### Abadia da Lembrança
 
@@ -35,7 +53,7 @@ Aplicativo modular de automação visual para Night Crows.
 - ativa a caça com `Q` e entra no descanso com `L`;
 - confirma **Caça automática em uso** e mantém o contador da sessão.
 
-### T.A 2, T.A 3 e proteção PvP
+### T.A 1, T.A 2, T.A 3 e proteção PvP
 
 - cada cliente pode usar T.A 2 ou T.A 3 independentemente;
 - compra o lote configurado no NPC **Artigos** dentro da própria T.A;
@@ -91,8 +109,8 @@ Os eventos da execução e do detector de HP também são gravados em
 O ciclo continua até o usuário pausar ou parar o bot.
 
 O início pode ser programado para depois de 1 a 1440 minutos. A contagem ocorre no próprio
-aplicativo; se ele for fechado, o início programado é cancelado. Ainda não existem rotinas
-diárias de guilda ou missões: essas atividades precisarão de mapeamento e regras próprias.
+aplicativo; se ele for fechado, o início programado é cancelado. Missões Diárias e Diretivas
+possuem horários próprios e persistem o ciclo já executado.
 
 Para usar um ponto personalizado, abra no jogo o mapa, selecione o primeiro favorito e o
 zoom desejado; no PEXBOT, clique em **Capturar ponto** do cliente certo e então clique no

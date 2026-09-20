@@ -174,6 +174,10 @@ public partial class App : Application
         {
             window.ShowProtectionForScreenshot();
         }
+        else if (isScreenshotMode && e.Args.Contains("--routines-tab", StringComparer.Ordinal))
+        {
+            window.ShowRoutinesForScreenshot();
+        }
 
         if (!isScreenshotMode)
         {
@@ -218,6 +222,16 @@ public partial class App : Application
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
         var cases = new[]
         {
+            ("guild_page", "guild_page.png"),
+            ("guild_directive_page", "guild_directive_page.png"),
+            ("guild_directive_accepted", "guild_directive_accepted.png"),
+            ("campaign_page", "campaign_page.png"),
+            ("daily_page", "daily_page.png"),
+            ("daily_all_accepted", "daily_all_accepted.png"),
+            ("daily_automatic", "daily_automatic.png"),
+            ("ta1_chegada", "ta1_arrival.png"),
+            ("mapa_ta1", "ta1_map.png"),
+            ("mapa_ta1_zoom_max", "ta1_map_zoom_max.png"),
             ("abadia_especial", "abadia_pagina_especial.png"),
             ("abadia_cartao", "abadia_pagina_especial.png"),
             ("abadia_chegada_silencio", "abadia_chegada_silencio.png"),
@@ -310,6 +324,12 @@ public partial class App : Application
             ("oferta_wemade", "agenda_tela.png")
         };
         var lines = new List<string>();
+        var requiredNewReferences = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "guild_page", "guild_directive_page", "guild_directive_accepted",
+            "campaign_page", "daily_page", "daily_all_accepted",
+            "daily_automatic", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max"
+        };
         foreach (var (referenceId, fileName) in cases)
         {
             var result = await recognition.FindInImageAsync(
@@ -317,6 +337,20 @@ public partial class App : Application
                 Path.Combine(referenceDirectory, fileName));
             lines.Add(
                 $"{referenceId}|image={fileName}|found={result.Found}|confidence={result.Confidence:F4}|x={result.X}|y={result.Y}");
+            if (requiredNewReferences.Contains(referenceId) && !result.Found)
+            {
+                throw new InvalidOperationException(
+                    $"A nova referência {referenceId} não reconheceu sua própria imagem ({result.Confidence:P0}).");
+            }
+        }
+
+        var dailyTeleport = await recognition.FindInCroppedImageAsync(
+            "daily_teleport", Path.Combine(referenceDirectory, "daily_teleport.png"));
+        lines.Add($"daily_teleport|image=daily_teleport.png|found={dailyTeleport.Found}|confidence={dailyTeleport.Confidence:F4}");
+        if (!dailyTeleport.Found)
+        {
+            throw new InvalidOperationException(
+                $"A confirmação de teleporte das Diárias não foi reconhecida no recorte ({dailyTeleport.Confidence:P0}).");
         }
 
         var abbeyConfirmation = await recognition.FindInCroppedImageAsync(

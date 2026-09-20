@@ -230,6 +230,20 @@ public sealed class AppDatabase
     {
         public static readonly ReferenceDefinition[] All =
         [
+            new("menu_guild", "Ícone Guilda", "menu_guild.png", 0, 0, 87, 99, 1535, 275, 155, 150, 0.68),
+            new("guild_page", "Página da Guilda", "guild_page.png", 24, 30, 280, 80, 0, 15, 390, 130, 0.68),
+            new("guild_directive_page", "Página de Diretivas", "guild_directive_page.png", 430, 105, 190, 70, 390, 85, 280, 115, 0.68),
+            new("guild_directive_accepted", "Campanha Aceita", "guild_directive_accepted.png", 805, 105, 315, 165, 730, 70, 470, 245, 0.66),
+            new("menu_campaign", "Ícone Campanha", "menu_campaign.png", 0, 0, 79, 89, 1540, 205, 145, 145, 0.68),
+            new("campaign_page", "Página Campanha", "campaign_page.png", 24, 30, 300, 80, 0, 15, 420, 130, 0.68),
+            new("daily_page", "Aba Diário", "daily_page.png", 640, 105, 190, 70, 590, 85, 280, 115, 0.68),
+            new("daily_all_accepted", "Todas as campanhas foram aceitas", "daily_all_accepted.png", 800, 175, 390, 120, 710, 135, 560, 205, 0.65),
+            new("daily_teleport", "Teleporte para campanha", "daily_teleport.png", 75, 55, 480, 210, 550, 210, 820, 370, 0.65),
+            new("daily_automatic", "Campanha automática em andamento", "daily_automatic.png", 760, 825, 410, 110, 680, 760, 560, 190, 0.54),
+            new("entrar_ta1_pronto", "Entrar em Kildebat", "ta1_entry.png", 42, 495, 240, 65, 435, 730, 290, 90, 0.66),
+            new("ta1_chegada", "Serviços de Kildebat", "ta1_arrival.png", 10, 90, 315, 165, 0, 70, 410, 230, 0.60),
+            new("mapa_ta1", "Mapa de Kildebat", "ta1_map.png", 22, 26, 180, 68, 0, 10, 290, 120, 0.64),
+            new("mapa_ta1_zoom_max", "Mapa de Kildebat no zoom mínimo", "ta1_map_zoom_max.png", 805, 50, 390, 85, 735, 25, 540, 145, 0.62),
             new(
                 "abadia_especial",
                 "Aba Especial da Masmorra",

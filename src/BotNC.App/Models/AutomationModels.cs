@@ -16,9 +16,24 @@ public sealed record AntiOverkillOptions(
 
 public enum TaDestination
 {
+    Ta1Codex,
     Ta2,
     Ta3
 }
+
+public enum GuildDirectiveArea
+{
+    OpenMap,
+    Ta,
+    Dungeon
+}
+
+public sealed record DailyRoutineOptions(
+    bool EnableDailyMissions,
+    TimeSpan DailyMissionsAt,
+    bool EnableGuildDirective,
+    TimeSpan GuildDirectiveAt,
+    GuildDirectiveArea GuildDirectiveArea);
 
 public sealed record FarmCoordinate(int X, int Y);
 
@@ -36,6 +51,7 @@ public sealed record AutomationClientOptions(
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,
     AntiOverkillOptions AntiOverkill,
+    DailyRoutineOptions DailyRoutines,
     IReadOnlyList<AutomationClientOptions> Clients);
 
 public enum BotRunState

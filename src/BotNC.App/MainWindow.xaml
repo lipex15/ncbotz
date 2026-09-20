@@ -39,12 +39,15 @@
                     <Button Content="◆   Sapheras" HorizontalContentAlignment="Left"
                             Background="#17283F" BorderThickness="0"
                             Click="OnShowSapheras" />
-                    <Button Content="◆   T.A 2 / T.A 3" HorizontalContentAlignment="Left"
+                    <Button Content="◆   T.A 1 / T.A 2 / T.A 3" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarm" />
                     <Button x:Name="AbbeyNavigationButton" Content="◆   Abadia" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowAbbey" />
+                    <Button x:Name="RoutinesNavigationButton" Content="▣   Rotinas diárias" HorizontalContentAlignment="Left"
+                            Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
+                            Click="OnShowRoutines" />
                     <Button x:Name="ProtectionNavigationButton" Content="◈   Proteção" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowProtection" />
@@ -114,7 +117,7 @@
                                     <ColumnDefinition Width="70" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="10" />
-                                    <ColumnDefinition Width="85" />
+                                    <ColumnDefinition Width="125" />
                                     <ColumnDefinition Width="82" />
                                 </Grid.ColumnDefinitions>
                                 <CheckBox x:Name="EnableClient1CheckBox" Content="Cliente 1"
@@ -132,7 +135,7 @@
                                     <ColumnDefinition Width="70" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="10" />
-                                    <ColumnDefinition Width="85" />
+                                    <ColumnDefinition Width="125" />
                                     <ColumnDefinition Width="82" />
                                 </Grid.ColumnDefinitions>
                                 <CheckBox x:Name="EnableClient2CheckBox" Content="Cliente 2"
@@ -153,7 +156,7 @@
                                 <StackPanel>
                                     <TextBlock Text="PONTO DE FARM PERSONALIZADO"
                                                Style="{StaticResource FieldLabel}" />
-                                    <TextBlock Text="Com o mapa aberto, capture o ponto exato. Quando ativa, substitui as três posições aleatórias."
+                                    <TextBlock Text="Com o mapa aberto, capture o ponto exato. Na T.A 1 (Codex), use o mapa no zoom mínimo; o ponto é obrigatório."
                                                Foreground="#7F91A6" FontSize="10" TextWrapping="Wrap"
                                                Margin="0,4,0,9" />
                                     <Grid Margin="0,0,0,7">
@@ -382,6 +385,61 @@
                        FontSize="10" TextTrimming="CharacterEllipsis" />
         </Grid>
 
+        <Grid x:Name="RoutinesPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="18" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="Rotinas diárias" FontSize="27" FontWeight="Bold" />
+                <TextBlock Text="Execução diária por cliente ativo, respeitando a prioridade máxima de Sapheras."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
+            </StackPanel>
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="22" Margin="0,0,0,14">
+                        <StackPanel>
+                            <TextBlock Text="Missões Diárias" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                            <CheckBox x:Name="DailyMissionsCheckBox" Content="Executar as 30 missões automaticamente"
+                                      Margin="0,13,0,12" />
+                            <TextBlock Text="HORÁRIO DE EXECUÇÃO" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="DailyMissionsTimeTextBox" Text="04:05" Width="150" Height="40"
+                                     HorizontalAlignment="Left" Margin="0,7,0,0" />
+                            <TextBlock Text="O ciclo diário redefine às 04:00. O bot aceita tudo, abre a missão roxa, teleporta e inicia Campanha automática."
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="22">
+                        <StackPanel>
+                            <TextBlock Text="Diretivas de Guilda" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                            <CheckBox x:Name="GuildDirectiveCheckBox" Content="Aceitar automaticamente uma diretiva diária"
+                                      Margin="0,13,0,12" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="180" />
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="230" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="HORÁRIO DE EXECUÇÃO" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="GuildDirectiveTimeTextBox" Text="04:05" Height="40" Margin="0,7,0,0" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="LOCAL DA DIRETIVA" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox x:Name="GuildDirectiveAreaComboBox" Height="40" Margin="0,7,0,0" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Text="Ao aceitar, o jogo conclui as cinco diretivas do local escolhido. Mapa Aberto é combinado com as Diárias."
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
         <Grid x:Name="AbbeyPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -431,7 +489,7 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <TextBlock Text="Cada retorno à Abadia após morte, TP ou Sapheras consome uma entrada do limite. Quando acabar, o bot usará a T.A configurada."
+                    <TextBlock Text="Cada retorno após morte ou TP consome o limite. Reentrada causada por uma rotina programada não consome retorno."
                                Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="3,14,0,0" />
                 </StackPanel>
             </ScrollViewer>

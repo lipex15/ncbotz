@@ -42,15 +42,18 @@ public partial class MainWindow : Window
             _gameWindows,
             _input,
             recognition,
-            _capture);
+            _capture,
+            _database);
         _engine.Log += OnEngineLog;
         _engine.StatusChanged += OnEngineStatusChanged;
         _engine.AudioStatusChanged += OnEngineAudioStatusChanged;
 
-        Ta1ComboBox.ItemsSource = new[] { "T.A 2", "T.A 3" };
-        Ta2ComboBox.ItemsSource = new[] { "T.A 2", "T.A 3" };
-        Ta1ComboBox.SelectedIndex = 1;
-        Ta2ComboBox.SelectedIndex = 0;
+        Ta1ComboBox.ItemsSource = new[] { "T.A 1 (Codex)", "T.A 2", "T.A 3" };
+        Ta2ComboBox.ItemsSource = new[] { "T.A 1 (Codex)", "T.A 2", "T.A 3" };
+        Ta1ComboBox.SelectedIndex = 2;
+        Ta2ComboBox.SelectedIndex = 1;
+        GuildDirectiveAreaComboBox.ItemsSource = new[] { "Mapa Aberto", "T.A", "Masmorras" };
+        GuildDirectiveAreaComboBox.SelectedIndex = 0;
 
         TeleportKeyComboBox.ItemsSource = BuildKeyChoices();
         TeleportKeyComboBox.Text = "E";
@@ -70,11 +73,13 @@ public partial class MainWindow : Window
     {
         OverviewPanel.Visibility = Visibility.Visible;
         AbbeyPanel.Visibility = Visibility.Collapsed;
+        RoutinesPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
         OverviewNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
         UpdatesNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = Brushes.Transparent;
+        RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
     }
 
@@ -94,10 +99,12 @@ public partial class MainWindow : Window
     {
         OverviewPanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Collapsed;
+        RoutinesPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Visible;
         OverviewNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = Brushes.Transparent;
+        RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
     }
@@ -105,23 +112,41 @@ public partial class MainWindow : Window
     private void OnShowAbbey(object sender, RoutedEventArgs e)
     {
         OverviewPanel.Visibility = Visibility.Collapsed;
+        RoutinesPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Visible;
         OverviewNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
+    }
+
+    private void OnShowRoutines(object sender, RoutedEventArgs e)
+    {
+        OverviewPanel.Visibility = Visibility.Collapsed;
+        AbbeyPanel.Visibility = Visibility.Collapsed;
+        ProtectionPanel.Visibility = Visibility.Collapsed;
+        UpdatesPanel.Visibility = Visibility.Collapsed;
+        RoutinesPanel.Visibility = Visibility.Visible;
+        OverviewNavigationButton.Background = Brushes.Transparent;
+        AbbeyNavigationButton.Background = Brushes.Transparent;
+        ProtectionNavigationButton.Background = Brushes.Transparent;
+        UpdatesNavigationButton.Background = Brushes.Transparent;
+        RoutinesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
     }
 
     private void OnShowProtection(object sender, RoutedEventArgs e)
     {
         OverviewPanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Collapsed;
+        RoutinesPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Visible;
         OverviewNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = Brushes.Transparent;
+        RoutinesNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
     }
@@ -129,6 +154,7 @@ public partial class MainWindow : Window
     internal void ShowUpdatesForScreenshot() => OnShowUpdates(this, new RoutedEventArgs());
     internal void ShowAbbeyForScreenshot() => OnShowAbbey(this, new RoutedEventArgs());
     internal void ShowProtectionForScreenshot() => OnShowProtection(this, new RoutedEventArgs());
+    internal void ShowRoutinesForScreenshot() => OnShowRoutines(this, new RoutedEventArgs());
 
     private async void OnCheckForUpdates(object sender, RoutedEventArgs e)
     {
@@ -552,6 +578,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (client1 is not null && ParseTaDestination(Ta1ComboBox.SelectedItem) == TaDestination.Ta1Codex &&
+            (Client1CustomCoordinateCheckBox.IsChecked != true || _client1CustomCoordinate is null))
+        {
+            ShowValidation("A T.A 1 (Codex) exige um ponto personalizado capturado no mapa com zoom mínimo.");
+            return;
+        }
+
+        if (client2 is not null && ParseTaDestination(Ta2ComboBox.SelectedItem) == TaDestination.Ta1Codex &&
+            (Client2CustomCoordinateCheckBox.IsChecked != true || _client2CustomCoordinate is null))
+        {
+            ShowValidation("A T.A 1 (Codex) exige um ponto personalizado capturado no mapa com zoom mínimo.");
+            return;
+        }
+
         if (client1 is not null && Client1AbbeyCheckBox.IsChecked == true &&
             Client1AbbeyCustomCheckBox.IsChecked == true && _client1AbbeyCoordinate is null)
         {
@@ -619,6 +659,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!TryParseClock(DailyMissionsTimeTextBox.Text, out var dailyMissionsAt) ||
+            !TryParseClock(GuildDirectiveTimeTextBox.Text, out var guildDirectiveAt))
+        {
+            ShowValidation("Informe os horários das rotinas no formato HH:mm.");
+            return;
+        }
+
         var keyName = TeleportKeyComboBox.Text.Trim().ToUpperInvariant();
         if (!TryParseVirtualKey(keyName, out var teleportKey))
         {
@@ -676,7 +723,13 @@ public partial class MainWindow : Window
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
-        var runOptions = new BotRunOptions(options, antiOverkill, clients);
+        var dailyRoutines = new DailyRoutineOptions(
+            DailyMissionsCheckBox.IsChecked == true,
+            dailyMissionsAt,
+            GuildDirectiveCheckBox.IsChecked == true,
+            guildDirectiveAt,
+            ParseGuildDirectiveArea(GuildDirectiveAreaComboBox.SelectedItem));
+        var runOptions = new BotRunOptions(options, antiOverkill, dailyRoutines, clients);
         await SaveSettingsAsync(runOptions);
 
         _runCancellation = new CancellationTokenSource();
@@ -992,6 +1045,11 @@ public partial class MainWindow : Window
         DeathThresholdTextBox.IsEnabled = !isRunning;
         DeathWindowTextBox.IsEnabled = !isRunning;
         AgendaDurationTextBox.IsEnabled = !isRunning;
+        DailyMissionsCheckBox.IsEnabled = !isRunning;
+        DailyMissionsTimeTextBox.IsEnabled = !isRunning;
+        GuildDirectiveCheckBox.IsEnabled = !isRunning;
+        GuildDirectiveTimeTextBox.IsEnabled = !isRunning;
+        GuildDirectiveAreaComboBox.IsEnabled = !isRunning;
         Client1AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient1CheckBox.IsChecked == true;
         Client2AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient2CheckBox.IsChecked == true;
         ScheduleStartButton.IsEnabled = !isRunning;
@@ -1048,6 +1106,11 @@ public partial class MainWindow : Window
         var abbey1Y = await _database.GetSettingAsync("client1.abbey.customFarm.y");
         var abbey2X = await _database.GetSettingAsync("client2.abbey.customFarm.x");
         var abbey2Y = await _database.GetSettingAsync("client2.abbey.customFarm.y");
+        var dailyEnabled = await _database.GetSettingAsync("routines.daily.enabled");
+        var dailyTime = await _database.GetSettingAsync("routines.daily.time");
+        var directiveEnabled = await _database.GetSettingAsync("routines.directive.enabled");
+        var directiveTime = await _database.GetSettingAsync("routines.directive.time");
+        var directiveArea = await _database.GetSettingAsync("routines.directive.area");
         if (!string.IsNullOrWhiteSpace(schedule))
         {
             ScheduleTextBox.Text = schedule;
@@ -1073,8 +1136,8 @@ public partial class MainWindow : Window
             EmergencyTeleportKeyComboBox.Text = emergencyTeleport;
         }
 
-        Ta1ComboBox.SelectedItem = client1Ta == nameof(TaDestination.Ta2) ? "T.A 2" : "T.A 3";
-        Ta2ComboBox.SelectedItem = client2Ta == nameof(TaDestination.Ta3) ? "T.A 3" : "T.A 2";
+        Ta1ComboBox.SelectedItem = TaDisplayName(client1Ta, "T.A 3");
+        Ta2ComboBox.SelectedItem = TaDisplayName(client2Ta, "T.A 2");
         Client1SapherasCheckBox.IsChecked = !string.Equals(client1Sapheras, "false", StringComparison.OrdinalIgnoreCase);
         Client2SapherasCheckBox.IsChecked = string.Equals(client2Sapheras, "true", StringComparison.OrdinalIgnoreCase);
         EnableClient1CheckBox.IsChecked = !string.Equals(client1Enabled, "false", StringComparison.OrdinalIgnoreCase);
@@ -1101,6 +1164,16 @@ public partial class MainWindow : Window
             string.Equals(abbey1CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
         Client2AbbeyCustomCheckBox.IsChecked = _client2AbbeyCoordinate is not null &&
             string.Equals(abbey2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        DailyMissionsCheckBox.IsChecked = string.Equals(dailyEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        GuildDirectiveCheckBox.IsChecked = string.Equals(directiveEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        DailyMissionsTimeTextBox.Text = string.IsNullOrWhiteSpace(dailyTime) ? "04:05" : dailyTime;
+        GuildDirectiveTimeTextBox.Text = string.IsNullOrWhiteSpace(directiveTime) ? "04:05" : directiveTime;
+        GuildDirectiveAreaComboBox.SelectedItem = directiveArea switch
+        {
+            nameof(GuildDirectiveArea.Ta) => "T.A",
+            nameof(GuildDirectiveArea.Dungeon) => "Masmorras",
+            _ => "Mapa Aberto"
+        };
         UpdateCustomCoordinateLabels();
         UpdateCustomCoordinateControls();
     }
@@ -1148,7 +1221,20 @@ public partial class MainWindow : Window
         await _database.SaveSettingAsync(
             "antiOverkill.agendaDurationMinutes",
             runOptions.AntiOverkill.AgendaDuration.TotalMinutes.ToString(CultureInfo.InvariantCulture));
+        await _database.SaveSettingAsync("routines.daily.enabled", runOptions.DailyRoutines.EnableDailyMissions.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync("routines.daily.time", runOptions.DailyRoutines.DailyMissionsAt.ToString(@"hh\:mm", CultureInfo.InvariantCulture));
+        await _database.SaveSettingAsync("routines.directive.enabled", runOptions.DailyRoutines.EnableGuildDirective.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync("routines.directive.time", runOptions.DailyRoutines.GuildDirectiveAt.ToString(@"hh\:mm", CultureInfo.InvariantCulture));
+        await _database.SaveSettingAsync("routines.directive.area", runOptions.DailyRoutines.GuildDirectiveArea.ToString());
     }
+
+    private static string TaDisplayName(string? stored, string fallback) => stored switch
+    {
+        nameof(TaDestination.Ta1Codex) => "T.A 1 (Codex)",
+        nameof(TaDestination.Ta2) => "T.A 2",
+        nameof(TaDestination.Ta3) => "T.A 3",
+        _ => fallback
+    };
 
     private async Task SaveClientCustomCoordinateSettingsAsync(
         int clientNumber,
@@ -1193,10 +1279,31 @@ public partial class MainWindow : Window
         return new FarmCoordinate(x, y);
     }
 
-    private static TaDestination ParseTaDestination(object? selectedItem) =>
-        string.Equals(selectedItem?.ToString(), "T.A 2", StringComparison.Ordinal)
-            ? TaDestination.Ta2
-            : TaDestination.Ta3;
+    private static TaDestination ParseTaDestination(object? selectedItem) => selectedItem?.ToString() switch
+    {
+        "T.A 1 (Codex)" => TaDestination.Ta1Codex,
+        "T.A 2" => TaDestination.Ta2,
+        _ => TaDestination.Ta3
+    };
+
+    private static GuildDirectiveArea ParseGuildDirectiveArea(object? selectedItem) => selectedItem?.ToString() switch
+    {
+        "T.A" => GuildDirectiveArea.Ta,
+        "Masmorras" => GuildDirectiveArea.Dungeon,
+        _ => GuildDirectiveArea.OpenMap
+    };
+
+    private static bool TryParseClock(string text, out TimeSpan time)
+    {
+        if (TimeSpan.TryParseExact(text.Trim(), new[] { @"h\:mm", @"hh\:mm", @"h\:mm\:ss", @"hh\:mm\:ss" },
+                CultureInfo.InvariantCulture, out time) && time >= TimeSpan.Zero && time < TimeSpan.FromDays(1))
+        {
+            return true;
+        }
+
+        time = default;
+        return false;
+    }
 
     private static bool TryParseSchedule(string text, out DateTime scheduledAt)
     {
