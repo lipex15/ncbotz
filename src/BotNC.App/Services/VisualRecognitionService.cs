@@ -113,6 +113,145 @@ public sealed class VisualRecognitionService(
         return MeasureAverageLuma(Decode(image), x, y, width, height);
     }
 
+    public async Task<bool> HasDailyThirtyCounterInImageAsync(
+        string imagePath,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await File.ReadAllBytesAsync(imagePath, cancellationToken);
+        return HasDailyThirtyCounter(Decode(image));
+    }
+
+    public async Task<int> CountDimmedDailyMissionRowsInImageAsync(
+        string imagePath,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await File.ReadAllBytesAsync(imagePath, cancellationToken);
+        return CountDimmedDailyMissionRows(Decode(image));
+    }
+
+    public async Task<bool> HasUnclaimedServerMailInImageAsync(
+        string imagePath,
+        CancellationToken cancellationToken = default)
+    {
+        var image = await File.ReadAllBytesAsync(imagePath, cancellationToken);
+        return HasUnclaimedServerMail(Decode(image));
+    }
+
+    public static bool HasUnclaimedServerMail(PixelFrame frame)
+    {
+        if (frame.Width < 1890 || frame.Height < 500)
+        {
+            return false;
+        }
+
+        var redPixels = 0;
+        for (var y = 180; y < 490; y++)
+        {
+            for (var x = 1850; x < 1888; x++)
+            {
+                var offset = (y * frame.Stride) + (x * 4);
+                var blue = frame.Pixels[offset];
+                var green = frame.Pixels[offset + 1];
+                var red = frame.Pixels[offset + 2];
+                if (red >= 150 && green <= 105 && blue <= 110 && red >= green + 65)
+                {
+                    redPixels++;
+                    if (redPixels >= 25)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static bool HasDailyThirtyCounter(PixelFrame frame)
+    {
+        // O contador 30/30 fica vermelho quando o limite diário foi atingido;
+        // em 0/30 (e nos valores intermediários) o texto é cinza. A cor elimina
+        // o falso positivo que a semelhança estrutural entre "0/30" e "30/30"
+        // produzia no template anterior.
+        if (frame.Width < 590 || frame.Height < 1010)
+        {
+            return false;
+        }
+
+        var redPixels = 0;
+        for (var y = 955; y < 1010; y++)
+        {
+            for (var x = 470; x < 590; x++)
+            {
+                var index = (y * frame.Stride) + (x * 4);
+                var blue = frame.Pixels[index];
+                var green = frame.Pixels[index + 1];
+                var red = frame.Pixels[index + 2];
+                if (red >= 160 && red >= green + 40 && blue <= 90)
+                {
+                    redPixels++;
+                    if (redPixels >= 100)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static int CountDimmedDailyMissionRows(PixelFrame frame)
+    {
+        var rows = new List<(int Y, int Count)>();
+        for (var y = 250; y < Math.Min(920, frame.Height); y++)
+        {
+            var count = 0;
+            for (var x = 1480; x < Math.Min(1880, frame.Width); x++)
+            {
+                var index = (y * frame.Stride) + (x * 4);
+                var blue = frame.Pixels[index];
+                var green = frame.Pixels[index + 1];
+                var red = frame.Pixels[index + 2];
+                if (red >= 45 && blue >= 55 && green <= 125 &&
+                    red >= green + 5 && blue >= green + 12 && blue >= red + 4)
+                {
+                    count++;
+                }
+            }
+
+            if (count >= 16)
+            {
+                rows.Add((y, count));
+            }
+        }
+
+        if (rows.Count == 0)
+        {
+            return 0;
+        }
+
+        var clusterCount = 0;
+        var clusterStrength = 0;
+        var lastY = -10;
+        foreach (var row in rows)
+        {
+            if (row.Y - lastY > 3)
+            {
+                if (clusterStrength >= 80)
+                {
+                    clusterCount++;
+                }
+                clusterStrength = 0;
+            }
+
+            clusterStrength += row.Count;
+            lastY = row.Y;
+        }
+
+        return clusterStrength >= 80 ? clusterCount + 1 : clusterCount;
+    }
+
     public static double MeasureAverageLuma(
         PixelFrame frame,
         int x,

@@ -125,7 +125,16 @@ public partial class App : Application
             var taSelector = await recognition.FindInImageAsync("seletor_ta", imagePath);
             var dailyTeleportResource = await recognition.FindInImageAsync("daily_teleport_resource", imagePath);
             var dailyTeleportOk = await recognition.FindInImageAsync("daily_teleport_ok", imagePath);
+            var dailyPage = await recognition.FindInImageAsync("daily_page", imagePath);
             var guildDirectiveCompleted = await recognition.FindInCroppedImageAsync("guild_directive_completed", imagePath);
+            var dailyThirtyCounter = await recognition.HasDailyThirtyCounterInImageAsync(imagePath);
+            var dimmedDailyRows = await recognition.CountDimmedDailyMissionRowsInImageAsync(imagePath);
+            var mailPage = await recognition.FindInImageAsync("mail_page", imagePath);
+            var menuMail = await recognition.FindInImageAsync("menu_mail", imagePath);
+            var mailReceiveAll = await recognition.FindInImageAsync("mail_receive_all", imagePath);
+            var mailItems = await recognition.FindInImageAsync("mail_item_obtained", imagePath);
+            var mailEmpty = await recognition.FindInImageAsync("mail_empty", imagePath);
+            var mailNotification = await recognition.HasUnclaimedServerMailInImageAsync(imagePath);
             await File.WriteAllLinesAsync(
                 imageProbeOutputPath,
                 [
@@ -139,7 +148,16 @@ public partial class App : Application
                     $"taSelector={taSelector.Found};confidence={taSelector.Confidence:F4}",
                     $"dailyTeleportResource={dailyTeleportResource.Found};confidence={dailyTeleportResource.Confidence:F4}",
                     $"dailyTeleportOk={dailyTeleportOk.Found};confidence={dailyTeleportOk.Confidence:F4}",
-                    $"guildDirectiveCompleted={guildDirectiveCompleted.Found};confidence={guildDirectiveCompleted.Confidence:F4}"
+                    $"dailyPage={dailyPage.Found};confidence={dailyPage.Confidence:F4}",
+                    $"guildDirectiveCompleted={guildDirectiveCompleted.Found};confidence={guildDirectiveCompleted.Confidence:F4}",
+                    $"dailyThirtyCounter={dailyThirtyCounter}",
+                    $"dimmedDailyRows={dimmedDailyRows}",
+                    $"menuMail={menuMail.Found};confidence={menuMail.Confidence:F4}",
+                    $"mailPage={mailPage.Found};confidence={mailPage.Confidence:F4}",
+                    $"mailReceiveAll={mailReceiveAll.Found};confidence={mailReceiveAll.Confidence:F4}",
+                    $"mailItems={mailItems.Found};confidence={mailItems.Confidence:F4}",
+                    $"mailEmpty={mailEmpty.Found};confidence={mailEmpty.Confidence:F4}",
+                    $"mailNotification={mailNotification}"
                 ]);
             Shutdown();
             return;
@@ -149,6 +167,25 @@ public partial class App : Application
         if (selfTestIndex >= 0 && selfTestIndex + 1 < e.Args.Length)
         {
             await RunSelfTestAsync(Path.GetFullPath(e.Args[selfTestIndex + 1]));
+            Shutdown();
+            return;
+        }
+
+        var updateProbeIndex = Array.IndexOf(e.Args, "--update-probe");
+        if (updateProbeIndex >= 0 && updateProbeIndex + 1 < e.Args.Length)
+        {
+            var update = await new AppUpdateService().CheckAsync(new Version(0, 0), CancellationToken.None);
+            await File.WriteAllLinesAsync(
+                Path.GetFullPath(e.Args[updateProbeIndex + 1]),
+                update is null
+                    ? ["available=false"]
+                    :
+                    [
+                        "available=true",
+                        $"version={update.Version.ToString(3)}",
+                        $"installer={update.InstallerUrl}",
+                        $"checksum={update.ChecksumUrl}"
+                    ]);
             Shutdown();
             return;
         }
@@ -382,6 +419,33 @@ public partial class App : Application
         {
             throw new InvalidOperationException(
                 $"A Diretiva concluída não foi reconhecida no recorte ({completedGuildDirective.Confidence:P0}).");
+        }
+
+        var acceptedThirty = await recognition.HasDailyThirtyCounterInImageAsync(
+            Path.Combine(referenceDirectory, "daily_all_accepted.png"));
+        var unacceptedThirty = await recognition.HasDailyThirtyCounterInImageAsync(
+            Path.Combine(referenceDirectory, "daily_page.png"));
+        lines.Add($"daily_30_color|accepted={acceptedThirty}|unaccepted={unacceptedThirty}");
+        if (!acceptedThirty || unacceptedThirty)
+        {
+            throw new InvalidOperationException(
+                "O detector por cor do contador diário não separou corretamente 30/30 de 0/30.");
+        }
+
+        foreach (var mailReference in new[]
+        {
+            "menu_mail", "mail_page", "mail_receive_all", "mail_item_obtained", "mail_empty"
+        })
+        {
+            var mailImage = Path.Combine(referenceDirectory, mailReference == "menu_mail"
+                ? "mail_icon.png"
+                : $"{mailReference}.png");
+            var match = await recognition.FindInCroppedImageAsync(mailReference, mailImage);
+            lines.Add($"{mailReference}|own={match.Found}|confidence={match.Confidence:F4}");
+            if (!match.Found)
+            {
+                throw new InvalidOperationException($"A referência visual {mailReference} não reconheceu sua própria imagem.");
+            }
         }
 
         var abbeyConfirmation = await recognition.FindInCroppedImageAsync(

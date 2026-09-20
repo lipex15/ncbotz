@@ -5,7 +5,6 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace BotNC.App.Services;
@@ -15,41 +14,55 @@ public sealed record AvailableUpdate(Version Version, string InstallerUrl, strin
 public sealed class AppUpdateService
 {
     private const string Repository = "lipex15/ncbotz";
-    private static readonly Uri LatestReleaseUri = new($"https://api.github.com/repos/{Repository}/releases/latest");
+    private static readonly Uri LatestReleaseUri = new($"https://github.com/{Repository}/releases/latest");
     private static readonly HttpClient Client = CreateClient();
 
     public static Version CurrentVersion => Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0);
 
-    public async Task<AvailableUpdate?> CheckAsync(CancellationToken cancellationToken)
+    public Task<AvailableUpdate?> CheckAsync(CancellationToken cancellationToken) =>
+        CheckAsync(CurrentVersion, cancellationToken);
+
+    internal async Task<AvailableUpdate?> CheckAsync(
+        Version installedVersion,
+        CancellationToken cancellationToken)
     {
-        using var response = await Client.GetAsync(LatestReleaseUri, cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, LatestReleaseUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+        using var response = await Client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;
         }
 
         response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var release = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        var root = release.RootElement;
-        var tag = root.GetProperty("tag_name").GetString() ?? string.Empty;
+        var finalUri = response.RequestMessage?.RequestUri ?? LatestReleaseUri;
+        var match = Regex.Match(
+            finalUri.AbsolutePath,
+            $"^/{Regex.Escape(Repository)}/releases/tag/(?<tag>[^/]+)$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            throw new InvalidDataException("Não foi possível identificar a versão mais recente publicada.");
+        }
+
+        var tag = Uri.UnescapeDataString(match.Groups["tag"].Value);
         if (!Version.TryParse(tag.TrimStart('v', 'V'), out var version))
         {
             throw new InvalidDataException("A versão publicada no GitHub não tem um número válido.");
         }
 
-        if (version <= CurrentVersion)
+        if (version <= installedVersion)
         {
             return null;
         }
 
         var baseName = $"PEXBOT-Setup-v{version.ToString(3)}";
-        var installer = FindAsset(root, baseName + ".exe");
-        var checksum = FindAsset(root, baseName + ".sha256");
-        if (installer is null || checksum is null)
-        {
-            throw new InvalidDataException("A versão nova ainda não contém o instalador e a verificação de integridade.");
-        }
+        var releaseBase = $"https://github.com/{Repository}/releases/download/{Uri.EscapeDataString(tag)}";
+        var installer = $"{releaseBase}/{baseName}.exe";
+        var checksum = $"{releaseBase}/{baseName}.sha256";
 
         return new AvailableUpdate(version, installer, checksum);
     }
@@ -156,19 +169,6 @@ public sealed class AppUpdateService
         return match.Value;
     }
 
-    private static string? FindAsset(JsonElement release, string expectedName)
-    {
-        foreach (var asset in release.GetProperty("assets").EnumerateArray())
-        {
-            if (asset.GetProperty("name").GetString() == expectedName)
-            {
-                return asset.GetProperty("browser_download_url").GetString();
-            }
-        }
-
-        return null;
-    }
-
     private static Uri ValidateReleaseUrl(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
@@ -186,7 +186,6 @@ public sealed class AppUpdateService
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PEXBOT", "1.0"));
-        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
     }
 }

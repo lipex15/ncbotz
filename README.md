@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.9.8
+## Ciclo disponível — v0.9.9
 
 ### Rotinas Diárias e Diretivas
 
@@ -14,7 +14,8 @@ Aplicativo modular de automação visual para Night Crows.
 - fecha avisos de Agenda encerrada com `Y` e tenta executar as Diárias em descanso, mantendo o fluxo ativo mesmo se o descanso não abrir;
 - confirma a aceitação pelo aviso ou pelo contador `30/30` e fecha completamente o painel de Campanha antes de continuar;
 - confirma a conclusão pela ausência estável das missões roxas e retorna ao farm anterior;
-- observa a lista antes de usar o botão de mostrar/ocultar; ausência de missões só conta como conclusão quando a lista está comprovadamente visível;
+- observa a lista antes de usar o botão de mostrar/ocultar; aceita também uma única missão comum remanescente e nunca alterna a pena repetidamente no mesmo ciclo 30/30;
+- quando o ciclo 30/30 está aceito e a lista aberta não tem missão roxa, registra a conclusão e volta ao farm, inclusive após reiniciar o bot;
 - confirma o teleporte pelo botão e pela área de recursos, independentemente do nome do mapa; lê o popup na janela do cliente e recupera falhas transitórias sem encerrar o bot;
 - se a captura independente não reconhecer o popup, confere novamente na tela do cliente em primeiro plano antes de enviar Y;
 - aceita Diretiva de Guilda em Mapa Aberto, T.A ou Masmorras; o jogo conclui as cinco do local escolhido;
@@ -25,6 +26,18 @@ Aplicativo modular de automação visual para Night Crows.
 - aceitação, início e conclusão são persistidos separadamente; após falha ou reinício, uma campanha já aceita é retomada em vez de ser ignorada;
 - Diretiva de Mapa Aberto pendente continua elegível mesmo quando as Diárias já foram aceitas anteriormente;
 - sair da Abadia para uma rotina programada preserva o limite configurado de retornos.
+
+### Correio automático
+
+- confere o Correio do Servidor diariamente às 01:00 e às 07:00, por cliente, inclusive após iniciar o bot mais tarde;
+- abre pelo menu `=`, usa **Receber Tudo** somente quando há notificação vermelha, fecha **Item Obtido** e retorna ao jogo;
+- reabre o descanso quando o cliente estava farmando; se a entrega atrasar alguns minutos, reavalia a caixa antes de encerrar o horário;
+- a conferência de cada horário é persistida para não repetir a coleta no mesmo dia.
+
+### Atualizações
+
+- consulta a versão pública mais recente pelo redirecionamento de lançamentos do GitHub, sem depender do limite da API que causava HTTP 403;
+- mantém a verificação SHA-256 antes de instalar o pacote.
 
 ### T.A 1 (Codex)
 
