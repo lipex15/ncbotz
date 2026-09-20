@@ -1548,11 +1548,61 @@ public sealed class BotAutomationEngine(
         SetStatus(BotRunState.Running, $"{session.Options.Label}: indo ao spot", "Aguardando o personagem chegar");
         var startedAt = DateTime.UtcNow;
         var confirmations = 0;
+        var missingRestConfirmations = 0;
+        var reopenFailures = 0;
         var lastState = string.Empty;
         while (DateTime.UtcNow - startedAt < TimeSpan.FromMinutes(8))
         {
             await CheckpointAsync(pause, cancellationToken);
-            if ((await recognition.FindAsync("descanso_ponto_fixo", cancellationToken)).Found)
+            await AbortWorkflowIfDeathDetectedAsync(
+                session, "durante o deslocamento para o spot", cancellationToken);
+
+            var restState = await FindRestStateAsync(cancellationToken);
+            if (restState is null)
+            {
+                confirmations = 0;
+                missingRestConfirmations++;
+                if (missingRestConfirmations >= 3)
+                {
+                    WriteLog(
+                        session,
+                        "A tela de descanso sumiu durante o trajeto; reabrindo com L para continuar " +
+                        "acompanhando a chegada ao mesmo spot.");
+                    var reopened = await TryOpenRestPanelAsync(session, pause, cancellationToken);
+                    missingRestConfirmations = 0;
+                    if (reopened is null)
+                    {
+                        reopenFailures++;
+                        if (reopenFailures >= 3)
+                        {
+                            var restDiagnostic = await recognition.SaveDiagnosticAsync(
+                                $"descanso_perdido_trajeto_{session.Options.Priority}");
+                            throw new TimeoutException(
+                                $"{session.Options.Label}: a tela de descanso desapareceu durante o trajeto " +
+                                $"e não reabriu após três verificações locais. Diagnóstico: {restDiagnostic}");
+                        }
+
+                        WriteLog(
+                            session,
+                            "O descanso ainda não reapareceu; aguardando o carregamento antes de tentar novamente.");
+                    }
+                    else
+                    {
+                        reopenFailures = 0;
+                        WriteLog(
+                            session,
+                            $"Descanso reaberto em '{RestStateDescription(reopened.Value.ReferenceId)}'; " +
+                            "continuando a acompanhar o deslocamento.");
+                    }
+                }
+
+                await Task.Delay(700, cancellationToken);
+                continue;
+            }
+
+            missingRestConfirmations = 0;
+            reopenFailures = 0;
+            if (restState.Value.ReferenceId == "descanso_ponto_fixo")
             {
                 confirmations = 0;
                 LogMovementState(session, ref lastState, "Aguardando no ponto fixo");
@@ -1560,7 +1610,7 @@ public sealed class BotAutomationEngine(
                 continue;
             }
 
-            if ((await recognition.FindAsync("descanso_movendo", cancellationToken)).Found)
+            if (restState.Value.ReferenceId == "descanso_movendo")
             {
                 confirmations = 0;
                 LogMovementState(session, ref lastState, "Movendo-se");
@@ -1568,8 +1618,7 @@ public sealed class BotAutomationEngine(
                 continue;
             }
 
-            var waiting = await recognition.FindAsync("descanso_aguardando_spot", cancellationToken);
-            if (waiting.Found)
+            if (restState.Value.ReferenceId == "descanso_aguardando_spot")
             {
                 confirmations++;
                 LogMovementState(session, ref lastState, "Aguardando no spot");
@@ -2850,6 +2899,11 @@ public sealed class BotAutomationEngine(
                 $"Saindo do descanso para {purpose} — comando L {attempt}/3 " +
                 $"('{RestStateDescription(state.Value.ReferenceId)}', {state.Value.Result.Confidence:P0}).");
             await EnsureGameForegroundAsync(session, cancellationToken);
+            if (await FindRestStateAsync(cancellationToken) is null)
+            {
+                return true;
+            }
+
             await input.PressKeyAsync(
                 KeyL,
                 TimeSpan.FromMilliseconds(90 + (attempt * 55)),
@@ -2883,6 +2937,12 @@ public sealed class BotAutomationEngine(
 
             WriteLog(session, $"Reabrindo o descanso com L — tentativa {attempt}/3.");
             await EnsureGameForegroundAsync(session, cancellationToken);
+            existing = await FindRestStateAsync(cancellationToken);
+            if (existing is not null)
+            {
+                return existing;
+            }
+
             await input.PressKeyAsync(
                 KeyL,
                 TimeSpan.FromMilliseconds(90 + (attempt * 55)),

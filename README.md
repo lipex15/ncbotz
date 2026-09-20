@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.8
+## Ciclo disponível — v0.7.9
 
 ### Sapheras
 
@@ -34,6 +34,7 @@ Aplicativo modular de automação visual para Night Crows.
 - permite capturar um ponto fixo no mapa separadamente por cliente, substituindo o sorteio quando ativado;
 - reconhece dinamicamente o botão **Ir** no mapa;
 - acompanha `Movendo-se`, `Aguardando no ponto fixo` e a chegada ao spot;
+- se o jogo fechar o descanso durante um trajeto longo, reabre com `L` e continua observando a chegada ao mesmo spot antes de ativar a caça;
 - confirma o descanso pelo estado realmente exibido, sem repetir `L` quando ele já está aberto;
 - reafirma o foco antes de cada `L` e `Q`, repetindo localmente a ativação da caça sem abandonar o spot quando uma tecla for ignorada;
 - ativa a caça e confirma a tela de descanso antes de operar o próximo cliente;
