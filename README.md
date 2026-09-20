@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.5
+## Ciclo disponível — v0.7.6
 
 ### Sapheras
 
@@ -36,11 +36,14 @@ Aplicativo modular de automação visual para Night Crows.
 - acompanha `Movendo-se`, `Aguardando no ponto fixo` e a chegada ao spot;
 - confirma o descanso pelo estado realmente exibido, sem repetir `L` quando ele já está aberto;
 - ativa a caça e confirma a tela de descanso antes de operar o próximo cliente;
-- monitora o Som 2 de HP separadamente no processo de áudio de cada cliente;
+- monitora o alerta sonoro de HP baixo separadamente no processo de áudio de cada cliente;
 - combina a referência curta e o alerta completo, com confirmação reforçada quando o som estiver misturado ao combate;
 - mostra somente o estado essencial da proteção por cliente; os detalhes técnicos ficam no log persistente;
-- ao reconhecer HP baixo, traz a janela correta para frente e usa o TP configurado
+- somente o alerta sonoro de HP baixo pode acionar o TP; a leitura visual continua detectando morte, mas não HP baixo;
+- ao reconhecer o som de HP baixo, traz a janela correta para frente e usa o TP configurado
   entre 3 e 5 vezes;
+- depois do TP, confirma visualmente o **Posto de Patrulha Sul** e o menu de retorno antes de tentar reentrar na T.A; se isso falhar, não repete indefinidamente;
+- após três falhas consecutivas, suspende a reentrada automática daquele cliente até reiniciar o bot, mantendo a vigilância de morte e do alerta sonoro;
 - retorna à T.A configurada, compra poções no NPC interno e escolhe outro spot;
 - reconhece e fecha com `Y` o aviso visual de agenda indisponível.
 - reconhece qualquer tela de descanso e sai com `L` antes de abrir menus.
@@ -50,7 +53,7 @@ Aplicativo modular de automação visual para Night Crows.
 
 - confirma visualmente a tela **Você morreu** antes de agir;
 - confirma a abertura do painel e restaura as duas abas de recursos separadamente após o renascimento;
-- aguarda a resposta visual de cada aba e repete somente o clique que não respondeu;
+- lê os contadores das abas de EXP e equipamento e só conclui cada restauração quando a lista indicar zero;
 - não retoma a T.A enquanto o painel de restauração continuar aberto;
 - tenta abrir a lápide em `(1537,72)` e restaura XP/equipamento nos pontos configurados antes de retomar;
 - registra as mortes separadamente para cada cliente;

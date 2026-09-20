@@ -316,6 +316,32 @@ public partial class App : Application
         lines.Add(
             $"nivel_spot|image=mapa_ta2_favorito_unico.png|level={spotLevel.Level}|text={spotLevel.Text}");
 
+        var restorationReader = new RestorationCounterReader();
+        var restorationCases = new[]
+        {
+            ("perda_exp.png", RestorationTab.Experience, 1, RestorationCountState.Pending),
+            ("restauracao_exp_vazia.png", RestorationTab.Experience, 0, RestorationCountState.Empty),
+            ("restauracao_equipamento_vazia.png", RestorationTab.Equipment, 0, RestorationCountState.Empty),
+            ("agenda_tela.png", RestorationTab.Unknown, (int?)null, RestorationCountState.Unknown)
+        };
+        foreach (var (fileName, expectedTab, expectedCount, expectedState) in restorationCases)
+        {
+            var counter = await restorationReader.ReadImageAsync(
+                Path.Combine(referenceDirectory, fileName));
+            lines.Add(
+                $"restauracao_contador|image={fileName}|tab={counter.Tab}|count={counter.Count}|" +
+                $"capacity={counter.Capacity}|state={counter.State}|text={counter.RawText}");
+            if (counter.Tab != expectedTab ||
+                counter.Count != expectedCount ||
+                counter.State != expectedState)
+            {
+                throw new InvalidOperationException(
+                    $"Falha no teste de restauração '{fileName}': esperado " +
+                    $"{expectedTab}/{expectedCount}/{expectedState}, recebido " +
+                    $"{counter.Tab}/{counter.Count}/{counter.State}.");
+            }
+        }
+
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         await File.WriteAllLinesAsync(outputPath, lines);
     }

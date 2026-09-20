@@ -29,6 +29,29 @@ jobs:
         run: |
           dotnet publish src/BotNC.App/BotNC.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o publish
           if ($LASTEXITCODE -ne 0) { throw 'Application publish failed.' }
+      - name: Validate packaged detectors
+        shell: pwsh
+        run: |
+          $selfTest = Join-Path $env:RUNNER_TEMP 'pexbot-self-test.txt'
+          $audioTest = Join-Path $env:RUNNER_TEMP 'pexbot-audio-test.txt'
+          $app = (Resolve-Path 'publish/PEXBOT.exe').Path
+          $selfTestProcess = Start-Process -FilePath $app `
+            -ArgumentList @('--self-test', ('"' + $selfTest + '"')) `
+            -PassThru -Wait -WindowStyle Hidden
+          if ($selfTestProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $selfTest)) {
+            throw 'Packaged visual self-test failed.'
+          }
+          $audioReference = (Resolve-Path 'publish/Assets/Audio/hp_alert_som2_full.wav').Path
+          $audioTestProcess = Start-Process -FilePath $app `
+            -ArgumentList @('--audio-self-test', ('"' + $audioReference + '"'), ('"' + $audioTest + '"')) `
+            -PassThru -Wait -WindowStyle Hidden
+          if ($audioTestProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $audioTest)) {
+            throw 'Packaged audio self-test failed.'
+          }
+          $audioResult = Get-Content -LiteralPath $audioTest -Raw
+          if ($audioResult -notmatch 'prefixDetections=[1-9]' -or $audioResult -notmatch 'fullDetections=[1-9]') {
+            throw "Packaged audio detector did not recognize its alert reference: $audioResult"
+          }
       - name: Install Inno Setup
         shell: pwsh
         run: |

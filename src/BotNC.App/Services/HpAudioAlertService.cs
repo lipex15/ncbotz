@@ -60,7 +60,7 @@ public sealed class HpAudioAlertService
             if (changed)
             {
                 Status?.Invoke(value
-                    ? "Proteção de HP ARMADA e aguardando o Som 2."
+                    ? "Proteção de HP ARMADA e aguardando o alerta sonoro."
                     : "Proteção de HP DESARMADA durante a ação atual.");
                 PublishTelemetry(force: true);
             }
@@ -153,12 +153,12 @@ public sealed class HpAudioAlertService
             "hp_alert_som2_full.wav");
         if (!File.Exists(referencePath))
         {
-            throw new FileNotFoundException("A referência de áudio Som 2 não foi encontrada.", referencePath);
+            throw new FileNotFoundException("A referência do alerta sonoro de HP baixo não foi encontrada.", referencePath);
         }
 
         if (!File.Exists(fullReferencePath))
         {
-            throw new FileNotFoundException("A referência completa do áudio Som 2 não foi encontrada.", fullReferencePath);
+            throw new FileNotFoundException("A referência completa do alerta sonoro de HP baixo não foi encontrada.", fullReferencePath);
         }
 
         var prefixMatcher = AudioEnvelopeMatcher.FromPcmWave(referencePath, PrefixDetectionThreshold);
@@ -239,7 +239,7 @@ public sealed class HpAudioAlertService
 
             _healthy = true;
             Status?.Invoke(
-                $"Áudio seletivo conectado ao processo {processId}; detector duplo do Som 2 ativo.");
+                $"Áudio seletivo conectado ao processo {processId}; detector do alerta de HP baixo ativo.");
             PublishTelemetry(force: true);
             ready.TrySetResult();
 
@@ -284,7 +284,7 @@ public sealed class HpAudioAlertService
                 Interlocked.Exchange(ref _pendingAlert, 1);
                 ResetNearCandidates();
                 PublishTelemetry(force: true);
-                Status?.Invoke($"Alerta de HP Som 2 CONFIRMADO ({confidence:P0}).");
+                Status?.Invoke($"Alerta sonoro de HP baixo CONFIRMADO ({confidence:P0}).");
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -329,7 +329,7 @@ public sealed class HpAudioAlertService
 
         Interlocked.Exchange(ref _lastNearCandidateTicks, nowTicks);
         var count = Volatile.Read(ref _nearCandidateCount);
-        Status?.Invoke($"Som 2 quase confirmado ({confidence:P0}) — amostra {count}/2.");
+        Status?.Invoke($"Alerta sonoro quase confirmado ({confidence:P0}) — amostra {count}/2.");
         return count >= 2;
     }
 

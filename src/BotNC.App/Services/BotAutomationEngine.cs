@@ -17,12 +17,12 @@ public sealed class BotAutomationEngine(
     private const int KeyM = 0x4D;
     private const int KeyY = 0x59;
     private const int KeyEquals = 0xBB;
-    private const double VisualHpEmergencyThreshold = 0.55;
     private const double FullDeathConfidence = 0.66;
     private const double FixedDeathElementConfidence = 0.82;
     private const double RestDeathConfidence = 0.68;
     private const double TaContextConfidence = 0.48;
     private readonly Random _random = new();
+    private readonly RestorationCounterReader _restorationCounterReader = new();
     private readonly object _logFileSync = new();
     private readonly string _runtimeLogPath = CreateRuntimeLogPath();
     private readonly SpotLevelRecognitionService _spotLevelRecognition = new();
@@ -489,32 +489,42 @@ public sealed class BotAutomationEngine(
             var frame = await CaptureClientFrameAsync(session, cancellationToken);
             return await FindFullDeathInFrameAsync(frame, cancellationToken);
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             if (gameWindows.IsForeground(session.Options.Target))
             {
                 return await FindFullDeathInFrameAsync(capture.CapturePrimaryScreen(), cancellationToken);
             }
 
-            return new RecognitionResult(false, 0, 0, 0);
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: a tela de morte não pôde ser observada com segurança.",
+                exception);
         }
     }
 
     private async Task<RecognitionResult> FindReferenceOnClientAsync(
         ClientSession session,
         string referenceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireObservable = false)
     {
         try
         {
             var frame = await CaptureClientFrameAsync(session, cancellationToken);
             return await recognition.FindAsync(referenceId, frame, cancellationToken);
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             if (gameWindows.IsForeground(session.Options.Target))
             {
                 return await recognition.FindAsync(referenceId, cancellationToken);
+            }
+
+            if (requireObservable)
+            {
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: a janela não entregou imagem válida para verificar '{referenceId}'.",
+                    exception);
             }
 
             return new RecognitionResult(false, 0, 0, 0);
@@ -532,7 +542,8 @@ public sealed class BotAutomationEngine(
         while (DateTime.UtcNow < deadline)
         {
             await CheckpointAsync(pause, cancellationToken);
-            if ((await FindReferenceOnClientAsync(session, referenceId, cancellationToken)).Found)
+            if ((await FindReferenceOnClientAsync(
+                    session, referenceId, cancellationToken, requireObservable: true)).Found)
             {
                 return true;
             }
@@ -685,32 +696,7 @@ public sealed class BotAutomationEngine(
                     if (!session.Audio.IsHealthy && !session.AudioFailureLogged)
                     {
                         session.AudioFailureLogged = true;
-                        WriteLog(session, "Captura de áudio indisponível; mantendo a proteção visual independente e tentando reconectar.");
-                    }
-
-                    if (Interlocked.Exchange(ref session.PendingVisualLowHp, 0) != 0)
-                    {
-                        WriteLog(session, $"HP crítico visual durante Sapheras ({session.LastVisualHpPercent:P0}).");
-                        session.Audio.Armed = false;
-                        if (session.Options.UseSapheras)
-                        {
-                            await RunSessionActionSafelyAsync(
-                                session,
-                                "TP visual em Sapheras",
-                                () => EmergencyReturnToSapherasAsync(session, sapheras, antiOverkill, finishesAt, pause, cancellationToken),
-                                cancellationToken);
-                        }
-                        else
-                        {
-                            await RunSessionActionSafelyAsync(
-                                session,
-                                "TP visual na T.A durante Sapheras",
-                                () => EmergencyReturnAsync(session, sapheras, antiOverkill, pause, cancellationToken),
-                                cancellationToken);
-                        }
-
-                        session.Audio.Armed = session.NextRecoveryAttemptAt == default && session.IsFarmingTa;
-                        break;
+                        WriteLog(session, "Áudio de HP indisponível; tentando reconectar. A imagem continua detectando morte, mas nunca aciona TP.");
                     }
 
                     if (!session.Audio.TryConsumeAlert(out var confidence))
@@ -720,9 +706,10 @@ public sealed class BotAutomationEngine(
 
                     WriteLog(session, $"HP baixo durante Sapheras ({confidence:P0}). Acionando proteção.");
                     session.Audio.Armed = false;
+                    bool protectionCompleted;
                     if (session.Options.UseSapheras)
                     {
-                        await RunSessionActionSafelyAsync(
+                        protectionCompleted = await RunSessionActionSafelyAsync(
                             session,
                             "TP de áudio em Sapheras",
                             () => EmergencyReturnToSapherasAsync(session, sapheras, antiOverkill, finishesAt, pause, cancellationToken),
@@ -730,14 +717,23 @@ public sealed class BotAutomationEngine(
                     }
                     else
                     {
-                        await RunSessionActionSafelyAsync(
+                        protectionCompleted = await RunSessionActionSafelyAsync(
                             session,
                             "TP de áudio na T.A durante Sapheras",
                             () => EmergencyReturnAsync(session, sapheras, antiOverkill, pause, cancellationToken),
                             cancellationToken);
                     }
 
-                    session.Audio.Armed = session.NextRecoveryAttemptAt == default && session.IsFarmingTa;
+                    // Em falha, o recuperador decide se o áudio deve ficar
+                    // armado. Não sobrescrever essa decisão evita perder o
+                    // próximo alerta depois de um TP não confirmado.
+                    if (protectionCompleted)
+                    {
+                        session.Audio.Armed = session.NextRecoveryAttemptAt == default &&
+                                              (session.IsFarmingTa ||
+                                               (session.Options.UseSapheras && session.SafeInRest));
+                    }
+
                     break;
                 }
 
@@ -766,7 +762,6 @@ public sealed class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         _ = session.Audio.TryConsumeAlert(out _);
-        Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
         session.SafeInRest = false;
         await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
         if ((await FindDeathOnClientAsync(session, cancellationToken)).Found)
@@ -795,15 +790,18 @@ public sealed class BotAutomationEngine(
             return;
         }
 
+        await ConfirmEmergencyTeleportDestinationAsync(
+            session, pause, cancellationToken, returnToSapheras: true);
         if (DateTime.Now < finishesAt - TimeSpan.FromMinutes(1))
         {
-            WriteLog(session, "Retorno seguro confirmado; reentrando em Sapheras por prioridade máxima.");
+            WriteLog(session, "Menu de retorno confirmado após o TP; reentrando em Sapheras por prioridade máxima.");
             await EnterSapherasAsync(session, sapheras, pause, cancellationToken);
             session.SafeInRest = true;
         }
         else
         {
-            session.SafeInRest = true;
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            session.SafeInRest = false;
             WriteLog(session, "Sapheras termina em menos de 1 minuto; permanecendo na cidade para o retorno ao ciclo normal.");
         }
     }
@@ -825,7 +823,6 @@ public sealed class BotAutomationEngine(
         session.Audio.Armed = false;
         _ = session.Audio.TryConsumeAlert(out _);
         Interlocked.Exchange(ref session.PendingVisualDeath, 0);
-        Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
         try
         {
             SetStatus(BotRunState.Running, $"{session.Options.Label}: morte em Sapheras", "Restaurando antes de retomar a prioridade");
@@ -1346,6 +1343,7 @@ public sealed class BotAutomationEngine(
         session.IsFarmingTa = true;
         session.SafeInRest = true;
         session.Audio.Armed = true;
+        session.ConsecutiveRecoveryFailures = 0;
         WriteLog(session, $"Farm da {taName} iniciado e confirmado.");
     }
 
@@ -1737,32 +1735,7 @@ public sealed class BotAutomationEngine(
                     if (!session.Audio.IsHealthy && !session.AudioFailureLogged)
                     {
                         session.AudioFailureLogged = true;
-                        WriteLog(session, "Captura de áudio indisponível; a proteção visual independente permanece ativa.");
-                    }
-
-                    if (Interlocked.Exchange(ref session.PendingVisualLowHp, 0) != 0)
-                    {
-                        WriteLog(session, $"Atendendo HP crítico visual ({session.LastVisualHpPercent:P0}).");
-                        session.Audio.Armed = false;
-                        try
-                        {
-                            await EmergencyReturnAsync(session, sapheras, antiOverkill, pause, cancellationToken);
-                        }
-                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                        {
-                            throw;
-                        }
-                        catch (Exception exception)
-                        {
-                            RecoverSessionAfterActionFailure(session, exception, "TP visual de emergência");
-                        }
-
-                        if (!session.InAgenda && session.NextRecoveryAttemptAt == default && session.IsFarmingTa)
-                        {
-                            session.Audio.Armed = true;
-                        }
-
-                        break;
+                        WriteLog(session, "Áudio de HP indisponível; tentando reconectar. A imagem continua detectando morte, mas nunca aciona TP.");
                     }
 
                     if (!session.Audio.TryConsumeAlert(out var confidence))
@@ -1770,7 +1743,7 @@ public sealed class BotAutomationEngine(
                         continue;
                     }
 
-                    WriteLog(session, $"HP baixo confirmado pelo Som 2 ({confidence:P0}). Atendendo este cliente agora.");
+                    WriteLog(session, $"Alerta sonoro de HP baixo confirmado ({confidence:P0}). Atendendo este cliente agora.");
                     session.Audio.Armed = false;
                     try
                     {
@@ -1840,7 +1813,6 @@ public sealed class BotAutomationEngine(
 
                 if (session.InAgenda || session.HandlingDeath)
                 {
-                    session.VisualLowHpHits = 0;
                     session.DeathVisualHits = 0;
                     await Task.Delay(120, cancellationToken);
                     continue;
@@ -1849,7 +1821,6 @@ public sealed class BotAutomationEngine(
                 var death = await FindDeathInFrameAsync(frame, cancellationToken);
                 if (death.Found)
                 {
-                    session.VisualLowHpHits = 0;
                     session.DeathVisualHits++;
                     if (session.DeathVisualHits >= 2 && Interlocked.Exchange(ref session.PendingVisualDeath, 1) == 0)
                     {
@@ -1869,36 +1840,8 @@ public sealed class BotAutomationEngine(
                     session.DeathVisualHits = 0;
                 }
 
-                if (!session.Audio.Armed)
-                {
-                    session.VisualLowHpHits = 0;
-                    await Task.Delay(120, cancellationToken);
-                    continue;
-                }
-
-                var hp = HpBarAnalyzer.Measure(frame);
-                if (!hp.Found || hp.Percent > VisualHpEmergencyThreshold)
-                {
-                    session.VisualLowHpHits = 0;
-                    if (hp.Found)
-                    {
-                        session.LastVisualHpPercent = hp.Percent;
-                    }
-
-                    await Task.Delay(120, cancellationToken);
-                    continue;
-                }
-
-                session.LastVisualHpPercent = hp.Percent;
-                session.VisualLowHpHits++;
-                if (session.VisualLowHpHits >= 2 &&
-                    Interlocked.Exchange(ref session.PendingVisualLowHp, 1) == 0)
-                {
-                    WriteLog(
-                        session,
-                        $"HP crítico confirmado visualmente em segundo plano ({hp.Percent:P0}); proteção solicitada.");
-                }
-
+                // Somente o áudio de HP baixo solicita teleporte. A captura visual
+                // deste cliente continua responsável pela detecção de morte.
                 await Task.Delay(120, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -2000,6 +1943,32 @@ public sealed class BotAutomationEngine(
     {
         session.Audio.Armed = false;
         session.SafeInRest = false;
+        session.ConsecutiveRecoveryFailures++;
+        if (exception is EmergencyTeleportUnconfirmedException)
+        {
+            session.NextRecoveryAttemptAt = default;
+            session.Audio.Armed = true;
+            WriteLog(
+                session,
+                $"ATENÇÃO: {exception.Message} Não vou repetir a entrada na T.A sem confirmação. " +
+                "A detecção de morte continua ativa; um novo alerta sonoro poderá solicitar outro TP.");
+            WritePersistentOnly(session, exception.ToString());
+            return;
+        }
+
+        if (session.ConsecutiveRecoveryFailures >= 3)
+        {
+            session.NextRecoveryAttemptAt = default;
+            session.Audio.Armed = true;
+            WriteLog(
+                session,
+                $"ATENÇÃO: {action} falhou {session.ConsecutiveRecoveryFailures} vezes. " +
+                "Suspendi a reentrada automática para não repetir cliques indefinidamente. " +
+                "A vigilância de morte e o alerta sonoro continuam ativos; verifique o cliente e reinicie o bot para retomar o ciclo.");
+            WritePersistentOnly(session, exception.ToString());
+            return;
+        }
+
         WriteLog(
             session,
             $"FALHA RECUPERÁVEL durante {action}: {exception.GetBaseException().Message}. " +
@@ -2092,10 +2061,9 @@ public sealed class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         _ = session.Audio.TryConsumeAlert(out _);
-        Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
         session.SafeInRest = false;
         session.IsFarmingTa = false;
-        SetStatus(BotRunState.Running, $"{session.Options.Label}: proteção acionada", "Som 2 reconhecido · enviando TP");
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: proteção acionada", "Alerta sonoro de HP baixo · enviando TP");
         await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
         var deathBeforeTeleport = await FindDeathOnClientAsync(session, cancellationToken);
         if (Volatile.Read(ref session.PendingVisualDeath) != 0 || deathBeforeTeleport.Found)
@@ -2127,10 +2095,56 @@ public sealed class BotAutomationEngine(
             return;
         }
 
-        WriteLog(session, $"TP concluído sem tela de morte; reentrando na {TaName(session.Options.Destination)} e recompondo o farm.");
-        // O TP pode terminar com o cliente ainda na tela de descanso. O fluxo
-        // completo sai com L antes de tentar abrir qualquer menu.
+        // Ausência de morte não prova que o TP funcionou. Em particular, uma
+        // tecla ignorada dentro da T.A deixava o cliente no mesmo farm e a
+        // recuperação tentava reentrar indefinidamente na T.A já aberta.
+        await ConfirmEmergencyTeleportDestinationAsync(
+            session, pause, cancellationToken, returnToSapheras: false);
+        WriteLog(session, $"Retorno do TP confirmado; reentrando na {TaName(session.Options.Destination)} e recompondo o farm.");
         await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: true);
+    }
+
+    private async Task ConfirmEmergencyTeleportDestinationAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken,
+        bool returnToSapheras)
+    {
+        await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+        try
+        {
+            var reachedSafePost = await WaitForReferenceOnClientAsync(
+                session,
+                "posto_patrulha_sul",
+                TimeSpan.FromSeconds(60),
+                pause,
+                cancellationToken);
+            if (!reachedSafePost)
+            {
+                throw new TimeoutException("o Posto de Patrulha Sul não apareceu após o TP");
+            }
+
+            WriteLog(session, "Destino do TP confirmado visualmente: Posto de Patrulha Sul.");
+            await ExitRestIfNeededAsync(pause, cancellationToken);
+            // Além do nome da área segura, o menu correto precisa ficar
+            // disponível. O próximo fluxo o reaproveita sem alternar '='.
+            if (returnToSapheras)
+            {
+                await OpenDungeonMenuAsync(session, pause, cancellationToken);
+            }
+            else
+            {
+                await OpenTaMenuAsync(session, pause, cancellationToken);
+            }
+        }
+        catch (Exception exception) when (
+            exception is not OperationCanceledException &&
+            !cancellationToken.IsCancellationRequested)
+        {
+            throw new EmergencyTeleportUnconfirmedException(
+                $"{session.Options.Label}: não foi possível confirmar o retorno seguro do TP.",
+                exception);
+        }
     }
 
     private async Task<RecognitionResult?> WaitForDeathAfterEmergencyAsync(
@@ -2175,7 +2189,6 @@ public sealed class BotAutomationEngine(
         session.Audio.Armed = false;
         _ = session.Audio.TryConsumeAlert(out _);
         Interlocked.Exchange(ref session.PendingVisualDeath, 0);
-        Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
         session.SafeInRest = false;
         session.IsFarmingTa = false;
         try
@@ -2318,19 +2331,29 @@ public sealed class BotAutomationEngine(
         WriteLog(session, "Aguardando o personagem e os indicadores de perda estabilizarem.");
         await ActionDelayAsync(cancellationToken, 1800, 2600);
         await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
-        if ((await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
+        var panelCounter = await WaitForRestorationCounterAsync(
+            session, TimeSpan.FromSeconds(4), pause, cancellationToken);
+        if (panelCounter.State != RestorationCountState.Unknown)
         {
             WriteLog(session, "O painel de restauração já está aberto; evitando clique desnecessário.");
         }
         else
         {
+            if ((await FindReferenceOnClientAsync(
+                    session, "painel_restauracao", cancellationToken, requireObservable: true)).Found)
+            {
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: o painel de restauração está aberto, mas seu contador não pôde ser lido.");
+            }
+
             WriteLog(session, "Procurando o ícone vermelho de perda de EXP/item no canto superior.");
             var iconDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
             var iconFound = false;
             while (DateTime.UtcNow < iconDeadline)
             {
                 await CheckpointAsync(pause, cancellationToken);
-                var icon = await FindReferenceOnClientAsync(session, "icone_perda_exp", cancellationToken);
+                var icon = await FindReferenceOnClientAsync(
+                    session, "icone_perda_exp", cancellationToken, requireObservable: true);
                 if (icon.Found)
                 {
                     iconFound = true;
@@ -2350,21 +2373,20 @@ public sealed class BotAutomationEngine(
                 return;
             }
 
-            var panelOpened = false;
-            for (var attempt = 1; attempt <= 3 && !panelOpened; attempt++)
+            for (var attempt = 1; attempt <= 3; attempt++)
             {
                 await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
                 WriteLog(session, $"Clicando na lápide em (1537, 72) — tentativa {attempt}/3.");
                 await input.MoveAndClickAsync(1537, 72, TimeSpan.FromMilliseconds(450), cancellationToken);
-                panelOpened = await WaitForReferenceOnClientAsync(
-                    session,
-                    "painel_restauracao",
-                    TimeSpan.FromSeconds(5),
-                    pause,
-                    cancellationToken);
+                panelCounter = await WaitForRestorationCounterAsync(
+                    session, TimeSpan.FromSeconds(6), pause, cancellationToken);
+                if (panelCounter.State != RestorationCountState.Unknown)
+                {
+                    break;
+                }
             }
 
-            if (!panelOpened)
+            if (panelCounter.State == RestorationCountState.Unknown)
             {
                 var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
                 var diagnostic = await recognition.SaveDiagnosticAsync(
@@ -2375,68 +2397,76 @@ public sealed class BotAutomationEngine(
             }
         }
 
-        WriteLog(session, "Painel confirmado; restaurando separadamente as duas abas.");
-        await ActionDelayAsync(cancellationToken, 900, 1400);
-        await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
-        var xpRestored = await RestoreVisibleResourceTabAsync(
-            session, "EXP", 285, 886, pause, cancellationToken);
-
-        WriteLog(session, "Selecionando a segunda aba de restauração em (47, 275).");
-        var secondTabOpened = false;
-        for (var attempt = 1; attempt <= 3 && !secondTabOpened; attempt++)
+        WriteLog(session, "Painel confirmado pelo contador; restaurando até cada lista ficar vazia.");
+        if (panelCounter.Tab == RestorationTab.Experience)
         {
-            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
-            var beforeSecondTab = await CaptureClientFrameAsync(session, cancellationToken);
-            await input.ClickAsync(47, 275, cancellationToken);
-            secondTabOpened = await WaitForRegionChangeAsync(
-                session,
-                beforeSecondTab,
-                0, 175, 460, 760,
-                TimeSpan.FromSeconds(4),
-                pause,
-                cancellationToken);
+            await RestoreVisibleResourceTabAsync(
+                session, RestorationTab.Experience, 285, 886, pause, cancellationToken);
+            WriteLog(session, "Verificando a aba de equipamento em (47, 275).");
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+                await input.ClickAsync(47, 275, cancellationToken);
+                panelCounter = await WaitForRestorationCounterAsync(
+                    session, TimeSpan.FromSeconds(5), pause, cancellationToken,
+                    RestorationTab.Equipment);
+                if (panelCounter.Tab == RestorationTab.Equipment)
+                {
+                    break;
+                }
+            }
+
+            if (panelCounter.Tab == RestorationTab.Equipment)
+            {
+                await RestoreVisibleResourceTabAsync(
+                    session, RestorationTab.Equipment, 259, 886, pause, cancellationToken);
+            }
+            else if (panelCounter.Tab == RestorationTab.Experience)
+            {
+                WriteLog(session, "A aba de equipamento não apareceu; apenas a perda de EXP estava disponível.");
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: não foi possível identificar a segunda aba de restauração.");
+            }
         }
-
-        var equipmentRestored = false;
-        if (secondTabOpened)
+        else if (panelCounter.Tab == RestorationTab.Equipment)
         {
-            await ActionDelayAsync(cancellationToken, 900, 1400);
-            equipmentRestored = await RestoreVisibleResourceTabAsync(
-                session, "item/equipamento", 259, 886, pause, cancellationToken);
+            await RestoreVisibleResourceTabAsync(
+                session, RestorationTab.Equipment, 259, 886, pause, cancellationToken);
         }
         else
         {
-            WriteLog(session, "A segunda aba não abriu; ela pode estar indisponível nesta morte.");
-        }
-
-        if (!xpRestored && !equipmentRestored)
-        {
             throw new InvalidOperationException(
-                $"{session.Options.Label}: nenhum recurso respondeu à restauração; " +
-                "não é seguro retornar ao farm enquanto a perda indicada continuar pendente.");
+                $"{session.Options.Label}: o painel abriu, mas a aba de recursos não pôde ser identificada.");
         }
 
-        if (!(await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
-        {
-            var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
-            var diagnostic = await recognition.SaveDiagnosticAsync(
-                $"restauracao_fechou_antes_{session.Options.Priority}",
-                diagnosticFrame);
-            throw new InvalidOperationException(
-                $"{session.Options.Label}: o painel de restauração fechou antes da conclusão das duas abas. Diagnóstico: {diagnostic}");
-        }
-
-        WriteLog(session, "As duas abas foram processadas; fechando o painel com Esc.");
+        WriteLog(session, "Contadores de restauração zerados; fechando o painel com Esc.");
         await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
         var closeDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (DateTime.UtcNow < closeDeadline &&
-               (await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
+        var closedConfirmations = 0;
+        while (DateTime.UtcNow < closeDeadline)
         {
             await CheckpointAsync(pause, cancellationToken);
+            panelCounter = await ReadRestorationCounterAsync(session, cancellationToken);
+            if (panelCounter.State == RestorationCountState.Unknown)
+            {
+                closedConfirmations++;
+                if (closedConfirmations >= 3)
+                {
+                    break;
+                }
+            }
+            else
+            {
+                closedConfirmations = 0;
+            }
+
             await Task.Delay(350, cancellationToken);
         }
 
-        if ((await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken)).Found)
+        if (closedConfirmations < 3)
         {
             throw new TimeoutException($"{session.Options.Label}: o painel de restauração não fechou após Esc.");
         }
@@ -2445,110 +2475,107 @@ public sealed class BotAutomationEngine(
         session.NeedsDeathRestoration = false;
     }
 
-    private async Task<bool> RestoreVisibleResourceTabAsync(
+    private async Task RestoreVisibleResourceTabAsync(
         ClientSession session,
-        string tabName,
+        RestorationTab expectedTab,
         int clickX,
         int clickY,
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        var tabName = expectedTab == RestorationTab.Experience ? "EXP" : "equipamento";
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             await CheckpointAsync(pause, cancellationToken);
             await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
-            var beforeClick = await CaptureClientFrameAsync(session, cancellationToken);
+            var current = await WaitForRestorationCounterAsync(
+                session, TimeSpan.FromSeconds(5), pause, cancellationToken);
+            if (current.Tab != expectedTab)
+            {
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: aba de {tabName} não identificada antes do clique. OCR: '{current.RawText}'.");
+            }
+
+            if (current.State == RestorationCountState.Empty)
+            {
+                WriteLog(session, $"Lista de {tabName} já vazia ({current.Count}); nenhum clique necessário.");
+                return;
+            }
+
             WriteLog(session, $"Restaurando aba de {tabName} em ({clickX}, {clickY}) — tentativa {attempt}/3.");
             await input.ClickAsync(clickX, clickY, cancellationToken);
-            var changed = await WaitForRegionChangeAsync(
-                session,
-                beforeClick,
-                70, 105, 390, 830,
-                TimeSpan.FromSeconds(4),
-                pause,
-                cancellationToken);
-            if (changed)
+            var afterClick = await WaitForRestorationCounterAsync(
+                session, TimeSpan.FromSeconds(8), pause, cancellationToken,
+                expectedTab, RestorationCountState.Empty);
+            if (afterClick.Tab == expectedTab && afterClick.State == RestorationCountState.Empty)
             {
-                WriteLog(session, $"Aba de {tabName} respondeu ao clique de restauração.");
-                await ActionDelayAsync(cancellationToken, 900, 1400);
-                return true;
+                WriteLog(session, $"Lista de {tabName} vazia confirmada pelo contador.");
+                return;
             }
 
             if (attempt < 3)
             {
-                WriteLog(session, $"Aba de {tabName} ainda não respondeu; repetindo somente este clique.");
+                WriteLog(session, $"A lista de {tabName} ainda não zerou; repetindo somente este clique.");
             }
         }
 
-        WriteLog(session, $"Aba de {tabName} não apresentou mudança visual; ela pode estar sem perda restaurável.");
-        return false;
+        throw new InvalidOperationException(
+            $"{session.Options.Label}: a lista de {tabName} não ficou vazia após três tentativas; " +
+            "não vou retornar ao farm com restauração pendente.");
     }
 
-    private async Task<bool> WaitForRegionChangeAsync(
+    private async Task<RestorationCounterResult> ReadRestorationCounterAsync(
         ClientSession session,
-        PixelFrame baseline,
-        int x,
-        int y,
-        int width,
-        int height,
-        TimeSpan timeout,
-        PauseController pause,
         CancellationToken cancellationToken)
     {
+        PixelFrame frame;
+        try
+        {
+            frame = await CaptureClientFrameAsync(session, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            if (!gameWindows.IsForeground(session.Options.Target))
+            {
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: a aba de restauração não pôde ser observada com segurança.",
+                    exception);
+            }
+
+            frame = capture.CapturePrimaryScreen();
+        }
+
+        return await _restorationCounterReader.ReadClientFrameAsync(frame, cancellationToken);
+    }
+
+    private async Task<RestorationCounterResult> WaitForRestorationCounterAsync(
+        ClientSession session,
+        TimeSpan timeout,
+        PauseController pause,
+        CancellationToken cancellationToken,
+        RestorationTab? expectedTab = null,
+        RestorationCountState? expectedState = null)
+    {
         var deadline = DateTime.UtcNow + timeout;
+        var last = new RestorationCounterResult(RestorationTab.Unknown, null, null, string.Empty);
+        var confirmations = 0;
         while (DateTime.UtcNow < deadline)
         {
             await CheckpointAsync(pause, cancellationToken);
-            var current = await CaptureClientFrameAsync(session, cancellationToken);
-            if (MeasureRegionDifference(baseline, current, x, y, width, height) >= 5.5)
+            last = await ReadRestorationCounterAsync(session, cancellationToken);
+            var matches = last.State != RestorationCountState.Unknown &&
+                          (expectedTab is null || last.Tab == expectedTab) &&
+                          (expectedState is null || last.State == expectedState);
+            confirmations = matches ? confirmations + 1 : 0;
+            if (confirmations >= 2)
             {
-                return true;
+                return last;
             }
 
-            await Task.Delay(250, cancellationToken);
+            await Task.Delay(300, cancellationToken);
         }
 
-        return false;
-    }
-
-    private static double MeasureRegionDifference(
-        PixelFrame first,
-        PixelFrame second,
-        int referenceX,
-        int referenceY,
-        int referenceWidth,
-        int referenceHeight)
-    {
-        if (first.Width != second.Width || first.Height != second.Height)
-        {
-            return double.MaxValue;
-        }
-
-        var scaleX = first.Width / 1920d;
-        var scaleY = first.Height / 1040d;
-        var left = Math.Clamp((int)Math.Round(referenceX * scaleX), 0, first.Width - 1);
-        var top = Math.Clamp((int)Math.Round(referenceY * scaleY), 0, first.Height - 1);
-        var right = Math.Clamp((int)Math.Round((referenceX + referenceWidth) * scaleX), left + 1, first.Width);
-        var bottom = Math.Clamp((int)Math.Round((referenceY + referenceHeight) * scaleY), top + 1, first.Height);
-        double difference = 0;
-        var samples = 0;
-        for (var sampleY = top; sampleY < bottom; sampleY += 4)
-        {
-            for (var sampleX = left; sampleX < right; sampleX += 4)
-            {
-                var offset = (sampleY * first.Stride) + (sampleX * 4);
-                var firstLuma = ((first.Pixels[offset + 2] * 77) +
-                                 (first.Pixels[offset + 1] * 150) +
-                                 (first.Pixels[offset] * 29)) >> 8;
-                var secondLuma = ((second.Pixels[offset + 2] * 77) +
-                                  (second.Pixels[offset + 1] * 150) +
-                                  (second.Pixels[offset] * 29)) >> 8;
-                difference += Math.Abs(firstLuma - secondLuma);
-                samples++;
-            }
-        }
-
-        return samples == 0 ? 0 : difference / samples;
+        return last;
     }
 
     private async Task StartAgendaAsync(
@@ -2999,13 +3026,13 @@ public sealed class BotAutomationEngine(
 
     private void HandleAudioStatus(ClientSession session, string message)
     {
-        if (message.StartsWith("Som 2 quase confirmado", StringComparison.Ordinal))
+        if (message.StartsWith("Alerta sonoro quase confirmado", StringComparison.Ordinal))
         {
             WritePersistentOnly(session, message);
             return;
         }
 
-        if (message.StartsWith("Alerta de HP Som 2 CONFIRMADO", StringComparison.Ordinal))
+        if (message.StartsWith("Alerta sonoro de HP baixo CONFIRMADO", StringComparison.Ordinal))
         {
             WritePersistentOnly(session, message);
             WriteLog(session, "Alerta de HP confirmado.");
@@ -3054,6 +3081,9 @@ public sealed class BotAutomationEngine(
         return Path.Combine(directory, $"pexbot-{DateTime.Now:yyyyMMdd-HHmmss}.log");
     }
 
+    private sealed class EmergencyTeleportUnconfirmedException(string message, Exception innerException)
+        : Exception(message, innerException);
+
     private sealed class ClientSession(AutomationClientOptions options)
     {
         public AutomationClientOptions Options { get; } = options;
@@ -3066,10 +3096,8 @@ public sealed class BotAutomationEngine(
         public int LastFarmSpot { get; set; } = -1;
         public int LastFarmSpotLevel { get; set; } = -1;
         public int PendingVisualDeath;
-        public int PendingVisualLowHp;
-        public int VisualLowHpHits { get; set; }
         public int DeathVisualHits { get; set; }
-        public double LastVisualHpPercent { get; set; }
+        public int ConsecutiveRecoveryFailures { get; set; }
         public bool SafeInRest { get; set; }
         public bool IsFarmingTa { get; set; }
         public bool InAgenda { get; set; }
