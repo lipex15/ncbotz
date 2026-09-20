@@ -116,7 +116,7 @@ public sealed class BotAutomationEngine(
                 }
                 else if (session.DailyCycle == cycle)
                 {
-                    WriteLog(session, "Missões Diárias já foram aceitas neste ciclo, mas não constam como concluídas; a campanha será retomada no horário configurado.");
+                    WriteLog(session, "Missões Diárias já aceitas neste ciclo; serão retomadas assim que forem vistas na lista lateral, sem esperar o horário configurado.");
                 }
             }
         }
@@ -245,6 +245,10 @@ public sealed class BotAutomationEngine(
             WriteLog("Sapheras desativada para todos os clientes. Mantendo o farm contínuo nos destinos configurados.");
             foreach (var session in sessions)
             {
+                if (await TryStartVisibleDailyCampaignSafelyAsync(session, dailyRoutines, pause, cancellationToken))
+                {
+                    continue;
+                }
                 if (await RunDueDailyRoutinesSafelyAsync(session, dailyRoutines, pause, cancellationToken))
                 {
                     continue;
@@ -271,6 +275,10 @@ public sealed class BotAutomationEngine(
             {
                 foreach (var session in sessions)
                 {
+                    if (await TryStartVisibleDailyCampaignSafelyAsync(session, dailyRoutines, pause, sapherasPriority.Token))
+                    {
+                        continue;
+                    }
                     if (await RunDueDailyRoutinesSafelyAsync(session, dailyRoutines, pause, sapherasPriority.Token))
                     {
                         continue;
@@ -2220,6 +2228,95 @@ public sealed class BotAutomationEngine(
         }
     }
 
+    private async Task<bool> TryStartVisibleDailyCampaignSafelyAsync(
+        ClientSession session,
+        DailyRoutineOptions options,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        if (!options.EnableDailyMissions || session.InAgenda || session.HandlingDeath ||
+            session.InDailyCampaign || session.NextRecoveryAttemptAt != default ||
+            DateTime.UtcNow < session.NextVisibleDailyScanAt)
+        {
+            return false;
+        }
+
+        session.NextVisibleDailyScanAt = DateTime.UtcNow.AddSeconds(30);
+        try
+        {
+            // Leitura passiva: o botão lateral alterna mostrar/ocultar e não pode ser
+            // usado para descobrir se há Diárias durante o farm.
+            for (var sample = 0; sample < 2; sample++)
+            {
+                await CheckpointAsync(pause, cancellationToken);
+                var frame = await CaptureDailyMissionFrameAsync(session, cancellationToken);
+                if (!HasVisibleQuestRows(frame) || FindPurpleDailyMissionY(frame) is null)
+                {
+                    return false;
+                }
+
+                if (sample == 0)
+                {
+                    await Task.Delay(350, cancellationToken);
+                }
+            }
+
+            var cycle = DailyCycleKey(DateTime.Now);
+            WriteLog(session, "Missões Diárias roxas já aceitas e visíveis; retomando agora, independentemente do horário programado.");
+            if (session.DailyCompletedCycle == cycle)
+            {
+                session.DailyCompletedCycle = null;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle", "");
+                WriteLog(session, "O estado visível das missões corrigiu o registro de conclusão deste ciclo.");
+            }
+
+            session.DailyCycle = cycle;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCycle", cycle);
+            if (session.Options.UseAbbey && session.AbbeyInside)
+            {
+                session.AbbeyScheduledResumePending = true;
+                session.AbbeyInside = false;
+            }
+
+            session.Audio.Armed = false;
+            var alreadyRunning = (await FindReferenceOnClientAsync(
+                session, "daily_automatic", cancellationToken, requireObservable: true)).Found;
+            var resumed = alreadyRunning || await ResumeDailyCampaignAsync(session, pause, cancellationToken);
+            session.InDailyCampaign = true;
+            session.DailyNeedsTeleport = !resumed;
+            session.DailyNoMissionHits = 0;
+            session.NextDailyMissionCheckAt = DateTime.UtcNow.Add(
+                resumed ? TimeSpan.FromMinutes(2) : TimeSpan.FromSeconds(15));
+            if (resumed)
+            {
+                session.DailyStartedCycle = cycle;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyStartedCycle", cycle);
+                session.IsFarmingTa = true;
+                session.SafeInRest = alreadyRunning || session.SafeInRest;
+            }
+
+            session.Audio.Armed = true;
+            WriteLog(session, resumed
+                ? alreadyRunning
+                    ? "Campanha automática já estava em andamento; mantendo o descanso e acompanhando até concluir."
+                    : "Campanha das Diárias retomada; o farm configurado voltará após a conclusão."
+                : "Diárias visíveis, mas o teleporte ainda não foi confirmado; nova tentativa automática em 15 segundos.");
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            session.NextVisibleDailyScanAt = DateTime.UtcNow.AddSeconds(15);
+            session.Audio.Armed = !session.InAgenda;
+            WriteLog(session, $"Checagem visual das Diárias será repetida em 15 segundos: {exception.GetBaseException().Message}.");
+            WritePersistentOnly(session, exception.ToString());
+            return false;
+        }
+    }
+
     private async Task AcceptGuildDirectiveAsync(
         ClientSession session,
         GuildDirectiveArea area,
@@ -2399,13 +2496,28 @@ public sealed class BotAutomationEngine(
     {
         var button = await FindReferenceOnClientAsync(
             session, "daily_teleport_ok", cancellationToken, requireObservable: true);
+        var resources = await FindReferenceOnClientAsync(
+            session, "daily_teleport_resource", cancellationToken, requireObservable: true);
+        if (button.Found && resources.Found)
+        {
+            return button;
+        }
+
+        // A captura independente da janela pode ter altura/escala diferente da
+        // captura do monitor. Com o cliente em primeiro plano, a tela inteira
+        // conserva as coordenadas originais das referências do popup.
+        if (!gameWindows.IsForeground(session.Options.Target))
+        {
+            return null;
+        }
+
+        button = await recognition.FindAsync("daily_teleport_ok", cancellationToken);
         if (!button.Found)
         {
             return null;
         }
 
-        var resources = await FindReferenceOnClientAsync(
-            session, "daily_teleport_resource", cancellationToken, requireObservable: true);
+        resources = await recognition.FindAsync("daily_teleport_resource", cancellationToken);
         return resources.Found ? button : null;
     }
 
@@ -2415,6 +2527,7 @@ public sealed class BotAutomationEngine(
         CancellationToken cancellationToken,
         TimeSpan? popupWait = null)
     {
+        await EnsureGameForegroundAsync(session, cancellationToken);
         var deadline = DateTime.UtcNow + (popupWait ?? TimeSpan.FromSeconds(8));
         RecognitionResult? popup = null;
         while (DateTime.UtcNow < deadline)
@@ -2690,6 +2803,7 @@ public sealed class BotAutomationEngine(
             ? $"Proteção de HP ativa nos {sessions.Count} cliente(s) até Sapheras.{priorityDetail}"
             : $"Monitoramento contínuo ativo nos {sessions.Count} cliente(s).{priorityDetail}");
         var nextRoutineCheckAt = DateTime.MinValue;
+        var nextVisibleDailyCheckAt = DateTime.MinValue;
         try
         {
             while (true)
@@ -2698,6 +2812,20 @@ public sealed class BotAutomationEngine(
                 if (stopAt.HasValue && DateTime.Now >= stopAt.Value)
                 {
                     return;
+                }
+
+                if (DateTime.Now >= nextVisibleDailyCheckAt &&
+                    (!stopAt.HasValue || stopAt.Value - DateTime.Now > sapheras.DirectSapherasWindow))
+                {
+                    nextVisibleDailyCheckAt = DateTime.Now.AddSeconds(30);
+                    foreach (var routineSession in sessions.OrderBy(item => item.Options.Priority))
+                    {
+                        if (await TryStartVisibleDailyCampaignSafelyAsync(
+                                routineSession, dailyRoutines, pause, cancellationToken))
+                        {
+                            break;
+                        }
+                    }
                 }
 
                 if (DateTime.Now >= nextRoutineCheckAt)
@@ -4640,6 +4768,7 @@ public sealed class BotAutomationEngine(
         public string? DirectiveCycle { get; set; }
         public DateTime NextDailyMissionCheckAt { get; set; }
         public DateTime NextDailyRoutineAttemptAt { get; set; }
+        public DateTime NextVisibleDailyScanAt { get; set; }
         public int DailyNoMissionHits { get; set; }
         public bool InAgenda { get; set; }
         public bool HandlingDeath { get; set; }
