@@ -228,6 +228,7 @@ public partial class App : Application
             ("campaign_page", "campaign_page.png"),
             ("daily_page", "daily_page.png"),
             ("daily_all_accepted", "daily_all_accepted.png"),
+            ("daily_30_accepted", "daily_all_accepted.png"),
             ("daily_automatic", "daily_automatic.png"),
             ("ta1_chegada", "ta1_arrival.png"),
             ("mapa_ta1", "ta1_map.png"),
@@ -327,7 +328,7 @@ public partial class App : Application
         var requiredNewReferences = new HashSet<string>(StringComparer.Ordinal)
         {
             "guild_page", "guild_directive_page", "guild_directive_accepted",
-            "campaign_page", "daily_page", "daily_all_accepted",
+            "campaign_page", "daily_page", "daily_all_accepted", "daily_30_accepted",
             "daily_automatic", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max"
         };
         foreach (var (referenceId, fileName) in cases)

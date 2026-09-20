@@ -2177,9 +2177,57 @@ public sealed class BotAutomationEngine(
         await input.MoveAndClickAsync(728, 144, TimeSpan.FromMilliseconds(320), cancellationToken);
         await WaitForReferenceAsync("daily_page", "aba Diário", TimeSpan.FromSeconds(15), pause, cancellationToken);
         await input.MoveAndClickAsync(142, 992, TimeSpan.FromMilliseconds(320), cancellationToken);
-        await WaitForReferenceAsync("daily_all_accepted", "Todas as campanhas foram aceitas", TimeSpan.FromSeconds(12), pause, cancellationToken);
-        await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        var confirmationDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(12);
+        var accepted = false;
+        while (DateTime.UtcNow < confirmationDeadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            if ((await recognition.FindAsync("daily_all_accepted", cancellationToken)).Found ||
+                (await recognition.FindAsync("daily_30_accepted", cancellationToken)).Found)
+            {
+                accepted = true;
+                break;
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        if (!accepted)
+        {
+            var diagnostic = await recognition.SaveDiagnosticAsync($"daily_accept_{session.Options.Priority}");
+            throw new TimeoutException(
+                $"{session.Options.Label}: não foi possível confirmar as Diárias pelo aviso nem pelo contador 30/30. Diagnóstico: {diagnostic}");
+        }
+
+        await CloseCampaignScreenAsync(session, pause, cancellationToken);
         WriteLog(session, "As 30 Missões Diárias foram aceitas.");
+    }
+
+    private async Task CloseCampaignScreenAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            await CheckpointAsync(pause, cancellationToken);
+            var dailyVisible = (await recognition.FindAsync("daily_page", cancellationToken)).Found;
+            var campaignVisible = (await recognition.FindAsync("campaign_page", cancellationToken)).Found;
+            if (!dailyVisible && !campaignVisible)
+            {
+                WriteLog(session, $"Tela de Campanha fechada e confirmada após {attempt} ESC.");
+                return;
+            }
+
+            WriteLog(session, attempt == 1
+                ? "O primeiro ESC fechou apenas o aviso; o painel de Diárias continua aberto."
+                : $"O painel de Campanha continua aberto após {attempt} ESC; repetindo.");
+        }
+
+        var diagnostic = await recognition.SaveDiagnosticAsync($"daily_close_{session.Options.Priority}");
+        throw new TimeoutException(
+            $"{session.Options.Label}: o painel de Campanha não fechou após três ESC. Diagnóstico: {diagnostic}");
     }
 
     private async Task StartDailyCampaignAsync(

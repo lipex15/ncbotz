@@ -238,6 +238,7 @@ public sealed class AppDatabase
             new("campaign_page", "Página Campanha", "campaign_page.png", 24, 30, 300, 80, 0, 15, 420, 130, 0.68),
             new("daily_page", "Aba Diário", "daily_page.png", 640, 105, 190, 70, 590, 85, 280, 115, 0.68),
             new("daily_all_accepted", "Todas as campanhas foram aceitas", "daily_all_accepted.png", 800, 175, 390, 120, 710, 135, 560, 205, 0.65),
+            new("daily_30_accepted", "Contador diário 30 de 30", "daily_all_accepted.png", 482, 958, 100, 52, 450, 930, 160, 95, 0.66),
             new("daily_teleport", "Teleporte para campanha", "daily_teleport.png", 75, 55, 480, 210, 550, 210, 820, 370, 0.65),
             new("daily_automatic", "Campanha automática em andamento", "daily_automatic.png", 760, 825, 410, 110, 680, 760, 560, 190, 0.54),
             new("entrar_ta1_pronto", "Entrar em Kildebat", "ta1_entry.png", 42, 495, 240, 65, 435, 730, 290, 90, 0.66),
