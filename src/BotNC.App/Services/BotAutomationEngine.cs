@@ -390,6 +390,22 @@ public sealed class BotAutomationEngine(
             return;
         }
 
+        var pendingRestorationPanel = await WaitForRestorationCounterAsync(
+            session, TimeSpan.FromSeconds(2), pause, cancellationToken);
+        var pendingRestorationIcon = pendingRestorationPanel.State == RestorationCountState.Unknown
+            ? await FindReferenceOnClientAsync(
+                session, "icone_perda_exp", cancellationToken, requireObservable: true)
+            : new RecognitionResult(false, 0, 0, 0);
+        if (pendingRestorationPanel.State != RestorationCountState.Unknown || pendingRestorationIcon.Found)
+        {
+            WriteLog(
+                session,
+                pendingRestorationPanel.State != RestorationCountState.Unknown
+                    ? "Bot iniciado com o painel de restauração pendente; concluindo antes do farm."
+                    : $"Bot iniciado com uma lápide pendente ({pendingRestorationIcon.Confidence:P0}); restaurando antes do farm.");
+            await RestoreDeathResourcesAsync(session, pause, cancellationToken);
+        }
+
         var currentHunt = await FindReferenceOnClientAsync(
             session,
             "caca_automatica",
@@ -2750,7 +2766,7 @@ public sealed class BotAutomationEngine(
             }
 
             WriteLog(session, "Verificando se esta morte gerou lápide de restauração.");
-            var iconDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            var iconDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
             var iconFound = false;
             var iconConfirmations = 0;
             while (DateTime.UtcNow < iconDeadline)
@@ -2780,7 +2796,7 @@ public sealed class BotAutomationEngine(
             {
                 WriteLog(
                     session,
-                    "Lápide ausente após observação estável do renascimento; provável morte para jogador do mesmo servidor. Seguindo o fluxo sem restauração.");
+                    "Lápide ausente após 30 segundos de observação estável; esta morte não possui restauração disponível. Seguindo o fluxo.");
                 session.NeedsDeathRestoration = false;
                 return;
             }

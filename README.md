@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.8.1
+## Ciclo disponível — v0.8.2
 
 ### Abadia da Lembrança
 
@@ -15,6 +15,7 @@ Aplicativo modular de automação visual para Night Crows.
 - na morte sem lápide de restauração, segue o fluxo sem insistir em restaurar recursos inexistentes;
 - o agendamento de início passa a começar em zero minuto por padrão.
 - reconhece diretamente o mapa aberto da Abadia antes de selecionar a coordenada de farm.
+- restaura uma lápide pendente mesmo quando o bot é iniciado depois da morte e aguarda até 30 segundos pelo indicador após ressuscitar.
 - Anti Over Kill fica na aba **Proteção**; os quadros informativos “Etapas protegidas” e “Base modular” foram removidos da interface.
 
 ### Sapheras
