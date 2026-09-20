@@ -42,23 +42,20 @@
                     <Button Content="◆   T.A 2 / T.A 3" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarm" />
+                    <Button x:Name="AbbeyNavigationButton" Content="◆   Abadia" HorizontalContentAlignment="Left"
+                            Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
+                            Click="OnShowAbbey" />
+                    <Button x:Name="ProtectionNavigationButton" Content="◈   Proteção" HorizontalContentAlignment="Left"
+                            Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
+                            Click="OnShowProtection" />
                     <Button x:Name="UpdatesNavigationButton" Content="↻   Atualizações"
                             Margin="0,4,0,0" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0"
                             Click="OnShowUpdates" />
                 </StackPanel>
                 <StackPanel Grid.Row="4">
-                    <Border Background="#0F1B29" CornerRadius="8" Padding="12">
-                        <StackPanel>
-                            <TextBlock Text="BASE MODULAR" Foreground="#4E91FF"
-                                       FontSize="10" FontWeight="Bold" />
-                            <TextBlock Text="Pronta para receber novos fluxos e funções."
-                                       Foreground="#7F91A6" TextWrapping="Wrap"
-                                       FontSize="11" Margin="0,5,0,0" />
-                        </StackPanel>
-                    </Border>
                     <TextBlock x:Name="ApplicationVersionText" Text="PEXBOT" Foreground="#52647A"
-                               FontSize="10" Margin="2,14,0,0" />
+                               FontSize="10" Margin="2,0,0,0" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -111,7 +108,7 @@
                             <TextBlock Text="Ative um cliente ou os dois. Quando ambos estiverem ativos, o Cliente 1 tem prioridade."
                                        Foreground="{StaticResource MutedBrush}"
                                        FontSize="12" Margin="0,5,0,18" />
-                            <TextBlock Text="CLIENTES · T.A DE DESTINO · SAPHERAS" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Text="CLIENTES · T.A (FARM OU RESERVA) · SAPHERAS" Style="{StaticResource FieldLabel}" />
                             <Grid Margin="0,7,0,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="70" />
@@ -232,7 +229,7 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Text="INÍCIO AUTOMÁTICO" Style="{StaticResource FieldLabel}" />
-                                    <TextBlock Text="Se faltar mais, começa nas T.A configuradas."
+                                    <TextBlock Text="Se faltar mais, começa no destino de farm configurado."
                                                Foreground="#9CB0C3" FontSize="11" Margin="0,5,0,0" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
@@ -259,57 +256,9 @@
                                               Margin="0,7,0,0" IsEditable="True" />
                                 </StackPanel>
                             </Grid>
-                            <TextBlock Text="ANTI OVER KILL" Style="{StaticResource FieldLabel}"
-                                       Margin="0,15,0,0" />
-                            <Grid Margin="0,7,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="12" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="12" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="MORTES" Style="{StaticResource FieldLabel}" />
-                                    <TextBox x:Name="DeathThresholdTextBox" Height="38"
-                                             Margin="0,5,0,0" Text="3" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="EM (MIN)" Style="{StaticResource FieldLabel}" />
-                                    <TextBox x:Name="DeathWindowTextBox" Height="38"
-                                             Margin="0,5,0,0" Text="30" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="4">
-                                    <TextBlock Text="AGENDA (MIN)" Style="{StaticResource FieldLabel}" />
-                                    <TextBox x:Name="AgendaDurationTextBox" Height="38"
-                                             Margin="0,5,0,0" Text="60" />
-                                </StackPanel>
-                            </Grid>
                             <TextBlock Text="Sapheras tem prioridade máxima. Favoritos: farm na 1ª posição; teleporte opcional na 2ª."
                                        Foreground="#7F91A6" FontSize="11" Margin="0,10,0,0"
                                        TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
-                    <Border Background="{StaticResource CardBrush}"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="11" Padding="20" Margin="0,16,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Etapas protegidas" FontSize="14" FontWeight="Bold" />
-                            <UniformGrid Columns="2" Margin="0,13,0,0">
-                                <TextBlock Text="✓ Janela selecionada" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Menu e masmorra" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Atalaia Erodida" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Caça automática" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Compra dentro da T.A" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Retorno após PvP" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Áudio separado por cliente" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Favorito com TP opcional" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Restauração após morte" Foreground="#8EE0BD" Margin="0,4" />
-                                <TextBlock Text="✓ Anti Over Kill por cliente" Foreground="#8EE0BD" Margin="0,4" />
-                            </UniformGrid>
-                            <TextBlock Text="O ciclo permanece ativo até você pausar ou parar o bot."
-                                       Foreground="#7F91A6" FontSize="11" TextWrapping="Wrap"
-                                       Margin="0,12,0,0" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -347,7 +296,7 @@
                                     <TextBlock Text="INICIAR DEPOIS DE (MIN)"
                                                Style="{StaticResource FieldLabel}" />
                                     <TextBox x:Name="StartDelayMinutesTextBox"
-                                             Height="36" Margin="0,4,0,0" Text="10" />
+                                             Height="36" Margin="0,4,0,0" Text="0" />
                                 </StackPanel>
                                 <Button x:Name="ScheduleStartButton" Grid.Column="2"
                                         Content="Programar início" VerticalAlignment="Bottom"
@@ -431,6 +380,104 @@
             </Grid>
             <TextBlock Grid.Row="4" x:Name="DatabasePathText" Foreground="#52647A"
                        FontSize="10" TextTrimming="CharacterEllipsis" />
+        </Grid>
+
+        <Grid x:Name="AbbeyPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="18" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="Abadia da Lembrança" FontSize="27" FontWeight="Bold" />
+                <TextBlock Text="Farm alternativo com limite de entradas; Sapheras continua prioritária."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
+            </StackPanel>
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="0,0,0,14">
+                        <StackPanel>
+                            <TextBlock Text="Cliente 1" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
+                            <CheckBox x:Name="Client1AbbeyCheckBox" Content="Farmar na Abadia (T.A selecionada é o plano B)"
+                                      Margin="0,13,0,10" />
+                            <TextBlock Text="RETORNOS PAGOS APÓS A PRIMEIRA ENTRADA" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="Client1AbbeyLimitTextBox" Text="0" Width="110" Height="38"
+                                     HorizontalAlignment="Left" Margin="0,6,0,12" />
+                            <CheckBox x:Name="Client1AbbeyCustomCheckBox" Content="Usar ponto personalizado na Abadia" />
+                            <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+                                <Button x:Name="CaptureClient1AbbeyButton" Content="Capturar ponto no mapa"
+                                        Click="OnCaptureClient1AbbeyCoordinate" />
+                                <TextBlock x:Name="Client1AbbeyCoordinateText" Text="Não definida"
+                                           Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="20">
+                        <StackPanel>
+                            <TextBlock Text="Cliente 2" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
+                            <CheckBox x:Name="Client2AbbeyCheckBox" Content="Farmar na Abadia (T.A selecionada é o plano B)"
+                                      Margin="0,13,0,10" />
+                            <TextBlock Text="RETORNOS PAGOS APÓS A PRIMEIRA ENTRADA" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="Client2AbbeyLimitTextBox" Text="0" Width="110" Height="38"
+                                     HorizontalAlignment="Left" Margin="0,6,0,12" />
+                            <CheckBox x:Name="Client2AbbeyCustomCheckBox" Content="Usar ponto personalizado na Abadia" />
+                            <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+                                <Button x:Name="CaptureClient2AbbeyButton" Content="Capturar ponto no mapa"
+                                        Click="OnCaptureClient2AbbeyCoordinate" />
+                                <TextBlock x:Name="Client2AbbeyCoordinateText" Text="Não definida"
+                                           Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="Cada retorno à Abadia após morte, TP ou Sapheras consome uma entrada do limite. Quando acabar, o bot usará a T.A configurada."
+                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="3,14,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Grid x:Name="ProtectionPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="18" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="Proteção" FontSize="27" FontWeight="Bold" />
+                <TextBlock Text="Defina quando entrar em Agenda após mortes repetidas."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
+            </StackPanel>
+            <Border Grid.Row="2" Background="{StaticResource CardBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="11" Padding="22" VerticalAlignment="Top">
+                <StackPanel>
+                    <TextBlock Text="Anti Over Kill" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                    <TextBlock Text="Após o número definido de mortes dentro da janela, o personagem entra em Agenda pelo tempo escolhido."
+                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,18" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="14" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="MORTES" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="DeathThresholdTextBox" Height="40" Margin="0,7,0,0" Text="3" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="JANELA (MIN)" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="DeathWindowTextBox" Height="40" Margin="0,7,0,0" Text="30" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="AGENDA (MIN)" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="AgendaDurationTextBox" Height="40" Margin="0,7,0,0" Text="60" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
         </Grid>
 
         <Grid x:Name="UpdatesPanel" Grid.Column="1" Margin="28,22,28,24"

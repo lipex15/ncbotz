@@ -59,6 +59,9 @@ public sealed class BotAutomationEngine(
             }
         };
 
+    private static readonly (int X, int Y)[] AbbeySpots =
+        [(869, 823), (1007, 814), (1147, 589), (771, 442)];
+
     private static readonly string[] RestStateReferences =
     [
         "caca_automatica",
@@ -215,7 +218,7 @@ public sealed class BotAutomationEngine(
         var sapherasSessions = sessions.Where(session => session.Options.UseSapheras).ToArray();
         if (sapherasSessions.Length == 0)
         {
-            WriteLog("Sapheras desativada para todos os clientes. Mantendo o farm contínuo nas T.A configuradas.");
+            WriteLog("Sapheras desativada para todos os clientes. Mantendo o farm contínuo nos destinos configurados.");
             foreach (var session in sessions)
             {
                 await RunSessionActionSafelyAsync(
@@ -281,6 +284,7 @@ public sealed class BotAutomationEngine(
 
                     session.Audio.Armed = false;
                     session.IsFarmingTa = false;
+                    session.AbbeyInside = false;
                     session.SafeInRest = false;
                     SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando em Sapheras", "Preparando o cliente");
                     await ActivateGameAsync(session, cancellationToken);
@@ -316,11 +320,11 @@ public sealed class BotAutomationEngine(
             {
                 if (!session.InAgenda && !session.IsFarmingTa)
                 {
-                    WriteLog(session, $"Cliente sem passe não estava no farm; retomando a {TaName(session.Options.Destination)}.");
+                    WriteLog(session, $"Cliente sem passe não estava no farm; retomando {ConfiguredFarmName(session)}.");
                     await RunSessionActionSafelyAsync(
                         session,
                         "retomada do cliente sem passe após Sapheras",
-                        () => EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: false),
+                        () => EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false),
                         cancellationToken);
                 }
 
@@ -342,7 +346,7 @@ public sealed class BotAutomationEngine(
                 await RunSessionActionSafelyAsync(
                     session,
                     "retomada do farm após Sapheras",
-                    () => EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: false),
+                    () => EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false),
                     cancellationToken);
             }
         }
@@ -394,6 +398,11 @@ public sealed class BotAutomationEngine(
         {
             session.SafeInRest = true;
             session.IsFarmingTa = true;
+            if (session.Options.UseAbbey && await IsAbbeyLocationVisibleAsync(cancellationToken))
+            {
+                session.AbbeyInside = true;
+                session.AbbeyEntries = Math.Max(1, session.AbbeyEntries);
+            }
             session.Audio.Armed = true;
             WriteLog(
                 session,
@@ -402,7 +411,7 @@ public sealed class BotAutomationEngine(
             return;
         }
 
-        await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: false);
+        await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
     }
 
     private async Task<RecognitionResult> FindDeathOnClientAsync(
@@ -684,7 +693,8 @@ public sealed class BotAutomationEngine(
                                     return;
                                 }
 
-                                if (session.RequiresHardFlowReset)
+                                if (session.RequiresHardFlowReset &&
+                                    (!session.AbbeyInside || session.ConsecutiveRecoveryFailures >= 3))
                                 {
                                     await ResetStalledClientRouteAsync(session, sapheras, pause, actionToken);
                                 }
@@ -699,7 +709,7 @@ public sealed class BotAutomationEngine(
                                 }
                                 else
                                 {
-                                    await EnterTaAndStartFarmAsync(session, pause, actionToken, isEmergency: true);
+                                    await EnterConfiguredFarmAsync(session, pause, actionToken, isEmergency: true);
                                 }
                             },
                             cancellationToken);
@@ -957,6 +967,182 @@ public sealed class BotAutomationEngine(
 
         var diagnostic = await recognition.SaveDiagnosticAsync("prioridade_sapheras_menu");
         throw new TimeoutException($"{session.Options.Label}: não foi possível abrir Masmorras para a entrada prioritária em Sapheras. Diagnóstico: {diagnostic}");
+    }
+
+    private async Task EnterConfiguredFarmAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken,
+        bool isEmergency)
+    {
+        if (session.Options.UseAbbey && session.AbbeyEntryMayHaveBeenCharged)
+        {
+            await ActivateGameAsync(session, cancellationToken);
+            if (await IsAbbeyLocationVisibleAsync(cancellationToken))
+            {
+                session.AbbeyEntryMayHaveBeenCharged = false;
+                session.AbbeyInside = true;
+                session.AbbeyEntries++;
+                WriteLog(session, "Chegada à Abadia reconhecida após atraso; retomando sem pagar outra entrada.");
+            }
+        }
+
+        if (session.Options.UseAbbey && session.AbbeyInside)
+        {
+            await ActivateGameAsync(session, cancellationToken);
+            if (await IsMapOpenAsync(session, cancellationToken) ||
+                await IsAbbeyLocationVisibleAsync(cancellationToken))
+            {
+                WriteLog(session, "Abadia atual ainda acessível; retomando no mapa sem pagar outra entrada.");
+                await TravelToAbbeySpotAsync(session, pause, cancellationToken);
+                return;
+            }
+
+            session.AbbeyInside = false;
+            WriteLog(session, "A localização da Abadia não está visível; verificando o orçamento antes de reentrar.");
+        }
+
+        if (session.Options.UseAbbey && !session.AbbeyEntryMayHaveBeenCharged &&
+            session.AbbeyEntries < 1 + session.Options.AbbeyReturnLimit)
+        {
+            await EnterAbbeyAndStartFarmAsync(session, pause, cancellationToken);
+            return;
+        }
+
+        if (session.Options.UseAbbey)
+        {
+            WriteLog(session, session.AbbeyEntryMayHaveBeenCharged
+                ? "Entrada da Abadia não pôde ser comprovada após Y; evitando nova cobrança e usando a T.A configurada."
+                : $"Limite de retornos à Abadia atingido ({session.AbbeyEntries} entrada(s)); usando a T.A configurada.");
+        }
+
+        await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency);
+    }
+
+    private async Task EnterAbbeyAndStartFarmAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        session.Audio.Armed = false;
+        session.SafeInRest = false;
+        session.IsFarmingTa = false;
+        session.AwaitingHuntActivationAtSpot = false;
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na Abadia", "Confirmando cada etapa antes da entrada paga");
+        await ActivateGameAsync(session, cancellationToken);
+        await AbortWorkflowIfDeathDetectedAsync(session, "antes de entrar na Abadia", cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        await OpenDungeonMenuAsync(session, pause, cancellationToken);
+        await input.MoveAndClickAsync(1740, 271, TimeSpan.FromMilliseconds(360), cancellationToken);
+        await WaitForReferenceAsync("tela_masmorras", "página Masmorra", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await input.MoveAndClickAsync(330, 150, TimeSpan.FromMilliseconds(360), cancellationToken);
+        await WaitForReferenceAsync("abadia_especial", "aba Especial da Masmorra", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await WaitForReferenceAsync("abadia_cartao", "cartão Abadia da Lembrança", TimeSpan.FromSeconds(10), pause, cancellationToken);
+        await input.MoveAndClickAsync(257, 711, TimeSpan.FromMilliseconds(360), cancellationToken);
+        await CheckpointAsync(pause, cancellationToken);
+        await input.MoveAndClickAsync(1794, 988, TimeSpan.FromMilliseconds(470), cancellationToken);
+        await WaitForReferenceAsync("abadia_confirmacao", "confirmação de entrada na Abadia da Lembrança", TimeSpan.FromSeconds(12), pause, cancellationToken);
+
+        // Depois de Y uma entrada pode ter sido cobrada, mesmo se a captura falhar.
+        // Nunca tentar comprar de novo sem ter comprovado a chegada.
+        session.AbbeyEntryMayHaveBeenCharged = true;
+        await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+        await WaitForAbbeyArrivalAsync(session, pause, cancellationToken);
+        session.AbbeyEntryMayHaveBeenCharged = false;
+        session.AbbeyEntries++;
+        session.AbbeyInside = true;
+        WriteLog(session, $"Entrada na Abadia comprovada ({session.AbbeyEntries}/{1 + session.Options.AbbeyReturnLimit}).");
+        await TravelToAbbeySpotAsync(session, pause, cancellationToken);
+    }
+
+    private async Task WaitForAbbeyArrivalAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(70);
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            foreach (var (reference, name) in new[]
+            {
+                ("abadia_chegada_silencio", "Ambão do Silêncio"),
+                ("abadia_chegada_apreciacao", "Ambão da Apreciação")
+            })
+            {
+                var result = await recognition.FindAsync(reference, cancellationToken);
+                if (result.Found)
+                {
+                    WriteLog(session, $"Chegada à Abadia confirmada por {name} ({result.Confidence:P0}).");
+                    return;
+                }
+            }
+
+            await Task.Delay(450, cancellationToken);
+        }
+
+        var diagnostic = await recognition.SaveDiagnosticAsync($"abadia_chegada_{session.Options.Priority}");
+        throw new TimeoutException($"{session.Options.Label}: entrada paga enviada, mas não foi possível confirmar um dos dois pontos de chegada. Nenhuma nova entrada será tentada automaticamente. Diagnóstico: {diagnostic}");
+    }
+
+    private async Task<bool> IsAbbeyLocationVisibleAsync(CancellationToken cancellationToken) =>
+        (await recognition.FindAsync("abadia_chegada_silencio", cancellationToken)).Found ||
+        (await recognition.FindAsync("abadia_chegada_apreciacao", cancellationToken)).Found;
+
+    private async Task TravelToAbbeySpotAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: indo ao spot da Abadia", "Abrindo mapa sem Favoritos");
+        if (!await IsMapOpenAsync(session, cancellationToken))
+        {
+            await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
+            await WaitForReferenceAsync("mapa_aberto", "mapa da Abadia", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        }
+        var coordinate = session.Options.AbbeyCustomFarmCoordinate;
+        var point = coordinate is null
+            ? AbbeySpots[ChooseNextSpot(session, -2, AbbeySpots.Length)]
+            : gameWindows.MapReferencePoint(session.Options.Target, coordinate.X, coordinate.Y);
+        WriteLog(session, coordinate is null
+            ? $"Selecionando um dos quatro pontos da Abadia: ({point.X}, {point.Y})."
+            : $"Usando ponto personalizado da Abadia: ({point.X}, {point.Y}).");
+
+        string[] goReferences = ["botao_ir", "botao_ir_ta2", "botao_ir_legado"];
+        var searchX = Math.Max(0, point.X - 220);
+        var searchY = Math.Max(0, point.Y - 210);
+        RecognitionResult? goButton = null;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(340), cancellationToken);
+            goButton = await WaitForAnyReferenceInRegionAsync(
+                goReferences, searchX, searchY, 470, 230,
+                TimeSpan.FromSeconds(7), pause, cancellationToken);
+            if (goButton is not null)
+            {
+                break;
+            }
+        }
+
+        if (goButton is null)
+        {
+            var diagnostic = await recognition.SaveDiagnosticAsync($"abadia_botao_ir_{session.Options.Priority}");
+            throw new TimeoutException($"{session.Options.Label}: botão Ir não confirmado no mapa da Abadia; movimento não iniciado. Diagnóstico: {diagnostic}");
+        }
+
+        await ClickGoButtonWithConfirmationAsync(
+            session, goReferences, searchX, searchY, goButton.X, goButton.Y, pause, cancellationToken);
+        await CloseMapAfterGoAsync(session, pause, cancellationToken);
+        await OpenRestForTravelAsync(session, pause, cancellationToken);
+        await WaitForFarmArrivalAsync(session, pause, cancellationToken, "Abadia");
+        session.AwaitingHuntActivationAtSpot = true;
+        await StartAutomaticHuntAsync(session, pause, cancellationToken);
+        session.IsFarmingTa = true;
+        session.SafeInRest = true;
+        session.Audio.Armed = true;
+        session.ConsecutiveRecoveryFailures = 0;
+        session.RequiresHardFlowReset = false;
+        WriteLog(session, "Farm da Abadia iniciado e confirmado.");
     }
 
     private async Task EnterTaAndStartFarmAsync(
@@ -1583,9 +1769,9 @@ public sealed class BotAutomationEngine(
         return false;
     }
 
-    private async Task WaitForFarmArrivalAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
+    private async Task WaitForFarmArrivalAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken, string? farmName = null)
     {
-        var taName = TaName(session.Options.Destination);
+        var taName = farmName ?? TaName(session.Options.Destination);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: indo ao spot", "Aguardando o personagem chegar");
         var startedAt = DateTime.UtcNow;
         var confirmations = 0;
@@ -1838,7 +2024,7 @@ public sealed class BotAutomationEngine(
                                 {
                                     if (session.NeedsDeathRestoration)
                                     {
-                                        WriteLog(session, "Restauração pendente: concluindo a lápide antes de voltar à T.A.");
+                                        WriteLog(session, "Restauração pendente: concluindo a lápide antes de voltar ao farm.");
                                         await ActivateGameForEmergencyAsync(session, actionToken);
                                         await RestoreDeathResourcesAsync(session, pause, actionToken);
                                     }
@@ -1854,12 +2040,13 @@ public sealed class BotAutomationEngine(
                                         return;
                                     }
 
-                                    if (session.RequiresHardFlowReset)
+                                    if (session.RequiresHardFlowReset &&
+                                        (!session.AbbeyInside || session.ConsecutiveRecoveryFailures >= 3))
                                     {
                                         await ResetStalledClientRouteAsync(session, sapheras, pause, actionToken);
                                     }
 
-                                    await EnterTaAndStartFarmAsync(session, pause, actionToken, isEmergency: true);
+                                    await EnterConfiguredFarmAsync(session, pause, actionToken, isEmergency: true);
                                 },
                                 cancellationToken);
                             if (!resumed)
@@ -2162,6 +2349,7 @@ public sealed class BotAutomationEngine(
         WriteLog(
             session,
             $"Reset de rota: usando uma vez o TP {options.EmergencyTeleportKeyName} e reiniciando o fluxo completo.");
+        session.AbbeyInside = false;
         await input.PressEmergencyKeyAsync(options.EmergencyTeleportVirtualKey, cancellationToken);
         await ActionDelayAsync(cancellationToken, 1800, 2800);
 
@@ -2324,6 +2512,7 @@ public sealed class BotAutomationEngine(
 
         var attempts = _random.Next(3, 6);
         WriteLog(session, $"Usando TP {options.EmergencyTeleportKeyName} {attempts} vez(es).");
+        session.AbbeyInside = false;
         for (var index = 0; index < attempts; index++)
         {
             await input.PressEmergencyKeyAsync(options.EmergencyTeleportVirtualKey, cancellationToken);
@@ -2345,13 +2534,13 @@ public sealed class BotAutomationEngine(
         }
 
         // Não tentamos deduzir qual cidade abriu por um nome de mapa. A prova
-        // útil é o fluxo completo responder e a chegada à T.A configurada ser
+        // útil é o fluxo completo responder e a chegada ao destino configurado ser
         // confirmada antes de declarar a recuperação concluída.
         WriteLog(
             session,
-            $"TP enviado sem tela de morte; reentrando na {TaName(session.Options.Destination)}. " +
+            $"TP enviado sem tela de morte; retornando a {ConfiguredFarmName(session)}. " +
             "A recuperação só será concluída após a chegada ser confirmada visualmente.");
-        await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: true);
+        await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: true);
     }
 
     private async Task<RecognitionResult?> WaitForDeathAfterEmergencyAsync(
@@ -2401,6 +2590,7 @@ public sealed class BotAutomationEngine(
         session.AwaitingHuntActivationAtSpot = false;
         try
         {
+            session.AbbeyInside = false;
             SetStatus(BotRunState.Running, $"{session.Options.Label}: personagem morreu", "Ressuscitando e restaurando recursos");
             // A tela de morte tem contagem regressiva curta; devolver o foco
             // rapidamente evita que o renascimento automático passe antes do
@@ -2415,8 +2605,8 @@ public sealed class BotAutomationEngine(
                 return;
             }
 
-            WriteLog(session, $"Restauração concluída; retomando a {TaName(session.Options.Destination)}.");
-            await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: true);
+            WriteLog(session, $"Restauração concluída; retomando {ConfiguredFarmName(session)}.");
+            await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: true);
         }
         finally
         {
@@ -2554,9 +2744,10 @@ public sealed class BotAutomationEngine(
                     $"{session.Options.Label}: o painel de restauração está aberto, mas seu contador não pôde ser lido.");
             }
 
-            WriteLog(session, "Procurando o ícone vermelho de perda de EXP/item no canto superior.");
-            var iconDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+            WriteLog(session, "Verificando se esta morte gerou lápide de restauração.");
+            var iconDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
             var iconFound = false;
+            var iconConfirmations = 0;
             while (DateTime.UtcNow < iconDeadline)
             {
                 await CheckpointAsync(pause, cancellationToken);
@@ -2564,9 +2755,17 @@ public sealed class BotAutomationEngine(
                     session, "icone_perda_exp", cancellationToken, requireObservable: true);
                 if (icon.Found)
                 {
-                    iconFound = true;
-                    WriteLog(session, $"Ícone de perda reconhecido ({icon.Confidence:P0}); abrindo a lápide em (1537, 72).");
-                    break;
+                    iconConfirmations++;
+                    if (iconConfirmations >= 2)
+                    {
+                        iconFound = true;
+                        WriteLog(session, $"Ícone de perda confirmado em dois quadros ({icon.Confidence:P0}); abrindo a lápide em (1537, 72).");
+                        break;
+                    }
+                }
+                else
+                {
+                    iconConfirmations = 0;
                 }
 
                 await Task.Delay(400, cancellationToken);
@@ -2576,7 +2775,7 @@ public sealed class BotAutomationEngine(
             {
                 WriteLog(
                     session,
-                    "Nenhum ícone de perda apareceu após o renascimento; esta morte não gerou recursos restauráveis.");
+                    "Lápide ausente após observação estável do renascimento; provável morte para jogador do mesmo servidor. Seguindo o fluxo sem restauração.");
                 session.NeedsDeathRestoration = false;
                 return;
             }
@@ -2596,6 +2795,13 @@ public sealed class BotAutomationEngine(
 
             if (panelCounter.State == RestorationCountState.Unknown)
             {
+                if (await ConfirmRestorationIconAbsentAsync(session, pause, cancellationToken))
+                {
+                    WriteLog(session, "Lápide não está presente após os cliques; não há restauração desta morte. Seguindo para o farm.");
+                    session.NeedsDeathRestoration = false;
+                    return;
+                }
+
                 var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
                 var diagnostic = await recognition.SaveDiagnosticAsync(
                     $"painel_restauracao_{session.Options.Priority}",
@@ -2681,6 +2887,27 @@ public sealed class BotAutomationEngine(
 
         WriteLog(session, "Painel de restauração fechado.");
         session.NeedsDeathRestoration = false;
+    }
+
+    private async Task<bool> ConfirmRestorationIconAbsentAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        for (var index = 0; index < 3; index++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var icon = await FindReferenceOnClientAsync(
+                session, "icone_perda_exp", cancellationToken, requireObservable: true);
+            if (icon.Found)
+            {
+                return false;
+            }
+
+            await Task.Delay(350, cancellationToken);
+        }
+
+        return true;
     }
 
     private async Task RestoreVisibleResourceTabAsync(
@@ -2871,7 +3098,7 @@ public sealed class BotAutomationEngine(
         WriteLog(session, "Popup de encerramento da Agenda tratado com Y.");
         if (resumeFarm)
         {
-            await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: true);
+            await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: true);
         }
     }
 
@@ -3343,6 +3570,12 @@ public sealed class BotAutomationEngine(
     private static string ArrivalReference(TaDestination destination) => destination == TaDestination.Ta2 ? "ta2_chegada" : "ta3_chegada";
     private static string EntryReadyReference(TaDestination destination) => destination == TaDestination.Ta2 ? "entrar_ta2_pronto" : "entrar_ta3_pronto";
     private static string TaName(TaDestination destination) => destination == TaDestination.Ta2 ? "T.A 2" : "T.A 3";
+    private static string ConfiguredFarmName(ClientSession session) =>
+        session.Options.UseAbbey && (session.AbbeyInside ||
+        (!session.AbbeyEntryMayHaveBeenCharged &&
+        session.AbbeyEntries < 1 + session.Options.AbbeyReturnLimit))
+            ? "a Abadia"
+            : $"a {TaName(session.Options.Destination)}";
 
     private static string FormatDuration(TimeSpan duration)
     {
@@ -3451,6 +3684,9 @@ public sealed class BotAutomationEngine(
         public bool AwaitingFavoriteSpotRecognition { get; set; }
         public bool SafeInRest { get; set; }
         public bool IsFarmingTa { get; set; }
+        public int AbbeyEntries { get; set; }
+        public bool AbbeyEntryMayHaveBeenCharged { get; set; }
+        public bool AbbeyInside { get; set; }
         public bool InAgenda { get; set; }
         public bool HandlingDeath { get; set; }
         public bool NeedsDeathRestoration { get; set; }

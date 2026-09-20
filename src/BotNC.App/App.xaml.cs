@@ -166,6 +166,14 @@ public partial class App : Application
         {
             window.ShowUpdatesForScreenshot();
         }
+        else if (isScreenshotMode && e.Args.Contains("--abbey-tab", StringComparer.Ordinal))
+        {
+            window.ShowAbbeyForScreenshot();
+        }
+        else if (isScreenshotMode && e.Args.Contains("--protection-tab", StringComparer.Ordinal))
+        {
+            window.ShowProtectionForScreenshot();
+        }
 
         if (!isScreenshotMode)
         {
@@ -210,6 +218,12 @@ public partial class App : Application
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
         var cases = new[]
         {
+            ("abadia_especial", "abadia_pagina_especial.png"),
+            ("abadia_cartao", "abadia_pagina_especial.png"),
+            ("abadia_chegada_silencio", "abadia_chegada_silencio.png"),
+            ("abadia_chegada_apreciacao", "abadia_chegada_apreciacao.png"),
+            ("abadia_chegada_silencio", "abadia_chegada_apreciacao.png"),
+            ("abadia_chegada_apreciacao", "abadia_chegada_silencio.png"),
             ("menu_masmorra", "menu_aberto.png"),
             ("tela_masmorras", "tela_masmorras.png"),
             ("confirmar_sepheras", "confirmar_sepheras.png"),
@@ -301,6 +315,30 @@ public partial class App : Application
                 Path.Combine(referenceDirectory, fileName));
             lines.Add(
                 $"{referenceId}|image={fileName}|found={result.Found}|confidence={result.Confidence:F4}|x={result.X}|y={result.Y}");
+        }
+
+        var abbeyConfirmation = await recognition.FindInCroppedImageAsync(
+            "abadia_confirmacao",
+            Path.Combine(referenceDirectory, "abadia_confirmacao.png"));
+        lines.Add($"abadia_confirmacao|image=abadia_confirmacao.png|found={abbeyConfirmation.Found}|confidence={abbeyConfirmation.Confidence:F4}");
+        if (!abbeyConfirmation.Found)
+        {
+            throw new InvalidOperationException($"A confirmação de entrada paga na Abadia não foi reconhecida no recorte fornecido ({abbeyConfirmation.Confidence:P0}, {abbeyConfirmation.X}, {abbeyConfirmation.Y}).");
+        }
+
+        foreach (var (referenceId, ownImage, otherImage) in new[]
+        {
+            ("abadia_chegada_silencio", "abadia_chegada_silencio.png", "abadia_chegada_apreciacao.png"),
+            ("abadia_chegada_apreciacao", "abadia_chegada_apreciacao.png", "abadia_chegada_silencio.png")
+        })
+        {
+            var own = await recognition.FindInImageAsync(referenceId, Path.Combine(referenceDirectory, ownImage));
+            var other = await recognition.FindInImageAsync(referenceId, Path.Combine(referenceDirectory, otherImage));
+            if (!own.Found || other.Found)
+            {
+                throw new InvalidOperationException(
+                    $"A confirmação da chegada na Abadia não distinguiu os dois pontos: {referenceId}, próprio={own.Confidence:P0}, outro={other.Confidence:P0}.");
+            }
         }
 
         var offerPresent = await recognition.FindInImageAsync(

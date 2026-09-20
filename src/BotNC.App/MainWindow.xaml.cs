@@ -30,6 +30,8 @@ public partial class MainWindow : Window
     private string? _savedClient2Title;
     private FarmCoordinate? _client1CustomCoordinate;
     private FarmCoordinate? _client2CustomCoordinate;
+    private FarmCoordinate? _client1AbbeyCoordinate;
+    private FarmCoordinate? _client2AbbeyCoordinate;
     private bool _capturingCustomCoordinate;
 
     public MainWindow()
@@ -60,16 +62,20 @@ public partial class MainWindow : Window
         DeathWindowTextBox.Text = "30";
         AgendaDurationTextBox.Text = "60";
         InstalledVersionText.Text = $"v{AppUpdateService.CurrentVersion.ToString(3)}";
-        ApplicationVersionText.Text = $"v{AppUpdateService.CurrentVersion.ToString(3)} · Proteção independente";
+        ApplicationVersionText.Text = $"v{AppUpdateService.CurrentVersion.ToString(3)}";
         DatabasePathText.Text = $"Dados: {_database.DatabasePath} · Log: {_engine.RuntimeLogPath}";
     }
 
     private void OnShowOverview(object sender, RoutedEventArgs e)
     {
         OverviewPanel.Visibility = Visibility.Visible;
+        AbbeyPanel.Visibility = Visibility.Collapsed;
+        ProtectionPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
         OverviewNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
         UpdatesNavigationButton.Background = Brushes.Transparent;
+        AbbeyNavigationButton.Background = Brushes.Transparent;
+        ProtectionNavigationButton.Background = Brushes.Transparent;
     }
 
     private void OnShowSapheras(object sender, RoutedEventArgs e)
@@ -87,12 +93,42 @@ public partial class MainWindow : Window
     private void OnShowUpdates(object sender, RoutedEventArgs e)
     {
         OverviewPanel.Visibility = Visibility.Collapsed;
+        AbbeyPanel.Visibility = Visibility.Collapsed;
+        ProtectionPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Visible;
         OverviewNavigationButton.Background = Brushes.Transparent;
+        AbbeyNavigationButton.Background = Brushes.Transparent;
+        ProtectionNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
     }
 
+    private void OnShowAbbey(object sender, RoutedEventArgs e)
+    {
+        OverviewPanel.Visibility = Visibility.Collapsed;
+        UpdatesPanel.Visibility = Visibility.Collapsed;
+        ProtectionPanel.Visibility = Visibility.Collapsed;
+        AbbeyPanel.Visibility = Visibility.Visible;
+        OverviewNavigationButton.Background = Brushes.Transparent;
+        UpdatesNavigationButton.Background = Brushes.Transparent;
+        AbbeyNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        ProtectionNavigationButton.Background = Brushes.Transparent;
+    }
+
+    private void OnShowProtection(object sender, RoutedEventArgs e)
+    {
+        OverviewPanel.Visibility = Visibility.Collapsed;
+        AbbeyPanel.Visibility = Visibility.Collapsed;
+        UpdatesPanel.Visibility = Visibility.Collapsed;
+        ProtectionPanel.Visibility = Visibility.Visible;
+        OverviewNavigationButton.Background = Brushes.Transparent;
+        AbbeyNavigationButton.Background = Brushes.Transparent;
+        UpdatesNavigationButton.Background = Brushes.Transparent;
+        ProtectionNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+    }
+
     internal void ShowUpdatesForScreenshot() => OnShowUpdates(this, new RoutedEventArgs());
+    internal void ShowAbbeyForScreenshot() => OnShowAbbey(this, new RoutedEventArgs());
+    internal void ShowProtectionForScreenshot() => OnShowProtection(this, new RoutedEventArgs());
 
     private async void OnCheckForUpdates(object sender, RoutedEventArgs e)
     {
@@ -294,7 +330,13 @@ public partial class MainWindow : Window
     private async void OnCaptureClient2Coordinate(object sender, RoutedEventArgs e) =>
         await CaptureCustomCoordinateAsync(2);
 
-    private async Task CaptureCustomCoordinateAsync(int clientNumber)
+    private async void OnCaptureClient1AbbeyCoordinate(object sender, RoutedEventArgs e) =>
+        await CaptureCustomCoordinateAsync(1, abbey: true);
+
+    private async void OnCaptureClient2AbbeyCoordinate(object sender, RoutedEventArgs e) =>
+        await CaptureCustomCoordinateAsync(2, abbey: true);
+
+    private async Task CaptureCustomCoordinateAsync(int clientNumber, bool abbey = false)
     {
         if (_capturingCustomCoordinate || _runCancellation is not null)
         {
@@ -335,7 +377,17 @@ public partial class MainWindow : Window
                 CancellationToken.None);
             var mapped = _gameWindows.MapScreenPointToReference(target, clicked.X, clicked.Y);
             var coordinate = new FarmCoordinate(mapped.X, mapped.Y);
-            if (clientNumber == 1)
+            if (abbey && clientNumber == 1)
+            {
+                _client1AbbeyCoordinate = coordinate;
+                Client1AbbeyCustomCheckBox.IsChecked = true;
+            }
+            else if (abbey)
+            {
+                _client2AbbeyCoordinate = coordinate;
+                Client2AbbeyCustomCheckBox.IsChecked = true;
+            }
+            else if (clientNumber == 1)
             {
                 _client1CustomCoordinate = coordinate;
                 Client1CustomCoordinateCheckBox.IsChecked = true;
@@ -346,7 +398,7 @@ public partial class MainWindow : Window
                 Client2CustomCoordinateCheckBox.IsChecked = true;
             }
 
-            await SaveCustomCoordinateAsync(clientNumber, coordinate, enabled: true);
+            await SaveCustomCoordinateAsync(clientNumber, coordinate, enabled: true, abbey: abbey);
             UpdateCustomCoordinateLabels();
             AddLog($"Cliente {clientNumber}: coordenada personalizada salva em ({coordinate.X}, {coordinate.Y}).");
         }
@@ -367,9 +419,10 @@ public partial class MainWindow : Window
     private async Task SaveCustomCoordinateAsync(
         int clientNumber,
         FarmCoordinate coordinate,
-        bool enabled)
+        bool enabled,
+        bool abbey = false)
     {
-        var prefix = $"client{clientNumber}.customFarm";
+        var prefix = abbey ? $"client{clientNumber}.abbey.customFarm" : $"client{clientNumber}.customFarm";
         await _database.SaveSettingAsync($"{prefix}.enabled", enabled.ToString().ToLowerInvariant());
         await _database.SaveSettingAsync($"{prefix}.x", coordinate.X.ToString(CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync($"{prefix}.y", coordinate.Y.ToString(CultureInfo.InvariantCulture));
@@ -388,6 +441,10 @@ public partial class MainWindow : Window
         Client2CustomCoordinateText.Text = _client2CustomCoordinate is { } client2
             ? $"({client2.X}, {client2.Y})"
             : "Não definida";
+        Client1AbbeyCoordinateText.Text = _client1AbbeyCoordinate is { } abbey1
+            ? $"({abbey1.X}, {abbey1.Y})" : "Não definida";
+        Client2AbbeyCoordinateText.Text = _client2AbbeyCoordinate is { } abbey2
+            ? $"({abbey2.X}, {abbey2.Y})" : "Não definida";
     }
 
     private void UpdateCustomCoordinateControls()
@@ -405,6 +462,17 @@ public partial class MainWindow : Window
         Client2CustomCoordinateCheckBox.IsEnabled = editable && client2Enabled;
         CaptureClient1CoordinateButton.IsEnabled = editable && client1Enabled;
         CaptureClient2CoordinateButton.IsEnabled = editable && client2Enabled;
+        if (Client1AbbeyCheckBox is not null && Client2AbbeyCheckBox is not null)
+        {
+            Client1AbbeyCheckBox.IsEnabled = editable && client1Enabled;
+            Client2AbbeyCheckBox.IsEnabled = editable && client2Enabled;
+            Client1AbbeyCustomCheckBox.IsEnabled = editable && client1Enabled;
+            Client2AbbeyCustomCheckBox.IsEnabled = editable && client2Enabled;
+            CaptureClient1AbbeyButton.IsEnabled = editable && client1Enabled;
+            CaptureClient2AbbeyButton.IsEnabled = editable && client2Enabled;
+            Client1AbbeyLimitTextBox.IsEnabled = editable && client1Enabled;
+            Client2AbbeyLimitTextBox.IsEnabled = editable && client2Enabled;
+        }
     }
 
     private void OnUseNow(object sender, RoutedEventArgs e)
@@ -484,6 +552,27 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (client1 is not null && Client1AbbeyCheckBox.IsChecked == true &&
+            Client1AbbeyCustomCheckBox.IsChecked == true && _client1AbbeyCoordinate is null)
+        {
+            ShowValidation("Capture o ponto personalizado da Abadia para o Cliente 1.");
+            return;
+        }
+
+        if (client2 is not null && Client2AbbeyCheckBox.IsChecked == true &&
+            Client2AbbeyCustomCheckBox.IsChecked == true && _client2AbbeyCoordinate is null)
+        {
+            ShowValidation("Capture o ponto personalizado da Abadia para o Cliente 2.");
+            return;
+        }
+
+        if (!int.TryParse(Client1AbbeyLimitTextBox.Text, out var abbeyLimit1) || abbeyLimit1 is < 0 or > 100 ||
+            !int.TryParse(Client2AbbeyLimitTextBox.Text, out var abbeyLimit2) || abbeyLimit2 is < 0 or > 100)
+        {
+            ShowValidation("Informe de 0 a 100 retornos pagos para cada cliente da Abadia.");
+            return;
+        }
+
         foreach (var selectedClient in new[] { client1, client2 }.Where(client => client is not null))
         {
             var size = _gameWindows.GetWindowSize(selectedClient!);
@@ -559,11 +648,14 @@ public partial class MainWindow : Window
                 "Cliente 1",
                 client1,
                 ParseTaDestination(Ta1ComboBox.SelectedItem),
-                Client1SapherasCheckBox.IsChecked == true,
+                Client1SapherasCheckBox.IsChecked == true || Client1AbbeyCheckBox.IsChecked == true,
                 1,
                 Client1CustomCoordinateCheckBox.IsChecked == true
                     ? _client1CustomCoordinate
-                    : null));
+                    : null,
+                Client1AbbeyCheckBox.IsChecked == true,
+                abbeyLimit1,
+                Client1AbbeyCustomCheckBox.IsChecked == true ? _client1AbbeyCoordinate : null));
         }
 
         if (client2 is not null)
@@ -573,11 +665,14 @@ public partial class MainWindow : Window
                     "Cliente 2",
                     client2,
                     ParseTaDestination(Ta2ComboBox.SelectedItem),
-                    Client2SapherasCheckBox.IsChecked == true,
+                    Client2SapherasCheckBox.IsChecked == true || Client2AbbeyCheckBox.IsChecked == true,
                     client1 is null ? 1 : 2,
                     Client2CustomCoordinateCheckBox.IsChecked == true
                         ? _client2CustomCoordinate
-                        : null));
+                        : null,
+                    Client2AbbeyCheckBox.IsChecked == true,
+                    abbeyLimit2,
+                    Client2AbbeyCustomCheckBox.IsChecked == true ? _client2AbbeyCoordinate : null));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -667,9 +762,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!int.TryParse(StartDelayMinutesTextBox.Text.Trim(), out var minutes) || minutes is < 1 or > 1440)
+        if (!int.TryParse(StartDelayMinutesTextBox.Text.Trim(), out var minutes) || minutes is < 0 or > 1440)
         {
-            ShowValidation("Informe de 1 a 1440 minutos para programar o início.");
+            ShowValidation("Informe de 0 a 1440 minutos para programar o início.");
             return;
         }
 
@@ -681,6 +776,11 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             ShowValidation($"Não foi possível salvar o agendamento: {exception.GetBaseException().Message}");
+            return;
+        }
+        if (minutes == 0)
+        {
+            OnStartBot(StartButton, new RoutedEventArgs());
             return;
         }
         var cancellation = new CancellationTokenSource();
@@ -892,6 +992,8 @@ public partial class MainWindow : Window
         DeathThresholdTextBox.IsEnabled = !isRunning;
         DeathWindowTextBox.IsEnabled = !isRunning;
         AgendaDurationTextBox.IsEnabled = !isRunning;
+        Client1AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient1CheckBox.IsChecked == true;
+        Client2AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient2CheckBox.IsChecked == true;
         ScheduleStartButton.IsEnabled = !isRunning;
         StartDelayMinutesTextBox.IsEnabled = !isRunning && _scheduledStartCancellation is null;
         UpdateCustomCoordinateControls();
@@ -936,6 +1038,16 @@ public partial class MainWindow : Window
         var client2CustomEnabled = await _database.GetSettingAsync("client2.customFarm.enabled");
         var client2CustomX = await _database.GetSettingAsync("client2.customFarm.x");
         var client2CustomY = await _database.GetSettingAsync("client2.customFarm.y");
+        var abbey1Enabled = await _database.GetSettingAsync("client1.abbey.enabled");
+        var abbey2Enabled = await _database.GetSettingAsync("client2.abbey.enabled");
+        var abbey1Limit = await _database.GetSettingAsync("client1.abbey.returnLimit");
+        var abbey2Limit = await _database.GetSettingAsync("client2.abbey.returnLimit");
+        var abbey1CustomEnabled = await _database.GetSettingAsync("client1.abbey.customFarm.enabled");
+        var abbey2CustomEnabled = await _database.GetSettingAsync("client2.abbey.customFarm.enabled");
+        var abbey1X = await _database.GetSettingAsync("client1.abbey.customFarm.x");
+        var abbey1Y = await _database.GetSettingAsync("client1.abbey.customFarm.y");
+        var abbey2X = await _database.GetSettingAsync("client2.abbey.customFarm.x");
+        var abbey2Y = await _database.GetSettingAsync("client2.abbey.customFarm.y");
         if (!string.IsNullOrWhiteSpace(schedule))
         {
             ScheduleTextBox.Text = schedule;
@@ -970,7 +1082,7 @@ public partial class MainWindow : Window
         DeathThresholdTextBox.Text = string.IsNullOrWhiteSpace(deathThreshold) ? "3" : deathThreshold;
         DeathWindowTextBox.Text = string.IsNullOrWhiteSpace(deathWindow) ? "30" : deathWindow;
         AgendaDurationTextBox.Text = string.IsNullOrWhiteSpace(agendaDuration) ? "60" : agendaDuration;
-        StartDelayMinutesTextBox.Text = string.IsNullOrWhiteSpace(startDelay) ? "10" : startDelay;
+        StartDelayMinutesTextBox.Text = string.IsNullOrWhiteSpace(startDelay) ? "0" : startDelay;
         _client1CustomCoordinate = ParseFarmCoordinate(client1CustomX, client1CustomY);
         _client2CustomCoordinate = ParseFarmCoordinate(client2CustomX, client2CustomY);
         Client1CustomCoordinateCheckBox.IsChecked =
@@ -979,6 +1091,16 @@ public partial class MainWindow : Window
         Client2CustomCoordinateCheckBox.IsChecked =
             _client2CustomCoordinate is not null &&
             string.Equals(client2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        Client1AbbeyCheckBox.IsChecked = string.Equals(abbey1Enabled, "true", StringComparison.OrdinalIgnoreCase);
+        Client2AbbeyCheckBox.IsChecked = string.Equals(abbey2Enabled, "true", StringComparison.OrdinalIgnoreCase);
+        Client1AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey1Limit) ? "0" : abbey1Limit;
+        Client2AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey2Limit) ? "0" : abbey2Limit;
+        _client1AbbeyCoordinate = ParseFarmCoordinate(abbey1X, abbey1Y);
+        _client2AbbeyCoordinate = ParseFarmCoordinate(abbey2X, abbey2Y);
+        Client1AbbeyCustomCheckBox.IsChecked = _client1AbbeyCoordinate is not null &&
+            string.Equals(abbey1CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        Client2AbbeyCustomCheckBox.IsChecked = _client2AbbeyCoordinate is not null &&
+            string.Equals(abbey2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
         UpdateCustomCoordinateLabels();
         UpdateCustomCoordinateControls();
     }
@@ -996,6 +1118,7 @@ public partial class MainWindow : Window
             await _database.SaveSettingAsync("client1.ta", client1.Destination.ToString());
             await _database.SaveSettingAsync("client1.sapheras", client1.UseSapheras.ToString().ToLowerInvariant());
             await SaveClientCustomCoordinateSettingsAsync(1, client1.CustomFarmCoordinate);
+            await SaveClientAbbeySettingsAsync(1, client1);
         }
 
         if (client2 is not null)
@@ -1004,6 +1127,7 @@ public partial class MainWindow : Window
             await _database.SaveSettingAsync("client2.ta", client2.Destination.ToString());
             await _database.SaveSettingAsync("client2.sapheras", client2.UseSapheras.ToString().ToLowerInvariant());
             await SaveClientCustomCoordinateSettingsAsync(2, client2.CustomFarmCoordinate);
+            await SaveClientAbbeySettingsAsync(2, client2);
         }
 
         await _database.SaveSettingAsync("sapheras.schedule", options.ScheduledAt.ToString("HH:mm:ss"));
@@ -1041,6 +1165,20 @@ public partial class MainWindow : Window
 
         await _database.SaveSettingAsync($"{prefix}.x", coordinate.X.ToString(CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync($"{prefix}.y", coordinate.Y.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private async Task SaveClientAbbeySettingsAsync(int clientNumber, AutomationClientOptions client)
+    {
+        var prefix = $"client{clientNumber}.abbey";
+        await _database.SaveSettingAsync($"{prefix}.enabled", client.UseAbbey.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync($"{prefix}.returnLimit", client.AbbeyReturnLimit.ToString(CultureInfo.InvariantCulture));
+        var custom = client.AbbeyCustomFarmCoordinate;
+        await _database.SaveSettingAsync($"{prefix}.customFarm.enabled", (custom is not null).ToString().ToLowerInvariant());
+        if (custom is not null)
+        {
+            await _database.SaveSettingAsync($"{prefix}.customFarm.x", custom.X.ToString(CultureInfo.InvariantCulture));
+            await _database.SaveSettingAsync($"{prefix}.customFarm.y", custom.Y.ToString(CultureInfo.InvariantCulture));
+        }
     }
 
     private static FarmCoordinate? ParseFarmCoordinate(string? xText, string? yText)

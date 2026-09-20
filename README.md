@@ -2,7 +2,19 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.10
+## Ciclo disponível — v0.8.0
+
+### Abadia da Lembrança
+
+- opção independente por cliente, com T.A 2/3 configurada como destino de reserva;
+- Sapheras permanece obrigatória e prioritária quando a Abadia está ativa;
+- confirma a aba Especial, o cartão da Abadia, o popup de entrada paga e um dos dois locais possíveis de chegada;
+- usa um dos quatro pontos fixos informados ou uma coordenada personalizada capturada no mapa, sem abrir Favoritos;
+- limita os retornos pagos após a primeira entrada; quando o limite acaba, segue para a T.A escolhida;
+- após Y, não tenta uma segunda entrada paga sem antes verificar se a chegada ocorreu;
+- na morte sem lápide de restauração, segue o fluxo sem insistir em restaurar recursos inexistentes;
+- o agendamento de início passa a começar em zero minuto por padrão.
+- Anti Over Kill fica na aba **Proteção**; os quadros informativos “Etapas protegidas” e “Base modular” foram removidos da interface.
 
 ### Sapheras
 

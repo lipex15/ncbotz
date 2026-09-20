@@ -28,7 +28,10 @@ public sealed record AutomationClientOptions(
     TaDestination Destination,
     bool UseSapheras,
     int Priority,
-    FarmCoordinate? CustomFarmCoordinate);
+    FarmCoordinate? CustomFarmCoordinate,
+    bool UseAbbey = false,
+    int AbbeyReturnLimit = 0,
+    FarmCoordinate? AbbeyCustomFarmCoordinate = null);
 
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,

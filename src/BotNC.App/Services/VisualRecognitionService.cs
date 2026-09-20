@@ -1,4 +1,5 @@
 using System.IO;
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -14,11 +15,20 @@ public sealed class VisualRecognitionService(
     private const int ReferenceDesktopHeight = 1080;
     private const int ReferenceWindowHeight = 1040;
     private static readonly ConditionalWeakTable<PixelFrame, PixelFrame> NormalizedFrames = new();
+    private static readonly ConditionalWeakTable<byte[], PixelFrame> DecodedReferences = new();
+    private readonly ConcurrentDictionary<string, Lazy<Task<VisualReference>>> _referenceCache = new();
+
+    private Task<VisualReference> GetReferenceAsync(string referenceId) =>
+        referenceId.StartsWith("abadia_", StringComparison.Ordinal)
+            ? _referenceCache.GetOrAdd(
+                referenceId,
+                id => new Lazy<Task<VisualReference>>(() => database.GetReferenceAsync(id))).Value
+            : database.GetReferenceAsync(referenceId);
     public async Task<RecognitionResult> FindAsync(
         string referenceId,
         CancellationToken cancellationToken = default)
     {
-        var reference = await database.GetReferenceAsync(referenceId);
+        var reference = await GetReferenceAsync(referenceId);
         var screen = capture.CapturePrimaryScreen();
         return await Task.Run(
             () => Match(screen, reference, cancellationToken),
@@ -30,7 +40,7 @@ public sealed class VisualRecognitionService(
         PixelFrame frame,
         CancellationToken cancellationToken = default)
     {
-        var reference = await database.GetReferenceAsync(referenceId);
+        var reference = await GetReferenceAsync(referenceId);
         return await Task.Run(
             () => Match(frame, reference, cancellationToken),
             cancellationToken);
@@ -44,7 +54,7 @@ public sealed class VisualRecognitionService(
         int searchHeight,
         CancellationToken cancellationToken = default)
     {
-        var reference = await database.GetReferenceAsync(referenceId);
+        var reference = await GetReferenceAsync(referenceId);
         var regionalReference = reference with
         {
             SearchX = searchX,
@@ -63,11 +73,31 @@ public sealed class VisualRecognitionService(
         string imagePath,
         CancellationToken cancellationToken = default)
     {
-        var reference = await database.GetReferenceAsync(referenceId);
+        var reference = await GetReferenceAsync(referenceId);
         var image = await File.ReadAllBytesAsync(imagePath, cancellationToken);
         var frame = Decode(image);
         return await Task.Run(
             () => Match(frame, reference, cancellationToken),
+            cancellationToken);
+    }
+
+    public async Task<RecognitionResult> FindInCroppedImageAsync(
+        string referenceId,
+        string imagePath,
+        CancellationToken cancellationToken = default)
+    {
+        var reference = await GetReferenceAsync(referenceId);
+        var image = await File.ReadAllBytesAsync(imagePath, cancellationToken);
+        var frame = Decode(image);
+        var localReference = reference with
+        {
+            SearchX = 0,
+            SearchY = 0,
+            SearchWidth = frame.Width,
+            SearchHeight = frame.Height
+        };
+        return await Task.Run(
+            () => Match(frame, localReference, cancellationToken, normalizeScreen: false),
             cancellationToken);
     }
 
@@ -143,10 +173,16 @@ public sealed class VisualRecognitionService(
     private static RecognitionResult Match(
         PixelFrame screen,
         VisualReference reference,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool normalizeScreen = true)
     {
-        screen = NormalizeForReferenceMatching(screen);
-        var template = Decode(reference.Image);
+        if (normalizeScreen)
+        {
+            screen = NormalizeForReferenceMatching(screen);
+        }
+        var template = reference.Id.StartsWith("abadia_", StringComparison.Ordinal)
+            ? DecodedReferences.GetValue(reference.Image, Decode)
+            : Decode(reference.Image);
         ValidateSource(reference, template);
 
         var sourceX = reference.SourceX;

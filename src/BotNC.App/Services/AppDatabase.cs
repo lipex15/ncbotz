@@ -231,6 +231,41 @@ public sealed class AppDatabase
         public static readonly ReferenceDefinition[] All =
         [
             new(
+                "abadia_especial",
+                "Aba Especial da Masmorra",
+                "abadia_pagina_especial.png",
+                250, 119, 175, 54,
+                210, 85, 260, 110,
+                0.69),
+            new(
+                "abadia_cartao",
+                "Cartão Abadia da Lembrança",
+                "abadia_pagina_especial.png",
+                48, 670, 280, 57,
+                15, 620, 370, 135,
+                0.68),
+            new(
+                "abadia_confirmacao",
+                "Confirmação Abadia da Lembrança",
+                "abadia_confirmacao.png",
+                120, 62, 390, 92,
+                520, 260, 880, 300,
+                0.70),
+            new(
+                "abadia_chegada_silencio",
+                "Chegada ao Ambão do Silêncio",
+                "abadia_chegada_silencio.png",
+                87, 100, 225, 31,
+                50, 62, 310, 85,
+                0.66),
+            new(
+                "abadia_chegada_apreciacao",
+                "Chegada ao Ambão da Apreciação",
+                "abadia_chegada_apreciacao.png",
+                91, 100, 240, 31,
+                50, 62, 325, 85,
+                0.66),
+            new(
                 "menu_masmorra",
                 "Botão Masm. no menu lateral",
                 "menu_masmorra.png",
