@@ -127,6 +127,7 @@ public partial class App : Application
             var dailyTeleportOk = await recognition.FindInImageAsync("daily_teleport_ok", imagePath);
             var dailyPage = await recognition.FindInImageAsync("daily_page", imagePath);
             var guildDirectiveCompleted = await recognition.FindInCroppedImageAsync("guild_directive_completed", imagePath);
+            var guildDirectiveCompletedAlt = await recognition.FindInImageAsync("guild_directive_completed_alt", imagePath);
             var dailyThirtyCounter = await recognition.HasDailyThirtyCounterInImageAsync(imagePath);
             var dimmedDailyRows = await recognition.CountDimmedDailyMissionRowsInImageAsync(imagePath);
             var mailPage = await recognition.FindInImageAsync("mail_page", imagePath);
@@ -150,6 +151,7 @@ public partial class App : Application
                     $"dailyTeleportOk={dailyTeleportOk.Found};confidence={dailyTeleportOk.Confidence:F4}",
                     $"dailyPage={dailyPage.Found};confidence={dailyPage.Confidence:F4}",
                     $"guildDirectiveCompleted={guildDirectiveCompleted.Found};confidence={guildDirectiveCompleted.Confidence:F4}",
+                    $"guildDirectiveCompletedAlt={guildDirectiveCompletedAlt.Found};confidence={guildDirectiveCompletedAlt.Confidence:F4}",
                     $"dailyThirtyCounter={dailyThirtyCounter}",
                     $"dimmedDailyRows={dimmedDailyRows}",
                     $"menuMail={menuMail.Found};confidence={menuMail.Confidence:F4}",
@@ -419,6 +421,24 @@ public partial class App : Application
         {
             throw new InvalidOperationException(
                 $"A Diretiva concluída não foi reconhecida no recorte ({completedGuildDirective.Confidence:P0}).");
+        }
+
+        var alternateCompletedDirective = await recognition.FindInCroppedImageAsync(
+            "guild_directive_completed_alt",
+            Path.Combine(referenceDirectory, "guild_directive_completed_alt.png"));
+        lines.Add($"guild_directive_completed_alt|own={alternateCompletedDirective.Found}|confidence={alternateCompletedDirective.Confidence:F4}");
+        if (!alternateCompletedDirective.Found)
+        {
+            throw new InvalidOperationException("A referência alternativa da Diretiva 5/5 não reconheceu sua própria imagem.");
+        }
+
+        var activeDirective = await recognition.FindInImageAsync(
+            "guild_directive_completed_alt",
+            Path.Combine(referenceDirectory, "guild_directive_in_progress.png"));
+        lines.Add($"guild_directive_completed_alt|active={activeDirective.Found}|confidence={activeDirective.Confidence:F4}");
+        if (activeDirective.Found)
+        {
+            throw new InvalidOperationException("A referência alternativa 5/5 confundiu uma Diretiva ativa com conclusão.");
         }
 
         var acceptedThirty = await recognition.HasDailyThirtyCounterInImageAsync(

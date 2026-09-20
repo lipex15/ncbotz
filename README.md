@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.9.11
+## Ciclo disponível — v0.9.12
 
 ### Rotinas Diárias e Diretivas
 
@@ -19,7 +19,7 @@ Aplicativo modular de automação visual para Night Crows.
 - confirma o teleporte pelo botão e pela área de recursos, independentemente do nome do mapa; lê o popup na janela do cliente e recupera falhas transitórias sem encerrar o bot;
 - se a captura independente não reconhecer o popup, confere novamente na tela do cliente em primeiro plano antes de enviar Y;
 - aceita Diretiva de Guilda em Mapa Aberto, T.A ou Masmorras; o jogo conclui as cinco do local escolhido;
-- reconhece Diretivas já concluídas (5/5), fecha o painel sem usar recarga e continua normalmente; ao iniciar, também sincroniza painéis de Diárias 30/30 já abertos;
+- reconhece os dois enquadramentos de Diretivas já concluídas (5/5), fecha o painel com ESC sem tentar aceitar nem usar recarga e continua normalmente; ao iniciar, também sincroniza painéis de Diárias 30/30 já abertos;
 - confirma a Diretiva pelo aviso ou pelo estado permanente `Em andamento` e fecha completamente a tela da Guilda;
 - Diretiva de Mapa Aberto é aceita junto das Diárias;
 - a execução realizada é persistida por cliente para não repetir após reiniciar o aplicativo;

@@ -2598,7 +2598,7 @@ public sealed class BotAutomationEngine(
             session.NextRoutinePanelRecoveryAt = default;
             await ActivateGameAsync(session, cancellationToken);
             var cycle = DailyCycleKey(DateTime.Now);
-            if ((await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found)
+            if (await IsGuildDirectiveCompletedAsync(cancellationToken))
             {
                 WriteLog(session, "Diretivas 5/5 já concluídas ao iniciar; fechando a Guilda sem recarregar.");
                 await CloseGuildScreenAsync(session, pause, cancellationToken);
@@ -2696,12 +2696,18 @@ public sealed class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         SetStatus(BotRunState.Running, $"{session.Options.Label}: Diretiva de Guilda", "Abrindo a Guilda e aceitando o local configurado");
+        if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+        {
+            return;
+        }
+
         await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
         await WaitForReferenceAsync("menu_guild", "ícone Guilda", TimeSpan.FromSeconds(10), pause, cancellationToken);
         await input.MoveAndClickAsync(1603, 340, TimeSpan.FromMilliseconds(320), cancellationToken);
         await WaitForReferenceAsync("guild_page", "página da Guilda", TimeSpan.FromSeconds(15), pause, cancellationToken);
         await input.MoveAndClickAsync(523, 143, TimeSpan.FromMilliseconds(320), cancellationToken);
         await WaitForReferenceAsync("guild_directive_page", "página de Diretivas", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await Task.Delay(400, cancellationToken);
         if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
         {
             return;
@@ -2748,7 +2754,7 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        if (!(await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found)
+        if (!await IsGuildDirectiveCompletedAsync(cancellationToken))
         {
             return false;
         }
@@ -2757,6 +2763,10 @@ public sealed class BotAutomationEngine(
         await CloseGuildScreenAsync(session, pause, cancellationToken);
         return true;
     }
+
+    private async Task<bool> IsGuildDirectiveCompletedAsync(CancellationToken cancellationToken) =>
+        (await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found ||
+        (await recognition.FindAsync("guild_directive_completed_alt", cancellationToken)).Found;
 
     private async Task CloseGuildScreenAsync(
         ClientSession session,
@@ -2769,7 +2779,8 @@ public sealed class BotAutomationEngine(
             await CheckpointAsync(pause, cancellationToken);
             var directiveVisible = (await recognition.FindAsync("guild_directive_page", cancellationToken)).Found;
             var guildVisible = (await recognition.FindAsync("guild_page", cancellationToken)).Found;
-            if (!directiveVisible && !guildVisible)
+            var completedVisible = await IsGuildDirectiveCompletedAsync(cancellationToken);
+            if (!directiveVisible && !guildVisible && !completedVisible)
             {
                 WriteLog(session, $"Tela da Guilda fechada e confirmada após {attempt} ESC.");
                 return;
