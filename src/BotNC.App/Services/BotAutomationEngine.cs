@@ -283,7 +283,7 @@ public sealed class BotAutomationEngine(
                     session.IsFarmingTa = false;
                     session.SafeInRest = false;
                     SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando em Sapheras", "Preparando o cliente");
-                    await ActivateGameAsync(session.Options.Target, cancellationToken);
+                    await ActivateGameAsync(session, cancellationToken);
                     var death = await FindDeathOnClientAsync(session, cancellationToken);
                     if (death.Found)
                     {
@@ -377,7 +377,7 @@ public sealed class BotAutomationEngine(
             return;
         }
 
-        await ActivateGameAsync(session.Options.Target, cancellationToken);
+        await ActivateGameAsync(session, cancellationToken);
         var death = await FindDeathOnClientAsync(session, cancellationToken);
         if (death.Found)
         {
@@ -669,8 +669,19 @@ public sealed class BotAutomationEngine(
                                 if (session.NeedsDeathRestoration)
                                 {
                                     WriteLog(session, "Restauração pendente: concluindo a lápide antes de reiniciar a rota.");
-                                    await ActivateGameForEmergencyAsync(session.Options.Target, actionToken);
+                                    await ActivateGameForEmergencyAsync(session, actionToken);
                                     await RestoreDeathResourcesAsync(session, pause, actionToken);
+                                }
+
+                                if (session.AwaitingHuntActivationAtSpot &&
+                                    !session.RequiresHardFlowReset)
+                                {
+                                    await ResumeHuntAtCurrentSpotAsync(
+                                        session,
+                                        !session.Options.UseSapheras,
+                                        pause,
+                                        actionToken);
+                                    return;
                                 }
 
                                 if (session.RequiresHardFlowReset)
@@ -680,7 +691,7 @@ public sealed class BotAutomationEngine(
 
                                 if (session.Options.UseSapheras)
                                 {
-                                    await ActivateGameAsync(session.Options.Target, actionToken);
+                                    await ActivateGameAsync(session, actionToken);
                                     session.IsFarmingTa = false;
                                     session.SafeInRest = false;
                                     await EnterSapherasAsync(session, sapheras, pause, actionToken);
@@ -775,7 +786,7 @@ public sealed class BotAutomationEngine(
     {
         _ = session.Audio.TryConsumeAlert(out _);
         session.SafeInRest = false;
-        await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+        await ActivateGameForEmergencyAsync(session, cancellationToken);
         if ((await FindDeathOnClientAsync(session, cancellationToken)).Found)
         {
             await RecoverDeathDuringSapherasAsync(session, sapheras, antiOverkill, finishesAt, pause, cancellationToken);
@@ -833,12 +844,13 @@ public sealed class BotAutomationEngine(
 
         session.HandlingDeath = true;
         session.Audio.Armed = false;
+        session.AwaitingHuntActivationAtSpot = false;
         _ = session.Audio.TryConsumeAlert(out _);
         Interlocked.Exchange(ref session.PendingVisualDeath, 0);
         try
         {
             SetStatus(BotRunState.Running, $"{session.Options.Label}: morte em Sapheras", "Restaurando antes de retomar a prioridade");
-            await ActivateGameAsync(session.Options.Target, cancellationToken);
+            await ActivateGameAsync(session, cancellationToken);
             await RestoreDeathResourcesAsync(session, pause, cancellationToken);
             if (RegisterDeath(session, antiOverkill))
             {
@@ -883,7 +895,8 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        await ExitRestIfNeededAsync(pause, cancellationToken);
+        session.AwaitingHuntActivationAtSpot = false;
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
         await OpenDungeonMenuAsync(session, pause, cancellationToken);
         await input.ClickAsync(1744, 273, cancellationToken);
         await WaitForReferenceAsync("tela_masmorras", "página Masmorra", TimeSpan.FromSeconds(12), pause, cancellationToken);
@@ -904,6 +917,7 @@ public sealed class BotAutomationEngine(
             await input.PressKeyAsync(options.TeleportVirtualKey, cancellationToken: cancellationToken);
         }
 
+        session.AwaitingHuntActivationAtSpot = true;
         await StartAutomaticHuntAsync(session, pause, cancellationToken);
         session.ConsecutiveRecoveryFailures = 0;
         session.RequiresHardFlowReset = false;
@@ -955,10 +969,11 @@ public sealed class BotAutomationEngine(
         session.Audio.Armed = false;
         session.SafeInRest = false;
         session.IsFarmingTa = false;
+        session.AwaitingHuntActivationAtSpot = false;
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", "Abrindo Terra Avassaladora");
-        await ActivateGameAsync(session.Options.Target, cancellationToken);
+        await ActivateGameAsync(session, cancellationToken);
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir a {taName}", cancellationToken);
-        await ExitRestIfNeededAsync(pause, cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir o menu da {taName}", cancellationToken);
         var readyReference = EntryReadyReference(session.Options.Destination);
         if (await IsTaSelectorContextVisibleAsync(readyReference, cancellationToken))
@@ -1037,7 +1052,7 @@ public sealed class BotAutomationEngine(
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             var retryEntryClick = false;
-            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+            await EnsureGameForegroundAsync(session, cancellationToken);
             var mappedEntry = gameWindows.MapReferencePoint(
                 session.Options.Target,
                 entry.X,
@@ -1353,6 +1368,7 @@ public sealed class BotAutomationEngine(
         await OpenRestForTravelAsync(session, pause, cancellationToken);
 
         await WaitForFarmArrivalAsync(session, pause, cancellationToken);
+        session.AwaitingHuntActivationAtSpot = true;
         await StartAutomaticHuntAsync(session, pause, cancellationToken);
         session.IsFarmingTa = true;
         session.SafeInRest = true;
@@ -1446,7 +1462,7 @@ public sealed class BotAutomationEngine(
         // O mapa normalmente permanece aberto após Ir. O primeiro M é intencional e
         // não depende de uma única referência visual, que pode variar entre T.A 2 e T.A 3.
         WriteLog(session, "Fechando o mapa após Ir com M.");
-        await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+        await EnsureGameForegroundAsync(session, cancellationToken);
         await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
 
         for (var attempt = 1; attempt <= 2; attempt++)
@@ -1459,7 +1475,7 @@ public sealed class BotAutomationEngine(
             }
 
             WriteLog(session, $"O mapa ainda está aberto; repetindo M — tentativa {attempt}/2.");
-            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+            await EnsureGameForegroundAsync(session, cancellationToken);
             await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
         }
 
@@ -1491,12 +1507,12 @@ public sealed class BotAutomationEngine(
             if (await IsMapOpenAsync(session, cancellationToken))
             {
                 WriteLog(session, "Mapa reapareceu antes do descanso; fechando novamente com M.");
-                await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+                await EnsureGameForegroundAsync(session, cancellationToken);
                 await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
             }
 
             WriteLog(session, $"Abrindo a tela de descanso com L — tentativa {attempt}/3.");
-            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+            await EnsureGameForegroundAsync(session, cancellationToken);
             await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
             var openedState = await WaitForRestStateAsync(TimeSpan.FromSeconds(20), pause, cancellationToken);
             if (openedState is not null)
@@ -1587,36 +1603,58 @@ public sealed class BotAutomationEngine(
             {
                 WriteLog(session, "Caça automática confirmada na tela de descanso.");
                 session.SafeInRest = true;
+                session.AwaitingHuntActivationAtSpot = false;
                 return;
             }
 
             var restState = await FindRestStateAsync(cancellationToken);
             if (restState is not null)
             {
-                WriteLog(session, $"Saindo do descanso para ativar a caça — tentativa {attempt}/3.");
-                await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
-                await WaitForRestStateToDisappearAsync(TimeSpan.FromSeconds(20), pause, cancellationToken);
+                var closed = await TryCloseRestPanelAsync(
+                    session,
+                    pause,
+                    "ativar a caça",
+                    cancellationToken);
+                if (!closed)
+                {
+                    var closeDiagnostic = await recognition.SaveDiagnosticAsync(
+                        $"descanso_nao_fechou_{session.Options.Priority}");
+                    throw new TimeoutException(
+                        $"{session.Options.Label}: a tela de descanso permaneceu aberta após três comandos L confirmados. " +
+                        $"Diagnóstico: {closeDiagnostic}");
+                }
             }
 
-            WriteLog(session, "Ativando caça automática com Q e reabrindo o descanso com L.");
-            await input.PressKeyAsync(KeyQ, cancellationToken: cancellationToken);
-            await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
-            if (await WaitForReferenceToAppearAsync("caca_automatica", TimeSpan.FromSeconds(25), pause, cancellationToken))
+            WriteLog(session, $"Ativando caça automática com Q — ciclo {attempt}/3.");
+            await EnsureGameForegroundAsync(session, cancellationToken);
+            await input.PressKeyAsync(
+                KeyQ,
+                TimeSpan.FromMilliseconds(90 + (attempt * 40)),
+                cancellationToken);
+
+            var reopenedState = await TryOpenRestPanelAsync(session, pause, cancellationToken);
+            if (reopenedState is null)
+            {
+                var reopenDiagnostic = await recognition.SaveDiagnosticAsync(
+                    $"descanso_nao_reabriu_{session.Options.Priority}");
+                throw new TimeoutException(
+                    $"{session.Options.Label}: a caça recebeu Q, mas o descanso não reabriu após três comandos L. " +
+                    $"Diagnóstico: {reopenDiagnostic}");
+            }
+
+            if (await WaitForReferenceToAppearAsync(
+                    "caca_automatica", TimeSpan.FromSeconds(12), pause, cancellationToken))
             {
                 WriteLog(session, "Caça automática ativada e confirmada.");
                 session.SafeInRest = true;
+                session.AwaitingHuntActivationAtSpot = false;
                 return;
             }
 
-            var resultingState = await FindRestStateAsync(cancellationToken);
-            if (resultingState is null)
-            {
-                WriteLog(session, "O descanso ainda não abriu; tentando novamente sem presumir o estado da tela.");
-            }
-            else
-            {
-                WriteLog(session, $"Descanso abriu como '{RestStateDescription(resultingState.Value.ReferenceId)}', mas a caça não foi confirmada; repetindo o ciclo seguro L → Q → L.");
-            }
+            WriteLog(
+                session,
+                $"Descanso reabriu como '{RestStateDescription(reopenedState.Value.ReferenceId)}', " +
+                "mas a caça não foi confirmada; repetindo somente o ciclo local L → Q → L.");
 
         }
 
@@ -1711,8 +1749,19 @@ public sealed class BotAutomationEngine(
                                     if (session.NeedsDeathRestoration)
                                     {
                                         WriteLog(session, "Restauração pendente: concluindo a lápide antes de voltar à T.A.");
-                                        await ActivateGameForEmergencyAsync(session.Options.Target, actionToken);
+                                        await ActivateGameForEmergencyAsync(session, actionToken);
                                         await RestoreDeathResourcesAsync(session, pause, actionToken);
+                                    }
+
+                                    if (session.AwaitingHuntActivationAtSpot &&
+                                        !session.RequiresHardFlowReset)
+                                    {
+                                        await ResumeHuntAtCurrentSpotAsync(
+                                            session,
+                                            true,
+                                            pause,
+                                            actionToken);
+                                        return;
                                     }
 
                                     if (session.RequiresHardFlowReset)
@@ -1993,7 +2042,7 @@ public sealed class BotAutomationEngine(
             BotRunState.Running,
             $"{session.Options.Label}: reiniciando rota",
             $"Fechando telas e usando TP {options.EmergencyTeleportKeyName}");
-        await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+        await ActivateGameForEmergencyAsync(session, cancellationToken);
         var death = await FindDeathOnClientAsync(session, cancellationToken);
         if (death.Found || Volatile.Read(ref session.PendingVisualDeath) != 0)
         {
@@ -2018,6 +2067,7 @@ public sealed class BotAutomationEngine(
         session.Audio.Armed = false;
         session.SafeInRest = false;
         session.IsFarmingTa = false;
+        session.AwaitingHuntActivationAtSpot = false;
         WriteLog(
             session,
             $"Reset de rota: usando uma vez o TP {options.EmergencyTeleportKeyName} e reiniciando o fluxo completo.");
@@ -2034,6 +2084,29 @@ public sealed class BotAutomationEngine(
 
         session.RequiresHardFlowReset = false;
         WriteLog(session, "Reset de rota executado; retomando desde o menu inicial do destino.");
+    }
+
+    private async Task ResumeHuntAtCurrentSpotAsync(
+        ClientSession session,
+        bool isTaFarm,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        SetStatus(
+            BotRunState.Running,
+            $"{session.Options.Label}: retomando caça",
+            "Repetindo somente L → Q → L no spot atual");
+        WriteLog(
+            session,
+            "O personagem já chegou ao spot; repetindo somente a ativação local da caça, sem refazer a rota.");
+        await ActivateGameForEmergencyAsync(session, cancellationToken);
+        await StartAutomaticHuntAsync(session, pause, cancellationToken);
+        session.IsFarmingTa = isTaFarm;
+        session.SafeInRest = true;
+        session.Audio.Armed = true;
+        session.ConsecutiveRecoveryFailures = 0;
+        session.RequiresHardFlowReset = false;
+        WriteLog(session, "Caça recuperada no spot atual; fluxo normal restabelecido.");
     }
 
     private async Task<bool> IsKnownBlockingOverlayVisibleAsync(CancellationToken cancellationToken)
@@ -2147,8 +2220,9 @@ public sealed class BotAutomationEngine(
         _ = session.Audio.TryConsumeAlert(out _);
         session.SafeInRest = false;
         session.IsFarmingTa = false;
+        session.AwaitingHuntActivationAtSpot = false;
         SetStatus(BotRunState.Running, $"{session.Options.Label}: proteção acionada", "Alerta sonoro de HP baixo · enviando TP");
-        await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+        await ActivateGameForEmergencyAsync(session, cancellationToken);
         var deathBeforeTeleport = await FindDeathOnClientAsync(session, cancellationToken);
         if (Volatile.Read(ref session.PendingVisualDeath) != 0 || deathBeforeTeleport.Found)
         {
@@ -2233,13 +2307,14 @@ public sealed class BotAutomationEngine(
         Interlocked.Exchange(ref session.PendingVisualDeath, 0);
         session.SafeInRest = false;
         session.IsFarmingTa = false;
+        session.AwaitingHuntActivationAtSpot = false;
         try
         {
             SetStatus(BotRunState.Running, $"{session.Options.Label}: personagem morreu", "Ressuscitando e restaurando recursos");
             // A tela de morte tem contagem regressiva curta; devolver o foco
             // rapidamente evita que o renascimento automático passe antes do
             // clique no botão inferior de Ressuscitar.
-            await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+            await ActivateGameForEmergencyAsync(session, cancellationToken);
             await RestoreDeathResourcesAsync(session, pause, cancellationToken);
 
             if (RegisterDeath(session, antiOverkill))
@@ -2318,7 +2393,7 @@ public sealed class BotAutomationEngine(
                 session,
                 $"Tela completa de morte confirmada ({fullDeath.Confidence:P0}); aguardando 5 segundos antes de Ressuscitar.");
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
-            await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+            await ActivateGameForEmergencyAsync(session, cancellationToken);
             fullDeath = await FindFullDeathOnClientAsync(session, cancellationToken);
             if (!fullDeath.Found)
             {
@@ -2372,7 +2447,7 @@ public sealed class BotAutomationEngine(
 
         WriteLog(session, "Aguardando o personagem e os indicadores de perda estabilizarem.");
         await ActionDelayAsync(cancellationToken, 1800, 2600);
-        await ActivateGameForEmergencyAsync(session.Options.Target, cancellationToken);
+        await ActivateGameForEmergencyAsync(session, cancellationToken);
         var panelCounter = await WaitForRestorationCounterAsync(
             session, TimeSpan.FromSeconds(4), pause, cancellationToken);
         if (panelCounter.State != RestorationCountState.Unknown)
@@ -2417,7 +2492,7 @@ public sealed class BotAutomationEngine(
 
             for (var attempt = 1; attempt <= 3; attempt++)
             {
-                await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+                await EnsureGameForegroundAsync(session, cancellationToken);
                 WriteLog(session, $"Clicando na lápide em (1537, 72) — tentativa {attempt}/3.");
                 await input.MoveAndClickAsync(1537, 72, TimeSpan.FromMilliseconds(450), cancellationToken);
                 panelCounter = await WaitForRestorationCounterAsync(
@@ -2447,7 +2522,7 @@ public sealed class BotAutomationEngine(
             WriteLog(session, "Verificando a aba de equipamento em (47, 275).");
             for (var attempt = 1; attempt <= 3; attempt++)
             {
-                await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+                await EnsureGameForegroundAsync(session, cancellationToken);
                 await input.ClickAsync(47, 275, cancellationToken);
                 panelCounter = await WaitForRestorationCounterAsync(
                     session, TimeSpan.FromSeconds(5), pause, cancellationToken,
@@ -2529,7 +2604,7 @@ public sealed class BotAutomationEngine(
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             await CheckpointAsync(pause, cancellationToken);
-            await EnsureGameForegroundAsync(session.Options.Target, cancellationToken);
+            await EnsureGameForegroundAsync(session, cancellationToken);
             var current = await WaitForRestorationCounterAsync(
                 session, TimeSpan.FromSeconds(5), pause, cancellationToken);
             if (current.Tab != expectedTab)
@@ -2629,8 +2704,8 @@ public sealed class BotAutomationEngine(
         SetStatus(BotRunState.Running, $"{session.Options.Label}: Anti Over Kill", "Iniciando período seguro na Agenda");
         // Todas as ações da Agenda são enviadas ao cliente correto, mesmo quando
         // o outro cliente ou qualquer outra janela estiver em primeiro plano.
-        await ActivateGameAsync(session.Options.Target, cancellationToken);
-        await ExitRestIfNeededAsync(pause, cancellationToken);
+        await ActivateGameAsync(session, cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             var agendaButton = await recognition.FindAsync("menu_agenda", cancellationToken);
@@ -2687,8 +2762,8 @@ public sealed class BotAutomationEngine(
         bool resumeFarm)
     {
         SetStatus(BotRunState.Running, $"{session.Options.Label}: saindo da Agenda", "Retornando à cidade");
-        await ActivateGameAsync(session.Options.Target, cancellationToken);
-        await ExitRestIfNeededAsync(pause, cancellationToken);
+        await ActivateGameAsync(session, cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
         var attempts = _random.Next(3, 6);
         WriteLog(session, $"Encerrando Agenda com TP {sapheras.EmergencyTeleportKeyName} ({attempts} tentativas).");
         for (var index = 0; index < attempts; index++)
@@ -2730,16 +2805,99 @@ public sealed class BotAutomationEngine(
         await Task.Delay(100, cancellationToken);
     }
 
-    private async Task ExitRestIfNeededAsync(PauseController pause, CancellationToken cancellationToken)
+    private async Task ExitRestIfNeededAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
     {
         await CheckpointAsync(pause, cancellationToken);
-        var restState = await FindRestStateAsync(cancellationToken);
-        if (restState is not null)
+        if (await FindRestStateAsync(cancellationToken) is null)
         {
-            WriteLog($"Tela de descanso detectada por '{RestStateDescription(restState.Value.ReferenceId)}' ({restState.Value.Result.Confidence:P0}); saindo com L antes de abrir menus.");
-            await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
-            await WaitForRestStateToDisappearAsync(TimeSpan.FromSeconds(20), pause, cancellationToken);
+            return;
         }
+
+        if (!await TryCloseRestPanelAsync(
+                session,
+                pause,
+                "abrir menus",
+                cancellationToken))
+        {
+            var diagnostic = await recognition.SaveDiagnosticAsync(
+                $"descanso_nao_fechou_menu_{session.Options.Priority}");
+            throw new TimeoutException(
+                $"{session.Options.Label}: a tela de descanso não fechou após três comandos L. " +
+                $"Diagnóstico: {diagnostic}");
+        }
+    }
+
+    private async Task<bool> TryCloseRestPanelAsync(
+        ClientSession session,
+        PauseController pause,
+        string purpose,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var state = await FindRestStateAsync(cancellationToken);
+            if (state is null)
+            {
+                return true;
+            }
+
+            WriteLog(
+                session,
+                $"Saindo do descanso para {purpose} — comando L {attempt}/3 " +
+                $"('{RestStateDescription(state.Value.ReferenceId)}', {state.Value.Result.Confidence:P0}).");
+            await EnsureGameForegroundAsync(session, cancellationToken);
+            await input.PressKeyAsync(
+                KeyL,
+                TimeSpan.FromMilliseconds(90 + (attempt * 55)),
+                cancellationToken);
+            if (await WaitForRestStateToDisappearAsync(
+                    TimeSpan.FromSeconds(7), pause, cancellationToken))
+            {
+                WriteLog(session, "Tela de descanso fechada e confirmada.");
+                return true;
+            }
+
+            WriteLog(session, "O comando L não fechou o descanso; reafirmando o foco e repetindo localmente.");
+        }
+
+        return false;
+    }
+
+    private async Task<(string ReferenceId, RecognitionResult Result)?> TryOpenRestPanelAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var existing = await FindRestStateAsync(cancellationToken);
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            WriteLog(session, $"Reabrindo o descanso com L — tentativa {attempt}/3.");
+            await EnsureGameForegroundAsync(session, cancellationToken);
+            await input.PressKeyAsync(
+                KeyL,
+                TimeSpan.FromMilliseconds(90 + (attempt * 55)),
+                cancellationToken);
+            var opened = await WaitForRestStateAsync(
+                TimeSpan.FromSeconds(8), pause, cancellationToken);
+            if (opened is not null)
+            {
+                return opened;
+            }
+
+            WriteLog(session, "O descanso ainda não abriu; reafirmando o foco sem repetir Q.");
+        }
+
+        return null;
     }
 
     private async Task<(string ReferenceId, RecognitionResult Result)?> FindRestStateAsync(
@@ -2779,7 +2937,7 @@ public sealed class BotAutomationEngine(
         return null;
     }
 
-    private async Task WaitForRestStateToDisappearAsync(
+    private async Task<bool> WaitForRestStateToDisappearAsync(
         TimeSpan timeout,
         PauseController pause,
         CancellationToken cancellationToken)
@@ -2794,7 +2952,7 @@ public sealed class BotAutomationEngine(
                 clearConfirmations++;
                 if (clearConfirmations >= 2)
                 {
-                    return;
+                    return true;
                 }
             }
             else
@@ -2805,7 +2963,7 @@ public sealed class BotAutomationEngine(
             await Task.Delay(350, cancellationToken);
         }
 
-        throw new TimeoutException("A tela de descanso não fechou dentro do limite adaptativo.");
+        return false;
     }
 
     private static string RestStateDescription(string referenceId) => referenceId switch
@@ -2962,18 +3120,21 @@ public sealed class BotAutomationEngine(
         throw new TimeoutException($"Tempo esgotado procurando {description}. Melhor confiança: {best.Confidence:P0}. Diagnóstico: {diagnostic}");
     }
 
-    private async Task ActivateGameAsync(GameWindowTarget target, CancellationToken cancellationToken)
+    private async Task ActivateGameAsync(ClientSession session, CancellationToken cancellationToken)
     {
+        var target = session.Options.Target;
         if (!gameWindows.Activate(target))
         {
             throw new InvalidOperationException($"Não foi possível ativar a janela {target.Title}.");
         }
 
         await Task.Delay(1800, cancellationToken);
+        await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
     }
 
-    private async Task ActivateGameForEmergencyAsync(GameWindowTarget target, CancellationToken cancellationToken)
+    private async Task ActivateGameForEmergencyAsync(ClientSession session, CancellationToken cancellationToken)
     {
+        var target = session.Options.Target;
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             if (gameWindows.IsForeground(target) || gameWindows.Activate(target))
@@ -2981,6 +3142,7 @@ public sealed class BotAutomationEngine(
                 await Task.Delay(180, cancellationToken);
                 if (gameWindows.IsForeground(target))
                 {
+                    await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
                     return;
                 }
             }
@@ -2994,10 +3156,12 @@ public sealed class BotAutomationEngine(
         throw new InvalidOperationException($"Não foi possível ativar a janela {target.Title} para o TP de emergência.");
     }
 
-    private async Task EnsureGameForegroundAsync(GameWindowTarget target, CancellationToken cancellationToken)
+    private async Task EnsureGameForegroundAsync(ClientSession session, CancellationToken cancellationToken)
     {
+        var target = session.Options.Target;
         if (gameWindows.IsForeground(target))
         {
+            await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
             return;
         }
 
@@ -3007,6 +3171,47 @@ public sealed class BotAutomationEngine(
         }
 
         await Task.Delay(1800, cancellationToken);
+        await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
+    }
+
+    private async Task<bool> DismissWemadeOfferIfPresentAsync(
+        ClientSession session,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            var offer = await FindReferenceOnClientAsync(
+                session, "oferta_wemade", cancellationToken, requireObservable: true);
+            if (!offer.Found)
+            {
+                return attempt > 1;
+            }
+
+            WriteLog(
+                session,
+                $"Oferta da WeMade detectada ({offer.Confidence:P0}); fechando em (1233, 387) — tentativa {attempt}/3.");
+            await input.MoveAndClickAsync(
+                1233, 387, TimeSpan.FromMilliseconds(320), cancellationToken);
+
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(300, cancellationToken);
+                var remaining = await FindReferenceOnClientAsync(
+                    session, "oferta_wemade", cancellationToken, requireObservable: true);
+                if (!remaining.Found)
+                {
+                    WriteLog(session, "Oferta da WeMade fechada; retomando a etapa atual.");
+                    return true;
+                }
+            }
+        }
+
+        var frame = await CaptureClientFrameAsync(session, cancellationToken);
+        var diagnostic = await recognition.SaveDiagnosticAsync(
+            $"oferta_wemade_{session.Options.Priority}", frame);
+        throw new TimeoutException(
+            $"{session.Options.Label}: a oferta da WeMade permaneceu aberta após três tentativas. Diagnóstico: {diagnostic}");
     }
 
     private async Task CheckpointAsync(PauseController pause, CancellationToken cancellationToken)
@@ -3138,6 +3343,7 @@ public sealed class BotAutomationEngine(
         public int DeathVisualHits { get; set; }
         public int ConsecutiveRecoveryFailures { get; set; }
         public bool RequiresHardFlowReset { get; set; }
+        public bool AwaitingHuntActivationAtSpot { get; set; }
         public bool SafeInRest { get; set; }
         public bool IsFarmingTa { get; set; }
         public bool InAgenda { get; set; }

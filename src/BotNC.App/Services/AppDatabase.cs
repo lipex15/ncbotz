@@ -518,6 +518,13 @@ public sealed class AppDatabase
                 1370, 0, 430, 165,
                 0.59),
             new(
+                "oferta_wemade",
+                "Oferta Novos Produtos Disponíveis da WeMade",
+                "oferta_wemade.png",
+                755, 337, 510, 72,
+                620, 240, 760, 260,
+                0.63),
+            new(
                 "agenda_tela",
                 "Tela da Agenda",
                 "agenda_tela.png",

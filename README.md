@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.7.7
+## Ciclo disponível — v0.7.8
 
 ### Sapheras
 
@@ -35,6 +35,7 @@ Aplicativo modular de automação visual para Night Crows.
 - reconhece dinamicamente o botão **Ir** no mapa;
 - acompanha `Movendo-se`, `Aguardando no ponto fixo` e a chegada ao spot;
 - confirma o descanso pelo estado realmente exibido, sem repetir `L` quando ele já está aberto;
+- reafirma o foco antes de cada `L` e `Q`, repetindo localmente a ativação da caça sem abandonar o spot quando uma tecla for ignorada;
 - ativa a caça e confirma a tela de descanso antes de operar o próximo cliente;
 - monitora o alerta sonoro de HP baixo separadamente no processo de áudio de cada cliente;
 - combina a referência curta e o alerta completo, com confirmação reforçada quando o som estiver misturado ao combate;
@@ -47,6 +48,7 @@ Aplicativo modular de automação visual para Night Crows.
 - após duas falhas consecutivas, fecha apenas sobreposições reconhecidas com `Esc`, usa uma vez o TP de emergência configurado e reinicia a rota completa do cliente;
 - retorna à T.A configurada, compra poções no NPC interno e escolhe outro spot;
 - reconhece e fecha com `Y` o aviso visual de agenda indisponível.
+- verifica a oferta eventual **Novos Produtos Disponíveis** antes das ações, fecha no `X` e confirma que ela desapareceu antes de retomar a mesma etapa.
 - reconhece qualquer tela de descanso e sai com `L` antes de abrir menus.
 - quando `Comprar (Lote)` estiver apagado, fecha a loja e continua sem esperar um pop-up.
 

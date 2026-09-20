@@ -287,7 +287,9 @@ public partial class App : Application
             ("agenda_tela", "agenda_tela.png"),
             ("agenda_tela", "perda_exp.png"),
             ("aviso_agenda", "aviso_agenda.png"),
-            ("aviso_agenda", "ta2_chegada.png")
+            ("aviso_agenda", "ta2_chegada.png"),
+            ("oferta_wemade", "oferta_wemade.png"),
+            ("oferta_wemade", "agenda_tela.png")
         };
         var lines = new List<string>();
         foreach (var (referenceId, fileName) in cases)
@@ -297,6 +299,19 @@ public partial class App : Application
                 Path.Combine(referenceDirectory, fileName));
             lines.Add(
                 $"{referenceId}|image={fileName}|found={result.Found}|confidence={result.Confidence:F4}|x={result.X}|y={result.Y}");
+        }
+
+        var offerPresent = await recognition.FindInImageAsync(
+            "oferta_wemade",
+            Path.Combine(referenceDirectory, "oferta_wemade.png"));
+        var offerAbsent = await recognition.FindInImageAsync(
+            "oferta_wemade",
+            Path.Combine(referenceDirectory, "agenda_tela.png"));
+        if (!offerPresent.Found || offerAbsent.Found)
+        {
+            throw new InvalidOperationException(
+                $"Falha no teste da oferta WeMade: presente={offerPresent.Found} " +
+                $"({offerPresent.Confidence:P0}), ausente={offerAbsent.Found} ({offerAbsent.Confidence:P0}).");
         }
 
         foreach (var fileName in new[] { "loja_artigos.png", "loja_compra_indisponivel.png" })
