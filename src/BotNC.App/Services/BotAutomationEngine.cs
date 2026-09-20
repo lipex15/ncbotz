@@ -2116,7 +2116,7 @@ public sealed class BotAutomationEngine(
         var dueAt01 = now.Hour >= 1 && session.Mail01Date != today;
         var dueAt07 = now.Hour >= 7 && session.Mail07Date != today;
         if ((!dueAt01 && !dueAt07) || DateTime.UtcNow < session.NextMailAttemptAt ||
-            session.InAgenda || session.InDailyCampaign || session.HandlingDeath ||
+            session.InAgenda || session.DailyNeedsTeleport || session.HandlingDeath ||
             session.NextRecoveryAttemptAt != default)
         {
             return false;
@@ -2188,10 +2188,43 @@ public sealed class BotAutomationEngine(
                 mailScreenOpened = true;
             }
             await input.MoveAndClickAsync(116, 138, TimeSpan.FromMilliseconds(230), cancellationToken);
-            await Task.Delay(500, cancellationToken);
 
-            var mailFrame = capture.CapturePrimaryScreen();
-            if (!VisualRecognitionService.HasUnclaimedServerMail(mailFrame))
+            var mailStateDeadline = DateTime.UtcNow.AddSeconds(8);
+            var mailStateStartedAt = DateTime.UtcNow;
+            var pendingMail = false;
+            var emptyMail = false;
+            var clearObservations = 0;
+            while (DateTime.UtcNow < mailStateDeadline)
+            {
+                await CheckpointAsync(pause, cancellationToken);
+                pendingMail = VisualRecognitionService.HasUnclaimedServerMail(
+                    capture.CapturePrimaryScreen());
+                if (pendingMail)
+                {
+                    break;
+                }
+
+                clearObservations++;
+                emptyMail = (await recognition.FindAsync("mail_empty", cancellationToken)).Found;
+                if (!emptyMail && clearObservations >= 8 &&
+                    DateTime.UtcNow - mailStateStartedAt >= TimeSpan.FromSeconds(4))
+                {
+                    emptyMail = true;
+                }
+                if (emptyMail)
+                {
+                    break;
+                }
+
+                await Task.Delay(350, cancellationToken);
+            }
+
+            if (!pendingMail && !emptyMail)
+            {
+                throw new TimeoutException($"{session.Options.Label}: o Correio abriu, mas não foi possível distinguir mensagens pendentes de caixa vazia.");
+            }
+
+            if (!pendingMail)
             {
                 WriteLog(session, "Correio do Servidor sem notificação de mensagem pendente.");
                 return false;
