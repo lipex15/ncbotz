@@ -2328,8 +2328,8 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        await input.MoveAndClickAsync(1879, 154, TimeSpan.FromMilliseconds(280), cancellationToken);
-        var missionY = await WaitForPurpleDailyMissionAsync(pause, cancellationToken);
+        var missionList = await EnsureDailyMissionListAsync(session, pause, cancellationToken);
+        var missionY = missionList.MissionY;
         if (missionY is null)
         {
             throw new InvalidOperationException("As Missões Diárias foram aceitas, mas nenhuma missão roxa 'Derrote todos os monstros' apareceu na lista.");
@@ -2343,25 +2343,86 @@ public sealed class BotAutomationEngine(
         return await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
     }
 
-    private async Task<int?> WaitForPurpleDailyMissionAsync(
+    private async Task<DailyMissionListReading> EnsureDailyMissionListAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var reading = await ReadDailyMissionListAsync(pause, cancellationToken);
+        if (reading.ListVisible)
+        {
+            return reading;
+        }
+
+        WriteLog(session, "A lista de missões não está visível; abrindo-a uma vez pelo botão lateral.");
+        await input.MoveAndClickAsync(1879, 154, TimeSpan.FromMilliseconds(280), cancellationToken);
+        return await ReadDailyMissionListAsync(pause, cancellationToken);
+    }
+
+    private async Task<DailyMissionListReading> ReadDailyMissionListAsync(
         PauseController pause,
         CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(6);
+        var listVisible = false;
         while (DateTime.UtcNow < deadline)
         {
             await CheckpointAsync(pause, cancellationToken);
-            var missionY = FindPurpleDailyMissionY(capture.CapturePrimaryScreen());
+            var frame = capture.CapturePrimaryScreen();
+            var missionY = FindPurpleDailyMissionY(frame);
             if (missionY is not null)
             {
-                return missionY;
+                return new DailyMissionListReading(true, missionY);
             }
+
+            listVisible |= HasVisibleQuestRows(frame);
 
             await Task.Delay(300, cancellationToken);
         }
 
-        return null;
+        return new DailyMissionListReading(listVisible, null);
     }
+
+    private static bool HasVisibleQuestRows(PixelFrame frame)
+    {
+        // Os ícones dourados das missões repetem-se na margem esquerda da lista.
+        // Radar e painel oculto não apresentam essa sequência de ícones.
+        if (frame.Width < 1550 || frame.Height < 650)
+        {
+            return false;
+        }
+
+        var rowCenters = new List<int>();
+        for (var y = 140; y < 650; y++)
+        {
+            var goldPixels = 0;
+            for (var x = 1527; x < 1540; x++)
+            {
+                var offset = (y * frame.Stride) + (x * 4);
+                var blue = frame.Pixels[offset];
+                var green = frame.Pixels[offset + 1];
+                var red = frame.Pixels[offset + 2];
+                if (red >= 135 && green >= 115 && blue >= 85 &&
+                    red > green && green > blue && red - blue >= 25)
+                {
+                    goldPixels++;
+                }
+            }
+
+            if (goldPixels >= 6 && (rowCenters.Count == 0 || y - rowCenters[^1] >= 28))
+            {
+                rowCenters.Add(y);
+                if (rowCenters.Count >= 2)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private readonly record struct DailyMissionListReading(bool ListVisible, int? MissionY);
 
     private static int? FindPurpleDailyMissionY(PixelFrame frame)
     {
@@ -2479,8 +2540,12 @@ public sealed class BotAutomationEngine(
                     if (session.InDailyCampaign && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
                     {
                         session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
-                        var purpleMission = await CheckDailyMissionListAsync(session, pause, cancellationToken);
-                        session.DailyNoMissionHits = purpleMission is null ? session.DailyNoMissionHits + 1 : 0;
+                        var missionList = await CheckDailyMissionListAsync(session, pause, cancellationToken);
+                        session.DailyNoMissionHits = missionList.MissionY is not null
+                            ? 0
+                            : missionList.ListVisible
+                                ? session.DailyNoMissionHits + 1
+                                : 0;
                         if (session.DailyNoMissionHits >= 3)
                         {
                             session.InDailyCampaign = false;
@@ -2663,12 +2728,16 @@ public sealed class BotAutomationEngine(
     {
         await ActivateGameAsync(session, cancellationToken);
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
-        await input.MoveAndClickAsync(1879, 154, TimeSpan.FromMilliseconds(280), cancellationToken);
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var missionY = await WaitForPurpleDailyMissionAsync(pause, cancellationToken);
+            var missionList = await EnsureDailyMissionListAsync(session, pause, cancellationToken);
+            var missionY = missionList.MissionY;
             if (missionY is null)
             {
+                if (!missionList.ListVisible)
+                {
+                    WriteLog(session, "Retomada das Diárias inconclusiva: painel de missões não confirmado; não marcando a rotina como concluída.");
+                }
                 continue;
             }
 
@@ -2686,21 +2755,26 @@ public sealed class BotAutomationEngine(
         return false;
     }
 
-    private async Task<int?> CheckDailyMissionListAsync(
+    private async Task<DailyMissionListReading> CheckDailyMissionListAsync(
         ClientSession session,
         PauseController pause,
         CancellationToken cancellationToken)
     {
         await ActivateGameAsync(session, cancellationToken);
-        await ExitRestIfNeededAsync(session, pause, cancellationToken);
-        await input.MoveAndClickAsync(1879, 154, TimeSpan.FromMilliseconds(250), cancellationToken);
-        var missionY = await WaitForPurpleDailyMissionAsync(pause, cancellationToken);
-        WriteLog(session, missionY is null
-            ? "Verificação das Diárias: nenhuma missão roxa visível."
-            : $"Verificação das Diárias: missão roxa ainda ativa na linha y={missionY}.");
-        await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-        session.SafeInRest = await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
-        return missionY;
+        var missionList = await ReadDailyMissionListAsync(pause, cancellationToken);
+        if (!missionList.ListVisible)
+        {
+            await ExitRestIfNeededAsync(session, pause, cancellationToken);
+            missionList = await EnsureDailyMissionListAsync(session, pause, cancellationToken);
+            session.SafeInRest = await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
+        }
+
+        WriteLog(session, missionList.MissionY is not null
+            ? $"Verificação das Diárias: missão roxa ainda ativa na linha y={missionList.MissionY}."
+            : missionList.ListVisible
+                ? "Verificação das Diárias: lista aberta, sem missão roxa visível."
+                : "Verificação das Diárias inconclusiva: lista não confirmada; mantendo a campanha ativa.");
+        return missionList;
     }
 
     private async Task<bool> TryEnterDailyRestModeAsync(
