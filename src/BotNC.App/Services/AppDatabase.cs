@@ -241,6 +241,8 @@ public sealed class AppDatabase
             new("daily_all_accepted", "Todas as campanhas foram aceitas", "daily_all_accepted.png", 800, 175, 390, 120, 710, 135, 560, 205, 0.65),
             new("daily_30_accepted", "Contador diário 30 de 30", "daily_all_accepted.png", 482, 958, 100, 52, 450, 930, 160, 95, 0.66),
             new("daily_teleport", "Teleporte para campanha", "daily_teleport.png", 75, 55, 480, 210, 550, 210, 820, 370, 0.65),
+            new("daily_teleport_resource", "Recursos do teleporte diário", "daily_teleport.png", 110, 350, 250, 90, 690, 534, 450, 166, 0.62),
+            new("daily_teleport_ok", "Confirmar teleporte diário", "daily_teleport.png", 345, 480, 190, 55, 925, 664, 290, 111, 0.70),
             new("daily_automatic", "Campanha automática em andamento", "daily_automatic.png", 760, 825, 410, 110, 680, 760, 560, 190, 0.54),
             new("agenda_popup_ok", "Aviso central da Agenda", "aviso_agenda.png", 850, 585, 220, 85, 720, 500, 480, 250, 0.64),
             new("entrar_ta1_pronto", "Entrar em Kildebat", "ta1_entry.png", 42, 495, 240, 65, 435, 730, 290, 90, 0.66),

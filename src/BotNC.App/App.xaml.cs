@@ -123,6 +123,8 @@ public partial class App : Application
             var ta2EntryReady = await recognition.FindInImageAsync("entrar_ta2_pronto", imagePath);
             var ta3EntryReady = await recognition.FindInImageAsync("entrar_ta3_pronto", imagePath);
             var taSelector = await recognition.FindInImageAsync("seletor_ta", imagePath);
+            var dailyTeleportResource = await recognition.FindInImageAsync("daily_teleport_resource", imagePath);
+            var dailyTeleportOk = await recognition.FindInImageAsync("daily_teleport_ok", imagePath);
             await File.WriteAllLinesAsync(
                 imageProbeOutputPath,
                 [
@@ -133,7 +135,9 @@ public partial class App : Application
                     $"restDeath={restDeath.Found};confidence={restDeath.Confidence:F4}",
                     $"ta2EntryReady={ta2EntryReady.Found};confidence={ta2EntryReady.Confidence:F4}",
                     $"ta3EntryReady={ta3EntryReady.Found};confidence={ta3EntryReady.Confidence:F4}",
-                    $"taSelector={taSelector.Found};confidence={taSelector.Confidence:F4}"
+                    $"taSelector={taSelector.Found};confidence={taSelector.Confidence:F4}",
+                    $"dailyTeleportResource={dailyTeleportResource.Found};confidence={dailyTeleportResource.Confidence:F4}",
+                    $"dailyTeleportOk={dailyTeleportOk.Found};confidence={dailyTeleportOk.Confidence:F4}"
                 ]);
             Shutdown();
             return;
@@ -331,7 +335,8 @@ public partial class App : Application
         {
             "guild_page", "guild_directive_page", "guild_directive_accepted", "guild_directive_in_progress",
             "campaign_page", "daily_page", "daily_all_accepted", "daily_30_accepted",
-            "daily_automatic", "agenda_popup_ok", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max"
+            "daily_automatic",
+            "agenda_popup_ok", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max"
         };
         foreach (var (referenceId, fileName) in cases)
         {
@@ -354,6 +359,18 @@ public partial class App : Application
         {
             throw new InvalidOperationException(
                 $"A confirmação de teleporte das Diárias não foi reconhecida no recorte ({dailyTeleport.Confidence:P0}).");
+        }
+
+        foreach (var referenceId in new[] { "daily_teleport_resource", "daily_teleport_ok" })
+        {
+            var popupPart = await recognition.FindInCroppedImageAsync(
+                referenceId, Path.Combine(referenceDirectory, "daily_teleport.png"));
+            lines.Add($"{referenceId}|image=daily_teleport.png|found={popupPart.Found}|confidence={popupPart.Confidence:F4}");
+            if (!popupPart.Found)
+            {
+                throw new InvalidOperationException(
+                    $"A referência {referenceId} não reconheceu seu próprio recorte ({popupPart.Confidence:P0}).");
+            }
         }
 
         var abbeyConfirmation = await recognition.FindInCroppedImageAsync(

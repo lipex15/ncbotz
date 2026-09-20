@@ -245,7 +245,7 @@ public sealed class BotAutomationEngine(
             WriteLog("Sapheras desativada para todos os clientes. Mantendo o farm contínuo nos destinos configurados.");
             foreach (var session in sessions)
             {
-                if (await RunDueDailyRoutinesAsync(session, dailyRoutines, pause, cancellationToken))
+                if (await RunDueDailyRoutinesSafelyAsync(session, dailyRoutines, pause, cancellationToken))
                 {
                     continue;
                 }
@@ -271,7 +271,7 @@ public sealed class BotAutomationEngine(
             {
                 foreach (var session in sessions)
                 {
-                    if (await RunDueDailyRoutinesAsync(session, dailyRoutines, pause, sapherasPriority.Token))
+                    if (await RunDueDailyRoutinesSafelyAsync(session, dailyRoutines, pause, sapherasPriority.Token))
                     {
                         continue;
                     }
@@ -1030,13 +1030,10 @@ public sealed class BotAutomationEngine(
                 return;
             }
 
-            session.InDailyCampaign = false;
-            var completedCycle = DailyCycleKey(DateTime.Now);
-            session.DailyCompletedCycle = completedCycle;
-            await database.SaveSettingAsync(
-                $"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle",
-                completedCycle);
-            WriteLog(session, "Nenhuma missão roxa restante; retomando o ciclo de farm configurado.");
+            session.DailyNeedsTeleport = true;
+            session.NextDailyMissionCheckAt = DateTime.UtcNow.AddSeconds(15);
+            WriteLog(session, "A retomada da Diária ainda não foi confirmada; mantendo o ciclo pendente e reavaliando em 15 segundos.");
+            return;
         }
 
         if (session.Options.UseAbbey && session.AbbeyEntryMayHaveBeenCharged)
@@ -2146,6 +2143,7 @@ public sealed class BotAutomationEngine(
 
         if (dailyDue)
         {
+            session.DailyNeedsTeleport = true;
             bool dailyRestConfirmed;
             if (dailyAlreadyAccepted)
             {
@@ -2162,19 +2160,22 @@ public sealed class BotAutomationEngine(
                 dailyRestConfirmed = await StartDailyCampaignAsync(session, pause, cancellationToken);
             }
 
-            session.DailyStartedCycle = cycle;
-            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyStartedCycle", cycle);
             session.InDailyCampaign = true;
-            session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
-            if (!dailyAlreadyAccepted || dailyRestConfirmed)
+            session.NextDailyMissionCheckAt = DateTime.UtcNow.Add(
+                session.DailyNeedsTeleport ? TimeSpan.FromSeconds(15) : TimeSpan.FromMinutes(2));
+            if (!session.DailyNeedsTeleport)
             {
+                session.DailyStartedCycle = cycle;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyStartedCycle", cycle);
                 session.IsFarmingTa = true;
                 session.SafeInRest = dailyRestConfirmed;
             }
             session.Audio.Armed = true;
-            WriteLog(session, dailyRestConfirmed
-                ? "Campanha automática das Diárias iniciada em modo descanso."
-                : "Campanha das Diárias iniciada fora do descanso; o monitoramento continuará normalmente.");
+            WriteLog(session, session.DailyNeedsTeleport
+                ? "Teleporte da Diária pendente; a tela será reavaliada automaticamente em 15 segundos sem encerrar o bot."
+                : dailyRestConfirmed
+                    ? "Campanha automática das Diárias iniciada em modo descanso."
+                    : "Campanha das Diárias iniciada fora do descanso; o monitoramento continuará normalmente.");
         }
         else
         {
@@ -2182,6 +2183,41 @@ public sealed class BotAutomationEngine(
         }
 
         return true;
+    }
+
+    private async Task<bool> RunDueDailyRoutinesSafelyAsync(
+        ClientSession session,
+        DailyRoutineOptions options,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        if (DateTime.UtcNow < session.NextDailyRoutineAttemptAt)
+        {
+            return false;
+        }
+
+        try
+        {
+            var started = await RunDueDailyRoutinesAsync(session, options, pause, cancellationToken);
+            if (started)
+            {
+                session.NextDailyRoutineAttemptAt = default;
+            }
+
+            return started;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            session.NextDailyRoutineAttemptAt = DateTime.UtcNow.AddSeconds(15);
+            session.Audio.Armed = !session.InAgenda;
+            WriteLog(session, $"Falha recuperável na rotina diária: {exception.GetBaseException().Message}. O bot continuará ativo e reavaliará este cliente em 15 segundos.");
+            WritePersistentOnly(session, exception.ToString());
+            return true;
+        }
     }
 
     private async Task AcceptGuildDirectiveAsync(
@@ -2328,19 +2364,137 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        if (await TryConfirmDailyTeleportAsync(session, pause, cancellationToken, TimeSpan.FromMilliseconds(800)))
+        {
+            session.DailyNeedsTeleport = false;
+            await ActionDelayAsync(cancellationToken, 5000, 7000);
+            return await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
+        }
+
         var missionList = await EnsureDailyMissionListAsync(session, pause, cancellationToken);
         var missionY = missionList.MissionY;
         if (missionY is null)
         {
-            throw new InvalidOperationException("As Missões Diárias foram aceitas, mas nenhuma missão roxa 'Derrote todos os monstros' apareceu na lista.");
+            WriteLog(session, "Missões aceitas, mas a próxima missão roxa não foi confirmada; nova tentativa será feita sem encerrar o bot.");
+            return false;
         }
 
         WriteLog(session, $"Missão Diária roxa localizada na linha y={missionY}; selecionando a seta de teleporte.");
+        await EnsureGameForegroundAsync(session, cancellationToken);
         await input.MoveAndClickAsync(1535, missionY.Value, TimeSpan.FromMilliseconds(280), cancellationToken);
-        await WaitForReferenceAsync("daily_teleport", "confirmação de teleporte da campanha", TimeSpan.FromSeconds(12), pause, cancellationToken);
-        await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+        if (!await TryConfirmDailyTeleportAsync(session, pause, cancellationToken))
+        {
+            WriteLog(session, "Teleporte da Diária ainda não confirmado; o popup será reavaliado na próxima tentativa.");
+            return false;
+        }
+
+        session.DailyNeedsTeleport = false;
         await ActionDelayAsync(cancellationToken, 5000, 7000);
         return await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
+    }
+
+    private async Task<RecognitionResult?> FindDailyTeleportPopupOnClientAsync(
+        ClientSession session,
+        CancellationToken cancellationToken)
+    {
+        var button = await FindReferenceOnClientAsync(
+            session, "daily_teleport_ok", cancellationToken, requireObservable: true);
+        if (!button.Found)
+        {
+            return null;
+        }
+
+        var resources = await FindReferenceOnClientAsync(
+            session, "daily_teleport_resource", cancellationToken, requireObservable: true);
+        return resources.Found ? button : null;
+    }
+
+    private async Task<bool> TryConfirmDailyTeleportAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken,
+        TimeSpan? popupWait = null)
+    {
+        var deadline = DateTime.UtcNow + (popupWait ?? TimeSpan.FromSeconds(8));
+        RecognitionResult? popup = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            popup = await FindDailyTeleportPopupOnClientAsync(session, cancellationToken);
+            if (popup is not null)
+            {
+                break;
+            }
+
+            await Task.Delay(350, cancellationToken);
+        }
+
+        if (popup is null)
+        {
+            return false;
+        }
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await EnsureGameForegroundAsync(session, cancellationToken);
+            WriteLog(session, $"Confirmação de teleporte da Diária visível ({popup.Confidence:P0}); enviando Y — tentativa {attempt}/2.");
+            await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+            if (await WaitForDailyTeleportPopupToCloseAsync(session, pause, cancellationToken))
+            {
+                WriteLog(session, "Popup de teleporte fechado; prosseguindo com a campanha.");
+                return true;
+            }
+
+            popup = await FindDailyTeleportPopupOnClientAsync(session, cancellationToken);
+            if (popup is null)
+            {
+                WriteLog(session, "Popup de teleporte fechado; prosseguindo com a campanha.");
+                return true;
+            }
+        }
+
+        if (popup is not null)
+        {
+            await EnsureGameForegroundAsync(session, cancellationToken);
+            WriteLog(session, "O atalho Y não fechou o popup; clicando diretamente no botão OK (Y).");
+            await input.MoveAndClickAsync(popup.X, popup.Y, TimeSpan.FromMilliseconds(300), cancellationToken);
+            if (await WaitForDailyTeleportPopupToCloseAsync(session, pause, cancellationToken))
+            {
+                return true;
+            }
+        }
+
+        WriteLog(session, "O popup do teleporte continua aberto; manterei a rotina pendente para tentar novamente.");
+        return false;
+    }
+
+    private async Task<bool> WaitForDailyTeleportPopupToCloseAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+        var absentFrames = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            if (await FindDailyTeleportPopupOnClientAsync(session, cancellationToken) is null)
+            {
+                absentFrames++;
+                if (absentFrames >= 2)
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                absentFrames = 0;
+            }
+
+            await Task.Delay(350, cancellationToken);
+        }
+
+        return false;
     }
 
     private async Task<DailyMissionListReading> EnsureDailyMissionListAsync(
@@ -2348,18 +2502,20 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        var reading = await ReadDailyMissionListAsync(pause, cancellationToken);
+        var reading = await ReadDailyMissionListAsync(session, pause, cancellationToken);
         if (reading.ListVisible)
         {
             return reading;
         }
 
         WriteLog(session, "A lista de missões não está visível; abrindo-a uma vez pelo botão lateral.");
+        await EnsureGameForegroundAsync(session, cancellationToken);
         await input.MoveAndClickAsync(1879, 154, TimeSpan.FromMilliseconds(280), cancellationToken);
-        return await ReadDailyMissionListAsync(pause, cancellationToken);
+        return await ReadDailyMissionListAsync(session, pause, cancellationToken);
     }
 
     private async Task<DailyMissionListReading> ReadDailyMissionListAsync(
+        ClientSession session,
         PauseController pause,
         CancellationToken cancellationToken)
     {
@@ -2368,7 +2524,7 @@ public sealed class BotAutomationEngine(
         while (DateTime.UtcNow < deadline)
         {
             await CheckpointAsync(pause, cancellationToken);
-            var frame = capture.CapturePrimaryScreen();
+            var frame = await CaptureDailyMissionFrameAsync(session, cancellationToken);
             var missionY = FindPurpleDailyMissionY(frame);
             if (missionY is not null)
             {
@@ -2381,6 +2537,27 @@ public sealed class BotAutomationEngine(
         }
 
         return new DailyMissionListReading(listVisible, null);
+    }
+
+    private async Task<PixelFrame> CaptureDailyMissionFrameAsync(
+        ClientSession session,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await CaptureClientFrameAsync(session, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            if (gameWindows.IsForeground(session.Options.Target))
+            {
+                return capture.CapturePrimaryScreen();
+            }
+
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: não foi possível observar a lista de missões sem confundir as janelas.",
+                exception);
+        }
     }
 
     private static bool HasVisibleQuestRows(PixelFrame frame)
@@ -2528,7 +2705,7 @@ public sealed class BotAutomationEngine(
                     nextRoutineCheckAt = DateTime.Now.AddSeconds(20);
                     foreach (var routineSession in sessions.OrderBy(item => item.Options.Priority))
                     {
-                        if (await RunDueDailyRoutinesAsync(routineSession, dailyRoutines, pause, cancellationToken))
+                        if (await RunDueDailyRoutinesSafelyAsync(routineSession, dailyRoutines, pause, cancellationToken))
                         {
                             break;
                         }
@@ -2539,25 +2716,62 @@ public sealed class BotAutomationEngine(
                 {
                     if (session.InDailyCampaign && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
                     {
-                        session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
-                        var missionList = await CheckDailyMissionListAsync(session, pause, cancellationToken);
-                        session.DailyNoMissionHits = missionList.MissionY is not null
-                            ? 0
-                            : missionList.ListVisible
-                                ? session.DailyNoMissionHits + 1
-                                : 0;
-                        if (session.DailyNoMissionHits >= 3)
+                        try
                         {
-                            session.InDailyCampaign = false;
-                            session.DailyNoMissionHits = 0;
-                            var completedCycle = DailyCycleKey(DateTime.Now);
-                            session.DailyCompletedCycle = completedCycle;
-                            await database.SaveSettingAsync(
-                                $"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle",
-                                completedCycle);
-                            WriteLog(session, "Missões roxas ausentes por três verificações da lista; Diárias concluídas. Retornando ao farm anterior.");
-                            await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
-                            break;
+                            if (session.DailyNeedsTeleport)
+                            {
+                                session.NextDailyMissionCheckAt = DateTime.UtcNow.AddSeconds(15);
+                                var resumed = await ResumeDailyCampaignAsync(session, pause, cancellationToken);
+                                session.DailyNeedsTeleport = !resumed;
+                                if (resumed)
+                                {
+                                    var startedCycle = DailyCycleKey(DateTime.Now);
+                                    session.DailyStartedCycle = startedCycle;
+                                    await database.SaveSettingAsync(
+                                        $"{SessionSettingPrefix(session)}.routines.dailyStartedCycle",
+                                        startedCycle);
+                                    session.DailyNoMissionHits = 0;
+                                    session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
+                                    WriteLog(session, "Teleporte pendente da Diária recuperado; campanha em andamento.");
+                                }
+                                else
+                                {
+                                    WriteLog(session, "Teleporte da Diária ainda pendente; mantendo o monitoramento e tentando novamente em 15 segundos.");
+                                }
+                            }
+                            else
+                            {
+                                session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
+                                var missionList = await CheckDailyMissionListAsync(session, pause, cancellationToken);
+                                session.DailyNoMissionHits = missionList.MissionY is not null
+                                    ? 0
+                                    : missionList.ListVisible
+                                        ? session.DailyNoMissionHits + 1
+                                        : 0;
+                                if (session.DailyNoMissionHits >= 3)
+                                {
+                                    session.InDailyCampaign = false;
+                                    session.DailyNoMissionHits = 0;
+                                    var completedCycle = DailyCycleKey(DateTime.Now);
+                                    session.DailyCompletedCycle = completedCycle;
+                                    await database.SaveSettingAsync(
+                                        $"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle",
+                                        completedCycle);
+                                    WriteLog(session, "Missões roxas ausentes por três verificações da lista; Diárias concluídas. Retornando ao farm anterior.");
+                                    await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+                                    break;
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception exception)
+                        {
+                            session.NextDailyMissionCheckAt = DateTime.UtcNow.AddSeconds(15);
+                            WriteLog(session, $"Falha recuperável ao acompanhar as Diárias: {exception.GetBaseException().Message}. Nova tentativa em 15 segundos.");
+                            WritePersistentOnly(session, exception.ToString());
                         }
                     }
 
@@ -2728,8 +2942,31 @@ public sealed class BotAutomationEngine(
     {
         await ActivateGameAsync(session, cancellationToken);
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        if (await TryConfirmDailyTeleportAsync(session, pause, cancellationToken, TimeSpan.FromMilliseconds(800)))
+        {
+            await ActionDelayAsync(cancellationToken, 5000, 7000);
+            var existingPopupRest = await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
+            session.DailyNeedsTeleport = false;
+            session.IsFarmingTa = true;
+            session.SafeInRest = existingPopupRest;
+            session.Audio.Armed = true;
+            return true;
+        }
+
         for (var attempt = 0; attempt < 2; attempt++)
         {
+            if (attempt > 0 &&
+                await TryConfirmDailyTeleportAsync(session, pause, cancellationToken, TimeSpan.FromMilliseconds(800)))
+            {
+                await ActionDelayAsync(cancellationToken, 5000, 7000);
+                var recoveredRest = await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
+                session.DailyNeedsTeleport = false;
+                session.IsFarmingTa = true;
+                session.SafeInRest = recoveredRest;
+                session.Audio.Armed = true;
+                return true;
+            }
+
             var missionList = await EnsureDailyMissionListAsync(session, pause, cancellationToken);
             var missionY = missionList.MissionY;
             if (missionY is null)
@@ -2741,11 +2978,17 @@ public sealed class BotAutomationEngine(
                 continue;
             }
 
+            await EnsureGameForegroundAsync(session, cancellationToken);
             await input.MoveAndClickAsync(1535, missionY.Value, TimeSpan.FromMilliseconds(260), cancellationToken);
-            await WaitForReferenceAsync("daily_teleport", "confirmação de teleporte da campanha", TimeSpan.FromSeconds(12), pause, cancellationToken);
-            await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+            if (!await TryConfirmDailyTeleportAsync(session, pause, cancellationToken))
+            {
+                WriteLog(session, "Clique na próxima missão realizado, mas o teleporte ainda não foi confirmado; reavaliando a tela.");
+                continue;
+            }
+
             await ActionDelayAsync(cancellationToken, 5000, 7000);
             var restConfirmed = await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
+            session.DailyNeedsTeleport = false;
             session.IsFarmingTa = true;
             session.SafeInRest = restConfirmed;
             session.Audio.Armed = true;
@@ -2761,7 +3004,7 @@ public sealed class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         await ActivateGameAsync(session, cancellationToken);
-        var missionList = await ReadDailyMissionListAsync(pause, cancellationToken);
+        var missionList = await ReadDailyMissionListAsync(session, pause, cancellationToken);
         if (!missionList.ListVisible)
         {
             await ExitRestIfNeededAsync(session, pause, cancellationToken);
@@ -4390,11 +4633,13 @@ public sealed class BotAutomationEngine(
         public bool AbbeyInside { get; set; }
         public bool AbbeyScheduledResumePending { get; set; }
         public bool InDailyCampaign { get; set; }
+        public bool DailyNeedsTeleport { get; set; }
         public string? DailyCycle { get; set; }
         public string? DailyStartedCycle { get; set; }
         public string? DailyCompletedCycle { get; set; }
         public string? DirectiveCycle { get; set; }
         public DateTime NextDailyMissionCheckAt { get; set; }
+        public DateTime NextDailyRoutineAttemptAt { get; set; }
         public int DailyNoMissionHits { get; set; }
         public bool InAgenda { get; set; }
         public bool HandlingDeath { get; set; }
