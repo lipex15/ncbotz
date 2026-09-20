@@ -2,13 +2,15 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.9.2
+## Ciclo disponível — v0.9.3
 
 ### Rotinas Diárias e Diretivas
 
 - horários configuráveis por ciclo, cujo reset diário ocorre às 04:00;
 - executa as rotinas em todos os clientes ativos e mantém Sapheras com prioridade máxima;
 - aceita as 30 Missões Diárias, encontra a missão roxa, teleporta e inicia a Campanha automática;
+- abre a lista de missões em `(1879,154)`, tolera variações do tom roxo e usa a primeira linha diária encontrada;
+- fecha avisos de Agenda encerrada com `Y` e tenta executar as Diárias em descanso, mantendo o fluxo ativo mesmo se o descanso não abrir;
 - confirma a aceitação pelo aviso ou pelo contador `30/30` e fecha completamente o painel de Campanha antes de continuar;
 - confirma a conclusão pela ausência estável das missões roxas e retorna ao farm anterior;
 - aceita Diretiva de Guilda em Mapa Aberto, T.A ou Masmorras; o jogo conclui as cinco do local escolhido;

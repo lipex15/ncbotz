@@ -231,6 +231,7 @@ public partial class App : Application
             ("daily_all_accepted", "daily_all_accepted.png"),
             ("daily_30_accepted", "daily_all_accepted.png"),
             ("daily_automatic", "daily_automatic.png"),
+            ("agenda_popup_ok", "aviso_agenda.png"),
             ("ta1_chegada", "ta1_arrival.png"),
             ("mapa_ta1", "ta1_map.png"),
             ("mapa_ta1_zoom_max", "ta1_map_zoom_max.png"),
@@ -330,7 +331,7 @@ public partial class App : Application
         {
             "guild_page", "guild_directive_page", "guild_directive_accepted", "guild_directive_in_progress",
             "campaign_page", "daily_page", "daily_all_accepted", "daily_30_accepted",
-            "daily_automatic", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max"
+            "daily_automatic", "agenda_popup_ok", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max"
         };
         foreach (var (referenceId, fileName) in cases)
         {

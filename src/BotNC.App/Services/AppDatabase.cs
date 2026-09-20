@@ -242,6 +242,7 @@ public sealed class AppDatabase
             new("daily_30_accepted", "Contador diário 30 de 30", "daily_all_accepted.png", 482, 958, 100, 52, 450, 930, 160, 95, 0.66),
             new("daily_teleport", "Teleporte para campanha", "daily_teleport.png", 75, 55, 480, 210, 550, 210, 820, 370, 0.65),
             new("daily_automatic", "Campanha automática em andamento", "daily_automatic.png", 760, 825, 410, 110, 680, 760, 560, 190, 0.54),
+            new("agenda_popup_ok", "Aviso central da Agenda", "aviso_agenda.png", 850, 585, 220, 85, 720, 500, 480, 250, 0.64),
             new("entrar_ta1_pronto", "Entrar em Kildebat", "ta1_entry.png", 42, 495, 240, 65, 435, 730, 290, 90, 0.66),
             new("ta1_chegada", "Serviços de Kildebat", "ta1_arrival.png", 10, 90, 315, 165, 0, 70, 410, 230, 0.60),
             new("mapa_ta1", "Mapa de Kildebat", "ta1_map.png", 22, 26, 180, 68, 0, 10, 290, 120, 0.64),

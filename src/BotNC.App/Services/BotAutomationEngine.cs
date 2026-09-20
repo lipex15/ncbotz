@@ -2123,13 +2123,15 @@ public sealed class BotAutomationEngine(
 
         if (dailyDue)
         {
-            await StartDailyCampaignAsync(session, pause, cancellationToken);
+            var dailyRestConfirmed = await StartDailyCampaignAsync(session, pause, cancellationToken);
             session.InDailyCampaign = true;
             session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
             session.IsFarmingTa = true;
-            session.SafeInRest = true;
+            session.SafeInRest = dailyRestConfirmed;
             session.Audio.Armed = true;
-            WriteLog(session, "Campanha automática das Diárias iniciada; o jogo seguirá as 30 missões e coletará as recompensas.");
+            WriteLog(session, dailyRestConfirmed
+                ? "Campanha automática das Diárias iniciada em modo descanso."
+                : "Campanha das Diárias iniciada fora do descanso; o monitoramento continuará normalmente.");
         }
         else
         {
@@ -2278,14 +2280,13 @@ public sealed class BotAutomationEngine(
             $"{session.Options.Label}: o painel de Campanha não fechou após três ESC. Diagnóstico: {diagnostic}");
     }
 
-    private async Task StartDailyCampaignAsync(
+    private async Task<bool> StartDailyCampaignAsync(
         ClientSession session,
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        await input.MoveAndClickAsync(1848, 178, TimeSpan.FromMilliseconds(280), cancellationToken);
-        await ActionDelayAsync(cancellationToken, 800, 1200);
-        var missionY = FindPurpleDailyMissionY(capture.CapturePrimaryScreen());
+        await input.MoveAndClickAsync(1879, 154, TimeSpan.FromMilliseconds(280), cancellationToken);
+        var missionY = await WaitForPurpleDailyMissionAsync(pause, cancellationToken);
         if (missionY is null)
         {
             throw new InvalidOperationException("As Missões Diárias foram aceitas, mas nenhuma missão roxa 'Derrote todos os monstros' apareceu na lista.");
@@ -2296,8 +2297,27 @@ public sealed class BotAutomationEngine(
         await WaitForReferenceAsync("daily_teleport", "confirmação de teleporte da campanha", TimeSpan.FromSeconds(12), pause, cancellationToken);
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         await ActionDelayAsync(cancellationToken, 5000, 7000);
-        await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
-        await WaitForReferenceAsync("daily_automatic", "Campanha automática em andamento", TimeSpan.FromSeconds(20), pause, cancellationToken);
+        return await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
+    }
+
+    private async Task<int?> WaitForPurpleDailyMissionAsync(
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(6);
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var missionY = FindPurpleDailyMissionY(capture.CapturePrimaryScreen());
+            if (missionY is not null)
+            {
+                return missionY;
+            }
+
+            await Task.Delay(300, cancellationToken);
+        }
+
+        return null;
     }
 
     private static int? FindPurpleDailyMissionY(PixelFrame frame)
@@ -2312,7 +2332,8 @@ public sealed class BotAutomationEngine(
                 var blue = frame.Pixels[offset];
                 var green = frame.Pixels[offset + 1];
                 var red = frame.Pixels[offset + 2];
-                if (red >= 115 && blue >= 120 && green <= 125 && red >= green + 25 && blue >= green + 25)
+                if (red >= 115 && blue >= 125 && green <= 180 &&
+                    red >= green + 10 && blue >= green + 25 && blue >= red + 8)
                 {
                     count++;
                 }
@@ -2329,10 +2350,23 @@ public sealed class BotAutomationEngine(
             return null;
         }
 
-        var best = rows.GroupBy(item => item.Y / 24)
-            .OrderByDescending(group => group.Sum(item => item.Count))
-            .First();
-        return (int)Math.Round(best.Average(item => item.Y));
+        var clusters = new List<List<(int Y, int Count)>>();
+        foreach (var row in rows)
+        {
+            if (clusters.Count == 0 || row.Y - clusters[^1][^1].Y > 3)
+            {
+                clusters.Add([]);
+            }
+            clusters[^1].Add(row);
+        }
+
+        var firstMission = clusters
+            .Where(cluster => cluster.Sum(item => item.Count) >= 80)
+            .OrderBy(cluster => cluster[0].Y)
+            .FirstOrDefault();
+        return firstMission is null
+            ? null
+            : (int)Math.Round(firstMission.Average(item => item.Y));
     }
 
     private static string DailyCycleKey(DateTime now) =>
@@ -2581,11 +2615,10 @@ public sealed class BotAutomationEngine(
     {
         await ActivateGameAsync(session, cancellationToken);
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
-        await input.MoveAndClickAsync(1848, 178, TimeSpan.FromMilliseconds(280), cancellationToken);
-        for (var attempt = 0; attempt < 3; attempt++)
+        await input.MoveAndClickAsync(1879, 154, TimeSpan.FromMilliseconds(280), cancellationToken);
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            await ActionDelayAsync(cancellationToken, 650, 900);
-            var missionY = FindPurpleDailyMissionY(capture.CapturePrimaryScreen());
+            var missionY = await WaitForPurpleDailyMissionAsync(pause, cancellationToken);
             if (missionY is null)
             {
                 continue;
@@ -2595,10 +2628,9 @@ public sealed class BotAutomationEngine(
             await WaitForReferenceAsync("daily_teleport", "confirmação de teleporte da campanha", TimeSpan.FromSeconds(12), pause, cancellationToken);
             await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
             await ActionDelayAsync(cancellationToken, 5000, 7000);
-            await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
-            await WaitForReferenceAsync("daily_automatic", "Campanha automática em andamento", TimeSpan.FromSeconds(20), pause, cancellationToken);
+            var restConfirmed = await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
             session.IsFarmingTa = true;
-            session.SafeInRest = true;
+            session.SafeInRest = restConfirmed;
             session.Audio.Armed = true;
             return true;
         }
@@ -2613,22 +2645,48 @@ public sealed class BotAutomationEngine(
     {
         await ActivateGameAsync(session, cancellationToken);
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
-        await input.MoveAndClickAsync(1848, 178, TimeSpan.FromMilliseconds(250), cancellationToken);
-        await ActionDelayAsync(cancellationToken, 800, 1100);
-        var missionY = FindPurpleDailyMissionY(capture.CapturePrimaryScreen());
+        await input.MoveAndClickAsync(1879, 154, TimeSpan.FromMilliseconds(250), cancellationToken);
+        var missionY = await WaitForPurpleDailyMissionAsync(pause, cancellationToken);
         WriteLog(session, missionY is null
             ? "Verificação das Diárias: nenhuma missão roxa visível."
             : $"Verificação das Diárias: missão roxa ainda ativa na linha y={missionY}.");
         await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-        await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
-        var automaticVisible = await WaitForReferenceToAppearAsync(
-            "daily_automatic", TimeSpan.FromSeconds(15), pause, cancellationToken);
-        if (missionY is not null && !automaticVisible)
-        {
-            throw new TimeoutException($"{session.Options.Label}: a missão diária continua ativa, mas a Campanha automática não reapareceu.");
-        }
-        session.SafeInRest = true;
+        session.SafeInRest = await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
         return missionY;
+    }
+
+    private async Task<bool> TryEnterDailyRestModeAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await TryDismissAgendaAsync(session, cancellationToken);
+            await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (DateTime.UtcNow < deadline)
+            {
+                await CheckpointAsync(pause, cancellationToken);
+                if (await TryDismissAgendaAsync(session, cancellationToken))
+                {
+                    WriteLog(session, "Aviso da Agenda encerrada removido antes de confirmar o descanso das Diárias.");
+                    break;
+                }
+
+                if ((await recognition.FindAsync("daily_automatic", cancellationToken)).Found ||
+                    await FindRestStateAsync(cancellationToken) is not null)
+                {
+                    WriteLog(session, "Modo descanso das Diárias confirmado.");
+                    return true;
+                }
+
+                await Task.Delay(350, cancellationToken);
+            }
+        }
+
+        WriteLog(session, "Não foi possível confirmar o descanso; mantendo as Diárias em execução na tela normal.");
+        return false;
     }
 
     private async Task MonitorClientWindowAsync(
@@ -3810,12 +3868,16 @@ public sealed class BotAutomationEngine(
     private async Task<bool> TryDismissAgendaAsync(ClientSession session, CancellationToken cancellationToken)
     {
         var agenda = await recognition.FindAsync("aviso_agenda", cancellationToken);
-        if (!agenda.Found)
+        var genericAgendaPopup = agenda.Found
+            ? new RecognitionResult(false, 0, 0, 0)
+            : await recognition.FindAsync("agenda_popup_ok", cancellationToken);
+        if (!agenda.Found && !genericAgendaPopup.Found)
         {
             return false;
         }
 
-        WriteLog(session, $"Aviso de agenda detectado ({agenda.Confidence:P0}); fechando com Y.");
+        var confidence = Math.Max(agenda.Confidence, genericAgendaPopup.Confidence);
+        WriteLog(session, $"Aviso central da Agenda detectado ({confidence:P0}); fechando com Y.");
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         return true;
     }
