@@ -408,8 +408,11 @@
                             <Grid>
                                 <TextBlock Text="Atividade recente" FontSize="12" FontWeight="SemiBold"
                                            Foreground="#AFC2DE" />
-                                <Button Content="Limpar" HorizontalAlignment="Right"
-                                        Padding="8,3" FontSize="10" Click="OnClearLog" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button x:Name="CopyLogButton" Content="Copiar log" Margin="0,0,7,0"
+                                            Padding="8,3" FontSize="10" Click="OnCopyLog" />
+                                    <Button Content="Limpar" Padding="8,3" FontSize="10" Click="OnClearLog" />
+                                </StackPanel>
                             </Grid>
                             <ListBox x:Name="LogListBox" Grid.Row="2"
                                      Background="Transparent" BorderThickness="0"

@@ -24,21 +24,42 @@ public sealed partial class SpotLevelRecognitionService
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var crop = CropFirstFavorite(frame);
-        using var bitmap = new SoftwareBitmap(
-            BitmapPixelFormat.Bgra8,
-            crop.Width,
-            crop.Height,
-            BitmapAlphaMode.Premultiplied);
-        bitmap.CopyFromBuffer(CryptographicBuffer.CreateFromByteArray(crop.Pixels));
-
         var engine = OcrEngine.TryCreateFromUserProfileLanguages() ??
                      OcrEngine.TryCreateFromLanguage(new Language("en-US")) ??
                      throw new InvalidOperationException("O reconhecimento de texto do Windows não está disponível.");
-        var result = await engine.RecognizeAsync(bitmap).AsTask(cancellationToken);
-        var normalized = NormalizeOcrText(result.Text);
-        var level = ExtractLevel(normalized, allowedLevels);
-        return new SpotLevelRecognitionResult(level, normalized);
+        var observedText = new List<string>();
+        var variants = new (int X, int Y, int Width, int Height, int? Threshold)[]
+        {
+            (1625, 258, 130, 65, null),
+            (1625, 258, 130, 65, 92),
+            (1625, 258, 130, 65, 125),
+            (1535, 195, 330, 145, 108)
+        };
+        foreach (var variant in variants)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var crop = CropRegion(frame, variant.X, variant.Y, variant.Width, variant.Height, variant.Threshold);
+            using var bitmap = new SoftwareBitmap(
+                BitmapPixelFormat.Bgra8,
+                crop.Width,
+                crop.Height,
+                BitmapAlphaMode.Premultiplied);
+            bitmap.CopyFromBuffer(CryptographicBuffer.CreateFromByteArray(crop.Pixels));
+            var result = await engine.RecognizeAsync(bitmap).AsTask(cancellationToken);
+            var normalized = NormalizeOcrText(result.Text);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                observedText.Add(normalized);
+            }
+
+            var level = ExtractLevel(normalized, allowedLevels);
+            if (level is not null)
+            {
+                return new SpotLevelRecognitionResult(level, string.Join(" | ", observedText));
+            }
+        }
+
+        return new SpotLevelRecognitionResult(null, string.Join(" | ", observedText));
     }
 
     public async Task<SpotLevelRecognitionResult> RecognizeFirstFavoriteInImageAsync(
@@ -65,14 +86,20 @@ public sealed partial class SpotLevelRecognitionService
             cancellationToken);
     }
 
-    private static PixelFrame CropFirstFavorite(PixelFrame frame)
+    private static PixelFrame CropRegion(
+        PixelFrame frame,
+        int referenceX,
+        int referenceY,
+        int referenceWidth,
+        int referenceHeight,
+        int? threshold)
     {
         var scaleX = frame.Width / (double)ReferenceWidth;
         var scaleY = frame.Height / (double)ReferenceHeight;
-        var sourceX = Math.Clamp((int)Math.Round(1535 * scaleX), 0, frame.Width - 1);
-        var sourceY = Math.Clamp((int)Math.Round(195 * scaleY), 0, frame.Height - 1);
-        var sourceWidth = Math.Clamp((int)Math.Round(330 * scaleX), 1, frame.Width - sourceX);
-        var sourceHeight = Math.Clamp((int)Math.Round(145 * scaleY), 1, frame.Height - sourceY);
+        var sourceX = Math.Clamp((int)Math.Round(referenceX * scaleX), 0, frame.Width - 1);
+        var sourceY = Math.Clamp((int)Math.Round(referenceY * scaleY), 0, frame.Height - 1);
+        var sourceWidth = Math.Clamp((int)Math.Round(referenceWidth * scaleX), 1, frame.Width - sourceX);
+        var sourceHeight = Math.Clamp((int)Math.Round(referenceHeight * scaleY), 1, frame.Height - sourceY);
         const int enlargement = 3;
         var width = sourceWidth * enlargement;
         var height = sourceHeight * enlargement;
@@ -91,7 +118,9 @@ public sealed partial class SpotLevelRecognitionService
                 var green = frame.Pixels[sourceOffset + 1];
                 var red = frame.Pixels[sourceOffset + 2];
                 var luma = ((red * 77) + (green * 150) + (blue * 29)) >> 8;
-                var value = luma >= 108 ? (byte)255 : (byte)0;
+                var value = threshold is { } cutoff
+                    ? luma >= cutoff ? (byte)255 : (byte)0
+                    : (byte)luma;
                 pixels[destinationOffset] = value;
                 pixels[destinationOffset + 1] = value;
                 pixels[destinationOffset + 2] = value;

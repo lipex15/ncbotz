@@ -234,11 +234,13 @@ public partial class App : Application
             ("mapa_aberto", "mapa_ta3.png"),
             ("mapa_aberto", "mapa_ta2_favorito_unico.png"),
             ("mapa_aberto", "botao_ir_ta2_tela.png"),
+            ("mapa_aberto", "teste_favorito_cliente2.png"),
             ("mapa_aberto_ta2_ir", "botao_ir_ta2_tela.png"),
             ("mapa_aberto_ta2_ir", "mapa_ta2_favorito_unico.png"),
             ("mapa_aberto_ta2_ir", "ta2_chegada.png"),
             ("aba_favoritos", "mapa_posto_favoritos.png"),
             ("aba_favoritos", "mapa_ta2_favorito_unico.png"),
+            ("aba_favoritos", "teste_favorito_cliente2.png"),
             ("segundo_favorito_teleporte", "mapa_posto_favoritos.png"),
             ("segundo_favorito_teleporte", "mapa_ta2_favorito_unico.png"),
             ("mapa_favoritos", "teste_mapa_favoritos.png"),
@@ -330,6 +332,26 @@ public partial class App : Application
             new HashSet<int> { 68, 72, 76, 80, 84, 88 });
         lines.Add(
             $"nivel_spot|image=mapa_ta2_favorito_unico.png|level={spotLevel.Level}|text={spotLevel.Text}");
+        var clientTwoSpotLevel = await new SpotLevelRecognitionService().RecognizeFirstFavoriteInImageAsync(
+            Path.Combine(referenceDirectory, "teste_favorito_cliente2.png"),
+            new HashSet<int> { 68, 72, 76, 80, 84, 88 });
+        lines.Add(
+            $"nivel_spot|image=teste_favorito_cliente2.png|level={clientTwoSpotLevel.Level}|text={clientTwoSpotLevel.Text}");
+        if (spotLevel.Level != 68 || clientTwoSpotLevel.Level != 68)
+        {
+            throw new InvalidOperationException(
+                $"Falha no teste dos favoritos: referência={spotLevel.Level}, cliente 2={clientTwoSpotLevel.Level}.");
+        }
+        var clientTwoMap = await recognition.FindInImageAsync(
+            "mapa_aberto", Path.Combine(referenceDirectory, "teste_favorito_cliente2.png"));
+        var clientTwoFavorites = await recognition.FindInImageAsync(
+            "aba_favoritos", Path.Combine(referenceDirectory, "teste_favorito_cliente2.png"));
+        if (!clientTwoMap.Found || !clientTwoFavorites.Found)
+        {
+            throw new InvalidOperationException(
+                $"Falha no teste de retomada do Cliente 2: mapa={clientTwoMap.Found}, " +
+                $"favoritos={clientTwoFavorites.Found}.");
+        }
 
         var restorationReader = new RestorationCounterReader();
         var restorationCases = new[]

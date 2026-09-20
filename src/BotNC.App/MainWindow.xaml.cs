@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using BotNC.App.Models;
@@ -725,6 +726,38 @@ public partial class MainWindow : Window
     }
 
     private void OnClearLog(object sender, RoutedEventArgs e) => LogListBox.Items.Clear();
+
+    private async void OnCopyLog(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var path = _engine.RuntimeLogPath;
+            string content;
+            if (File.Exists(path))
+            {
+                await using var stream = new FileStream(
+                    path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                content = await reader.ReadToEndAsync();
+            }
+            else
+            {
+                content = string.Join(
+                    Environment.NewLine,
+                    LogListBox.Items.Cast<object>().Select(item => item.ToString()));
+            }
+
+            Clipboard.SetText(content);
+            CopyLogButton.Content = "Copiado!";
+            await Task.Delay(1800);
+            CopyLogButton.Content = "Copiar log";
+        }
+        catch (Exception exception)
+        {
+            CopyLogButton.Content = "Falhou";
+            AddLog($"Não foi possível copiar o log: {exception.GetBaseException().Message}");
+        }
+    }
 
     private void ValidateEnvironment()
     {

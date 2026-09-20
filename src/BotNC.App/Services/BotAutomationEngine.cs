@@ -975,6 +975,16 @@ public sealed class BotAutomationEngine(
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir a {taName}", cancellationToken);
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir o menu da {taName}", cancellationToken);
+        if (session.AwaitingFavoriteSpotRecognition &&
+            await IsMapOpenAsync(session, cancellationToken) &&
+            (await recognition.FindAsync("aba_favoritos", cancellationToken)).Found)
+        {
+            WriteLog(session, "Mapa e Favoritos ainda abertos após falha na leitura do spot; retomando desta etapa sem reiniciar a T.A.");
+            await TravelToFarmSpotAsync(session, pause, cancellationToken);
+            return;
+        }
+
+        session.AwaitingFavoriteSpotRecognition = false;
         var readyReference = EntryReadyReference(session.Options.Destination);
         if (await IsTaSelectorContextVisibleAsync(readyReference, cancellationToken))
         {
@@ -1121,8 +1131,7 @@ public sealed class BotAutomationEngine(
 
         await TryDismissAgendaAsync(session, cancellationToken);
 
-        WriteLog(session, $"{taName} reconhecida; aguardando o respawn estabilizar.");
-        await ActionDelayAsync(cancellationToken, 2200, 3400);
+        WriteLog(session, $"{taName} reconhecida; verificando o NPC de suprimentos assim que estiver visível.");
         await BuySuppliesInsideTaAsync(session, pause, cancellationToken);
         await TravelToFarmSpotAsync(session, pause, cancellationToken);
     }
@@ -1230,15 +1239,7 @@ public sealed class BotAutomationEngine(
         await WaitForReferenceAsync(ArrivalReference(session.Options.Destination), "painel Artigos", TimeSpan.FromSeconds(12), pause, cancellationToken);
         await input.ClickAsync(187, 129, cancellationToken);
         await WaitForReferenceAsync("loja_artigos", "Mercador de Artigos", TimeSpan.FromSeconds(15), pause, cancellationToken);
-        WriteLog(session, "Loja reconhecida; aguardando uma estabilização curta antes de verificar a compra em lote.");
-        await ActionDelayAsync(cancellationToken, 700, 1100);
-
-        var buyButtonLuma = VisualRecognitionService.MeasureAverageLuma(
-            capture.CapturePrimaryScreen(),
-            300,
-            980,
-            165,
-            45);
+        var buyButtonLuma = await WaitForStableBuyButtonLumaAsync(pause, cancellationToken);
         if (buyButtonLuma < 72)
         {
             WriteLog(
@@ -1263,13 +1264,50 @@ public sealed class BotAutomationEngine(
         await WaitForReferenceAsync(ArrivalReference(session.Options.Destination), $"retorno à {taName}", TimeSpan.FromSeconds(15), pause, cancellationToken);
     }
 
+    private async Task<double> WaitForStableBuyButtonLumaAsync(
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = DateTime.UtcNow;
+        var deadline = startedAt + TimeSpan.FromSeconds(5);
+        double? previous = null;
+        var stableSamples = 0;
+        double current = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            current = VisualRecognitionService.MeasureAverageLuma(
+                capture.CapturePrimaryScreen(), 300, 980, 165, 45);
+            stableSamples = previous is { } value && Math.Abs(current - value) <= 5
+                ? stableSamples + 1
+                : 0;
+            if (stableSamples >= 2 &&
+                (current >= 72 || DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(1.2)))
+            {
+                return current;
+            }
+
+            previous = current;
+            await Task.Delay(220, cancellationToken);
+        }
+
+        return current;
+    }
+
     private async Task TravelToFarmSpotAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
     {
         var taName = TaName(session.Options.Destination);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: indo ao spot", $"Lendo Favoritos da {taName}");
-        await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
-        await WaitForReferenceAsync("mapa_aberto", "mapa aberto", TimeSpan.FromSeconds(15), pause, cancellationToken);
-        await OpenFavoritesAsync(session, pause, cancellationToken);
+        if (!await IsMapOpenAsync(session, cancellationToken))
+        {
+            await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
+            await WaitForReferenceAsync("mapa_aberto", "mapa aberto", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        }
+
+        if (!(await recognition.FindAsync("aba_favoritos", cancellationToken)).Found)
+        {
+            await OpenFavoritesAsync(session, pause, cancellationToken);
+        }
 
         var secondFavorite = await WaitForReferenceToAppearAsync("segundo_favorito_teleporte", TimeSpan.FromSeconds(3), pause, cancellationToken);
         if (secondFavorite)
@@ -1293,11 +1331,14 @@ public sealed class BotAutomationEngine(
         int? spotLevel = null;
         if (session.Options.CustomFarmCoordinate is null)
         {
+            session.AwaitingFavoriteSpotRecognition = true;
             spotLevel = await RecognizeFavoriteSpotLevelAsync(session, pause, cancellationToken);
+            session.AwaitingFavoriteSpotRecognition = false;
             WriteLog(session, $"Primeiro favorito reconhecido como spot Nv. {spotLevel}.");
         }
         else
         {
+            session.AwaitingFavoriteSpotRecognition = false;
             WriteLog(
                 session,
                 $"Coordenada personalizada ativa: ({session.Options.CustomFarmCoordinate.X}, " +
@@ -2117,6 +2158,7 @@ public sealed class BotAutomationEngine(
         session.SafeInRest = false;
         session.IsFarmingTa = false;
         session.AwaitingHuntActivationAtSpot = false;
+        session.AwaitingFavoriteSpotRecognition = false;
         WriteLog(
             session,
             $"Reset de rota: usando uma vez o TP {options.EmergencyTeleportKeyName} e reiniciando o fluxo completo.");
@@ -3188,7 +3230,9 @@ public sealed class BotAutomationEngine(
             throw new InvalidOperationException($"Não foi possível ativar a janela {target.Title}.");
         }
 
-        await Task.Delay(1800, cancellationToken);
+        // Activate já confirma foco e janela maximizada. A captura abaixo espera
+        // o próximo quadro do jogo, sem impor 1,8 s em todo PC.
+        await Task.Delay(180, cancellationToken);
         await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
     }
 
@@ -3230,7 +3274,7 @@ public sealed class BotAutomationEngine(
             throw new InvalidOperationException($"Não foi possível devolver o foco à janela {target.Title}.");
         }
 
-        await Task.Delay(1800, cancellationToken);
+        await Task.Delay(180, cancellationToken);
         await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
     }
 
@@ -3404,6 +3448,7 @@ public sealed class BotAutomationEngine(
         public int ConsecutiveRecoveryFailures { get; set; }
         public bool RequiresHardFlowReset { get; set; }
         public bool AwaitingHuntActivationAtSpot { get; set; }
+        public bool AwaitingFavoriteSpotRecognition { get; set; }
         public bool SafeInRest { get; set; }
         public bool IsFarmingTa { get; set; }
         public bool InAgenda { get; set; }
