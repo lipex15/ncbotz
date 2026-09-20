@@ -103,7 +103,22 @@ public sealed class BotAutomationEngine(
         foreach (var session in sessions)
         {
             session.DailyCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCycle");
+            session.DailyStartedCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyStartedCycle");
+            session.DailyCompletedCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle");
             session.DirectiveCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle");
+
+            if (runOptions.DailyRoutines.EnableDailyMissions)
+            {
+                var cycle = DailyCycleKey(DateTime.Now);
+                if (session.DailyCompletedCycle == cycle)
+                {
+                    WriteLog(session, "Missões Diárias deste ciclo já foram concluídas; aguardando o próximo reset das 04:00.");
+                }
+                else if (session.DailyCycle == cycle)
+                {
+                    WriteLog(session, "Missões Diárias já foram aceitas neste ciclo, mas não constam como concluídas; a campanha será retomada no horário configurado.");
+                }
+            }
         }
 
         EnsureResolution();
@@ -1016,6 +1031,11 @@ public sealed class BotAutomationEngine(
             }
 
             session.InDailyCampaign = false;
+            var completedCycle = DailyCycleKey(DateTime.Now);
+            session.DailyCompletedCycle = completedCycle;
+            await database.SaveSettingAsync(
+                $"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle",
+                completedCycle);
             WriteLog(session, "Nenhuma missão roxa restante; retomando o ciclo de farm configurado.");
         }
 
@@ -2065,21 +2085,23 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        if (session.InAgenda || session.HandlingDeath || session.NextRecoveryAttemptAt != default)
+        if (session.InAgenda || session.HandlingDeath || session.InDailyCampaign || session.NextRecoveryAttemptAt != default)
         {
             return false;
         }
 
-        var cycle = DailyCycleKey(DateTime.Now);
-        var dailyDue = options.EnableDailyMissions && session.DailyCycle != cycle &&
-                       DateTime.Now >= ScheduledInCycle(DateTime.Now, options.DailyMissionsAt);
+        var now = DateTime.Now;
+        var cycle = DailyCycleKey(now);
+        var dailyDue = options.EnableDailyMissions && session.DailyCompletedCycle != cycle &&
+                       now >= ScheduledInCycle(now, options.DailyMissionsAt);
         var directiveDue = options.EnableGuildDirective && session.DirectiveCycle != cycle &&
-                           DateTime.Now >= ScheduledInCycle(DateTime.Now, options.GuildDirectiveAt);
+                           now >= ScheduledInCycle(now, options.GuildDirectiveAt);
 
         // Mapa Aberto é aceito junto das Diárias para que ambas progridam no mesmo deslocamento.
         if (options.GuildDirectiveArea == GuildDirectiveArea.OpenMap && options.EnableDailyMissions)
         {
-            directiveDue = dailyDue && session.DirectiveCycle != cycle;
+            directiveDue = options.EnableGuildDirective && session.DirectiveCycle != cycle &&
+                           now >= ScheduledInCycle(now, options.DailyMissionsAt);
         }
 
         if (!dailyDue && !directiveDue)
@@ -2107,7 +2129,8 @@ public sealed class BotAutomationEngine(
         session.SafeInRest = false;
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
 
-        if (dailyDue)
+        var dailyAlreadyAccepted = session.DailyCycle == cycle;
+        if (dailyDue && !dailyAlreadyAccepted)
         {
             await AcceptDailyMissionsAsync(session, pause, cancellationToken);
             session.DailyCycle = cycle;
@@ -2123,11 +2146,31 @@ public sealed class BotAutomationEngine(
 
         if (dailyDue)
         {
-            var dailyRestConfirmed = await StartDailyCampaignAsync(session, pause, cancellationToken);
+            bool dailyRestConfirmed;
+            if (dailyAlreadyAccepted)
+            {
+                WriteLog(session, "Retomando as Missões Diárias já aceitas após interrupção ou reinício anterior.");
+                var resumed = await ResumeDailyCampaignAsync(session, pause, cancellationToken);
+                dailyRestConfirmed = resumed && session.SafeInRest;
+                if (!resumed)
+                {
+                    WriteLog(session, "A retomada não encontrou missão roxa neste momento; mantendo a rotina ativa para confirmar a conclusão sem aceitar tudo novamente.");
+                }
+            }
+            else
+            {
+                dailyRestConfirmed = await StartDailyCampaignAsync(session, pause, cancellationToken);
+            }
+
+            session.DailyStartedCycle = cycle;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyStartedCycle", cycle);
             session.InDailyCampaign = true;
             session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
-            session.IsFarmingTa = true;
-            session.SafeInRest = dailyRestConfirmed;
+            if (!dailyAlreadyAccepted || dailyRestConfirmed)
+            {
+                session.IsFarmingTa = true;
+                session.SafeInRest = dailyRestConfirmed;
+            }
             session.Audio.Armed = true;
             WriteLog(session, dailyRestConfirmed
                 ? "Campanha automática das Diárias iniciada em modo descanso."
@@ -2442,6 +2485,11 @@ public sealed class BotAutomationEngine(
                         {
                             session.InDailyCampaign = false;
                             session.DailyNoMissionHits = 0;
+                            var completedCycle = DailyCycleKey(DateTime.Now);
+                            session.DailyCompletedCycle = completedCycle;
+                            await database.SaveSettingAsync(
+                                $"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle",
+                                completedCycle);
                             WriteLog(session, "Missões roxas ausentes por três verificações da lista; Diárias concluídas. Retornando ao farm anterior.");
                             await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
                             break;
@@ -4269,6 +4317,8 @@ public sealed class BotAutomationEngine(
         public bool AbbeyScheduledResumePending { get; set; }
         public bool InDailyCampaign { get; set; }
         public string? DailyCycle { get; set; }
+        public string? DailyStartedCycle { get; set; }
+        public string? DailyCompletedCycle { get; set; }
         public string? DirectiveCycle { get; set; }
         public DateTime NextDailyMissionCheckAt { get; set; }
         public int DailyNoMissionHits { get; set; }
