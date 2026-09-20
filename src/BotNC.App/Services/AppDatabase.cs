@@ -266,6 +266,13 @@ public sealed class AppDatabase
                 50, 62, 325, 85,
                 0.66),
             new(
+                "mapa_abadia",
+                "Mapa da Abadia da Lembrança",
+                "mapa_abadia.png",
+                1570, 92, 315, 60,
+                1490, 55, 430, 120,
+                0.68),
+            new(
                 "menu_masmorra",
                 "Botão Masm. no menu lateral",
                 "menu_masmorra.png",

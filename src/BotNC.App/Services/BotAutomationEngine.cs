@@ -1098,7 +1098,7 @@ public sealed class BotAutomationEngine(
         if (!await IsMapOpenAsync(session, cancellationToken))
         {
             await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
-            await WaitForReferenceAsync("mapa_aberto", "mapa da Abadia", TimeSpan.FromSeconds(15), pause, cancellationToken);
+            await WaitForReferenceAsync("mapa_abadia", "mapa da Abadia", TimeSpan.FromSeconds(15), pause, cancellationToken);
         }
         var coordinate = session.Options.AbbeyCustomFarmCoordinate;
         var point = coordinate is null
@@ -1755,6 +1755,11 @@ public sealed class BotAutomationEngine(
 
     private async Task<bool> IsMapOpenAsync(ClientSession session, CancellationToken cancellationToken)
     {
+        if ((await recognition.FindAsync("mapa_abadia", cancellationToken)).Found)
+        {
+            return true;
+        }
+
         var references = session.Options.Destination == TaDestination.Ta2
             ? new[] { "mapa_aberto_ta2_ir", "mapa_aberto", "botao_ir_ta2" }
             : new[] { "mapa_aberto", "mapa_ta3", "botao_ir", "botao_ir_legado" };

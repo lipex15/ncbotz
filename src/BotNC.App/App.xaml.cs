@@ -224,6 +224,8 @@ public partial class App : Application
             ("abadia_chegada_apreciacao", "abadia_chegada_apreciacao.png"),
             ("abadia_chegada_silencio", "abadia_chegada_apreciacao.png"),
             ("abadia_chegada_apreciacao", "abadia_chegada_silencio.png"),
+            ("mapa_abadia", "mapa_abadia.png"),
+            ("mapa_abadia", "abadia_chegada_apreciacao.png"),
             ("menu_masmorra", "menu_aberto.png"),
             ("tela_masmorras", "tela_masmorras.png"),
             ("confirmar_sepheras", "confirmar_sepheras.png"),
