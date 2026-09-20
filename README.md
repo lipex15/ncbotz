@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.9.1
+## Ciclo disponível — v0.9.2
 
 ### Rotinas Diárias e Diretivas
 
@@ -12,6 +12,7 @@ Aplicativo modular de automação visual para Night Crows.
 - confirma a aceitação pelo aviso ou pelo contador `30/30` e fecha completamente o painel de Campanha antes de continuar;
 - confirma a conclusão pela ausência estável das missões roxas e retorna ao farm anterior;
 - aceita Diretiva de Guilda em Mapa Aberto, T.A ou Masmorras; o jogo conclui as cinco do local escolhido;
+- confirma a Diretiva pelo aviso ou pelo estado permanente `Em andamento` e fecha completamente a tela da Guilda;
 - Diretiva de Mapa Aberto é aceita junto das Diárias;
 - a execução realizada é persistida por cliente para não repetir após reiniciar o aplicativo;
 - sair da Abadia para uma rotina programada preserva o limite configurado de retornos.

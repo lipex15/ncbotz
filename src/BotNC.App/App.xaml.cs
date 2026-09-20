@@ -225,6 +225,7 @@ public partial class App : Application
             ("guild_page", "guild_page.png"),
             ("guild_directive_page", "guild_directive_page.png"),
             ("guild_directive_accepted", "guild_directive_accepted.png"),
+            ("guild_directive_in_progress", "guild_directive_in_progress.png"),
             ("campaign_page", "campaign_page.png"),
             ("daily_page", "daily_page.png"),
             ("daily_all_accepted", "daily_all_accepted.png"),
@@ -327,7 +328,7 @@ public partial class App : Application
         var lines = new List<string>();
         var requiredNewReferences = new HashSet<string>(StringComparer.Ordinal)
         {
-            "guild_page", "guild_directive_page", "guild_directive_accepted",
+            "guild_page", "guild_directive_page", "guild_directive_accepted", "guild_directive_in_progress",
             "campaign_page", "daily_page", "daily_all_accepted", "daily_30_accepted",
             "daily_automatic", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max"
         };

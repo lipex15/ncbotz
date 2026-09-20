@@ -2159,9 +2159,57 @@ public sealed class BotAutomationEngine(
             _ => (834, 805)
         };
         await input.MoveAndClickAsync(point.Item1, point.Item2, TimeSpan.FromMilliseconds(350), cancellationToken);
-        await WaitForReferenceAsync("guild_directive_accepted", "confirmação Campanha Aceita", TimeSpan.FromSeconds(12), pause, cancellationToken);
-        await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        var confirmationDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(12);
+        var accepted = false;
+        while (DateTime.UtcNow < confirmationDeadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            if ((await recognition.FindAsync("guild_directive_accepted", cancellationToken)).Found ||
+                (await recognition.FindAsync("guild_directive_in_progress", cancellationToken)).Found)
+            {
+                accepted = true;
+                break;
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        if (!accepted)
+        {
+            var diagnostic = await recognition.SaveDiagnosticAsync($"guild_directive_accept_{session.Options.Priority}");
+            throw new TimeoutException(
+                $"{session.Options.Label}: não foi possível confirmar a Diretiva pelo aviso nem pelo estado Em andamento. Diagnóstico: {diagnostic}");
+        }
+
+        await CloseGuildScreenAsync(session, pause, cancellationToken);
         WriteLog(session, $"Diretiva aceita em {DirectiveAreaName(area)}; o jogo executará as cinco automaticamente.");
+    }
+
+    private async Task CloseGuildScreenAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            await CheckpointAsync(pause, cancellationToken);
+            var directiveVisible = (await recognition.FindAsync("guild_directive_page", cancellationToken)).Found;
+            var guildVisible = (await recognition.FindAsync("guild_page", cancellationToken)).Found;
+            if (!directiveVisible && !guildVisible)
+            {
+                WriteLog(session, $"Tela da Guilda fechada e confirmada após {attempt} ESC.");
+                return;
+            }
+
+            WriteLog(session, attempt == 1
+                ? "O primeiro ESC fechou apenas o aviso da Diretiva; a Guilda continua aberta."
+                : $"A Guilda continua aberta após {attempt} ESC; repetindo.");
+        }
+
+        var diagnostic = await recognition.SaveDiagnosticAsync($"guild_directive_close_{session.Options.Priority}");
+        throw new TimeoutException(
+            $"{session.Options.Label}: a tela da Guilda não fechou após três ESC. Diagnóstico: {diagnostic}");
     }
 
     private async Task AcceptDailyMissionsAsync(
