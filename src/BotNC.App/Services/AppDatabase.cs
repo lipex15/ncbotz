@@ -235,6 +235,7 @@ public sealed class AppDatabase
             new("guild_directive_page", "Página de Diretivas", "guild_directive_page.png", 430, 105, 190, 70, 390, 85, 280, 115, 0.68),
             new("guild_directive_accepted", "Campanha Aceita", "guild_directive_accepted.png", 805, 105, 315, 165, 730, 70, 470, 245, 0.66),
             new("guild_directive_in_progress", "Diretiva em andamento", "guild_directive_in_progress.png", 720, 475, 235, 75, 650, 430, 350, 150, 0.64),
+            new("guild_directive_completed", "Diretivas concluídas", "guild_directive_completed.png", 741, 270, 650, 75, 650, 235, 870, 360, 0.68),
             new("menu_campaign", "Ícone Campanha", "menu_campaign.png", 0, 0, 79, 89, 1540, 205, 145, 145, 0.68),
             new("campaign_page", "Página Campanha", "campaign_page.png", 24, 30, 300, 80, 0, 15, 420, 130, 0.68),
             new("daily_page", "Aba Diário", "daily_page.png", 640, 105, 190, 70, 590, 85, 280, 115, 0.68),

@@ -245,6 +245,10 @@ public sealed class BotAutomationEngine(
             WriteLog("Sapheras desativada para todos os clientes. Mantendo o farm contínuo nos destinos configurados.");
             foreach (var session in sessions)
             {
+                if (await RecoverOpenRoutinePanelsSafelyAsync(session, pause, cancellationToken))
+                {
+                    continue;
+                }
                 if (await TryStartVisibleDailyCampaignSafelyAsync(session, dailyRoutines, pause, cancellationToken))
                 {
                     continue;
@@ -275,6 +279,10 @@ public sealed class BotAutomationEngine(
             {
                 foreach (var session in sessions)
                 {
+                    if (await RecoverOpenRoutinePanelsSafelyAsync(session, pause, sapherasPriority.Token))
+                    {
+                        continue;
+                    }
                     if (await TryStartVisibleDailyCampaignSafelyAsync(session, dailyRoutines, pause, sapherasPriority.Token))
                     {
                         continue;
@@ -2317,6 +2325,76 @@ public sealed class BotAutomationEngine(
         }
     }
 
+    // Ao iniciar no meio de uma tela de rotina, sincroniza o estado com o jogo
+    // antes de decidir entre retomar Diárias e preparar o farm normal.
+    private async Task<bool> RecoverOpenRoutinePanelsSafelyAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ActivateGameAsync(session, cancellationToken);
+            var cycle = DailyCycleKey(DateTime.Now);
+            if ((await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found)
+            {
+                WriteLog(session, "Diretivas 5/5 já concluídas ao iniciar; fechando a Guilda sem recarregar.");
+                await CloseGuildScreenAsync(session, pause, cancellationToken);
+                session.DirectiveCycle = cycle;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+            }
+            else if ((await recognition.FindAsync("guild_page", cancellationToken)).Found)
+            {
+                WriteLog(session, "Tela da Guilda aberta ao iniciar; retornando ao jogo para continuar o fluxo.");
+                await CloseGuildScreenAsync(session, pause, cancellationToken);
+            }
+
+            if (!(await recognition.FindAsync("daily_page", cancellationToken)).Found)
+            {
+                return false;
+            }
+
+            var alreadyAccepted = (await recognition.FindAsync("daily_30_accepted", cancellationToken)).Found;
+            WriteLog(session, alreadyAccepted
+                ? "Diárias 30/30 já aceitas ao iniciar; fechando o painel e verificando as missões pendentes."
+                : "Painel das Diárias aberto ao iniciar; fechando-o para continuar o fluxo.");
+            await CloseCampaignScreenAsync(session, pause, cancellationToken);
+            if (!alreadyAccepted)
+            {
+                return false;
+            }
+
+            session.DailyCycle = cycle;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCycle", cycle);
+            var missionList = await EnsureDailyMissionListAsync(session, pause, cancellationToken);
+            if (missionList.MissionY is not null)
+            {
+                session.NextVisibleDailyScanAt = default;
+                WriteLog(session, "Há missão roxa pendente; iniciando a retomada imediata das Diárias.");
+            }
+            else
+            {
+                session.DailyCompletedCycle = cycle;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle", cycle);
+                WriteLog(session, missionList.ListVisible
+                    ? "Lista aberta sem missão roxa: Diárias concluídas; seguindo para o farm."
+                    : "Diárias 30/30 e nenhuma missão roxa após tentar abrir a lista; seguindo para o farm.");
+            }
+
+            return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            WriteLog(session, $"Estado inicial das rotinas será reavaliado: {exception.GetBaseException().Message}.");
+            WritePersistentOnly(session, exception.ToString());
+            return true;
+        }
+    }
+
     private async Task AcceptGuildDirectiveAsync(
         ClientSession session,
         GuildDirectiveArea area,
@@ -2330,6 +2408,10 @@ public sealed class BotAutomationEngine(
         await WaitForReferenceAsync("guild_page", "página da Guilda", TimeSpan.FromSeconds(15), pause, cancellationToken);
         await input.MoveAndClickAsync(523, 143, TimeSpan.FromMilliseconds(320), cancellationToken);
         await WaitForReferenceAsync("guild_directive_page", "página de Diretivas", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+        {
+            return;
+        }
         var point = area switch
         {
             GuildDirectiveArea.Ta => (1160, 809),
@@ -2342,6 +2424,10 @@ public sealed class BotAutomationEngine(
         while (DateTime.UtcNow < confirmationDeadline)
         {
             await CheckpointAsync(pause, cancellationToken);
+            if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+            {
+                return;
+            }
             if ((await recognition.FindAsync("guild_directive_accepted", cancellationToken)).Found ||
                 (await recognition.FindAsync("guild_directive_in_progress", cancellationToken)).Found)
             {
@@ -2361,6 +2447,21 @@ public sealed class BotAutomationEngine(
 
         await CloseGuildScreenAsync(session, pause, cancellationToken);
         WriteLog(session, $"Diretiva aceita em {DirectiveAreaName(area)}; o jogo executará as cinco automaticamente.");
+    }
+
+    private async Task<bool> CloseCompletedGuildDirectiveIfPresentAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        if (!(await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found)
+        {
+            return false;
+        }
+
+        WriteLog(session, "As cinco Diretivas da Guilda já estão concluídas. Fechando a tela sem usar recarga.");
+        await CloseGuildScreenAsync(session, pause, cancellationToken);
+        return true;
     }
 
     private async Task CloseGuildScreenAsync(

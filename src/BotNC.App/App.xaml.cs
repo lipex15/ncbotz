@@ -125,6 +125,7 @@ public partial class App : Application
             var taSelector = await recognition.FindInImageAsync("seletor_ta", imagePath);
             var dailyTeleportResource = await recognition.FindInImageAsync("daily_teleport_resource", imagePath);
             var dailyTeleportOk = await recognition.FindInImageAsync("daily_teleport_ok", imagePath);
+            var guildDirectiveCompleted = await recognition.FindInCroppedImageAsync("guild_directive_completed", imagePath);
             await File.WriteAllLinesAsync(
                 imageProbeOutputPath,
                 [
@@ -137,7 +138,8 @@ public partial class App : Application
                     $"ta3EntryReady={ta3EntryReady.Found};confidence={ta3EntryReady.Confidence:F4}",
                     $"taSelector={taSelector.Found};confidence={taSelector.Confidence:F4}",
                     $"dailyTeleportResource={dailyTeleportResource.Found};confidence={dailyTeleportResource.Confidence:F4}",
-                    $"dailyTeleportOk={dailyTeleportOk.Found};confidence={dailyTeleportOk.Confidence:F4}"
+                    $"dailyTeleportOk={dailyTeleportOk.Found};confidence={dailyTeleportOk.Confidence:F4}",
+                    $"guildDirectiveCompleted={guildDirectiveCompleted.Found};confidence={guildDirectiveCompleted.Confidence:F4}"
                 ]);
             Shutdown();
             return;
@@ -371,6 +373,15 @@ public partial class App : Application
                 throw new InvalidOperationException(
                     $"A referência {referenceId} não reconheceu seu próprio recorte ({popupPart.Confidence:P0}).");
             }
+        }
+
+        var completedGuildDirective = await recognition.FindInCroppedImageAsync(
+            "guild_directive_completed", Path.Combine(referenceDirectory, "guild_directive_completed.png"));
+        lines.Add($"guild_directive_completed|image=guild_directive_completed.png|found={completedGuildDirective.Found}|confidence={completedGuildDirective.Confidence:F4}");
+        if (!completedGuildDirective.Found)
+        {
+            throw new InvalidOperationException(
+                $"A Diretiva concluída não foi reconhecida no recorte ({completedGuildDirective.Confidence:P0}).");
         }
 
         var abbeyConfirmation = await recognition.FindInCroppedImageAsync(
