@@ -49,7 +49,9 @@ public sealed class AppUpdateService
         }
 
         var tag = Uri.UnescapeDataString(match.Groups["tag"].Value);
-        if (!Version.TryParse(tag.TrimStart('v', 'V'), out var version))
+        var expectedPrefix = AppIdentity.IsTesting ? "test-v" : "v";
+        if (!tag.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase) ||
+            !Version.TryParse(tag[expectedPrefix.Length..], out var version))
         {
             throw new InvalidDataException("A versão publicada no GitHub não tem um número válido.");
         }

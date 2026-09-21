@@ -19,7 +19,7 @@ O canal de testes não importa automaticamente o banco de dados estável. Config
 1. Faça as alterações na branch `testing`. Não publique uma tag da versão estável para testar.
 2. Compile os dois canais e execute o autoteste visual e de áudio. Valide também o instalador de teste sem alterar a instalação estável.
 3. Envie `testing` para a branch homônima no repositório estável e para `main` no repositório de testes.
-4. Ao criar uma tag `vX.Y.Z` **somente no repositório de testes**, o workflow gera `PEXBOT-Teste-Setup-vX.Y.Z.exe` e seu `.sha256` na release de testes. O app de teste detecta a nova versão e a instala sem substituir o estável.
+4. Ao criar uma tag `test-vX.Y.Z` **somente no repositório de testes**, o workflow gera `PEXBOT-Teste-Setup-vX.Y.Z.exe` e seu `.sha256` na release de testes. O app de teste detecta a nova versão e a instala sem substituir o estável. Tags estáveis usam `vX.Y.Z`, sem o prefixo `test-`.
 5. Só após validação no jogo e aprovação explícita, promova o código aprovado para `main` do repositório estável, ajuste a versão **e o canal padrão de compilação de `Testing` para `Stable`**, e publique uma tag estável. Isso não ocorre automaticamente.
 
 O repositório de testes é público para permitir que o atualizador baixe os instaladores sem exigir token do GitHub. A publicação lá **não gera notificação de atualização na instalação estável**.

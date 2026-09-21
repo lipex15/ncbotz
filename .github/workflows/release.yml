@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - 'test-v*'
 
 permissions:
   contents: write
@@ -23,7 +24,8 @@ jobs:
             throw "Unexpected repository $env:GITHUB_REPOSITORY"
           }
           [xml]$project = Get-Content 'src/BotNC.App/BotNC.App.csproj'
-          $expected = 'v' + $project.Project.PropertyGroup.Version
+          $tagPrefix = if ($env:GITHUB_REPOSITORY -eq 'lipex15/ncbotz-testing') { 'test-v' } else { 'v' }
+          $expected = $tagPrefix + $project.Project.PropertyGroup.Version
           if ($env:GITHUB_REF_NAME -ne $expected) {
             throw "Tag $env:GITHUB_REF_NAME does not match application version $expected."
           }
@@ -71,7 +73,11 @@ jobs:
             "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
           ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
           if (-not $compiler) { throw 'Inno Setup compiler was not found.' }
-          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $version = if ($env:GITHUB_REPOSITORY -eq 'lipex15/ncbotz-testing') {
+            $env:GITHUB_REF_NAME.Substring(6)
+          } else {
+            $env:GITHUB_REF_NAME.Substring(1)
+          }
           $published = (Resolve-Path 'publish').Path
           $testing = $env:GITHUB_REPOSITORY -eq 'lipex15/ncbotz-testing'
           $prefix = if ($testing) { 'PEXBOT-Teste-Setup-v' } else { 'PEXBOT-Setup-v' }
@@ -86,7 +92,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $version = if ($env:GITHUB_REPOSITORY -eq 'lipex15/ncbotz-testing') {
+            $env:GITHUB_REF_NAME.Substring(6)
+          } else {
+            $env:GITHUB_REF_NAME.Substring(1)
+          }
           $prefix = if ($env:GITHUB_REPOSITORY -eq 'lipex15/ncbotz-testing') { 'PEXBOT-Teste-Setup-v' } else { 'PEXBOT-Setup-v' }
           $installer = "artifacts/${prefix}${version}.exe"
           $checksum = "artifacts/${prefix}${version}.sha256"
