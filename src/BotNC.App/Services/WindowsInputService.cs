@@ -18,6 +18,8 @@ public sealed class WindowsInputService
     private const uint KeyboardScanCode = 0x0008;
     private const uint KeyboardKeyUp = 0x0002;
     private const uint MapVkToVsc = 0;
+    private const uint WmKeyDown = 0x0100;
+    private const uint WmKeyUp = 0x0101;
     private const int SmCxScreen = 0;
     private const int SmCyScreen = 1;
 
@@ -55,6 +57,27 @@ public sealed class WindowsInputService
 
         // Emergency repetitions must not inherit the normal 1.8 s workflow delay.
         await Task.Delay(650, cancellationToken);
+    }
+
+    public async Task PressKeyToWindowAsync(
+        IntPtr window,
+        int virtualKey,
+        TimeSpan? hold = null,
+        CancellationToken cancellationToken = default)
+    {
+        var scanCode = NativeMethods.MapVirtualKey(checked((uint)virtualKey), MapVkToVsc);
+        var downLParam = new IntPtr(1 | ((int)scanCode << 16));
+        var upLParam = new IntPtr(1 | ((int)scanCode << 16) | unchecked((int)0xC0000000));
+        if (!NativeMethods.PostMessage(window, WmKeyDown, new IntPtr(virtualKey), downLParam))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "A janela do jogo não aceitou a tecla em segundo plano.");
+        }
+
+        await Task.Delay(hold ?? TimeSpan.FromMilliseconds(75), cancellationToken);
+        if (!NativeMethods.PostMessage(window, WmKeyUp, new IntPtr(virtualKey), upLParam))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "A janela do jogo não aceitou a liberação da tecla em segundo plano.");
+        }
     }
 
     public async Task HoldKeyAsync(
@@ -307,5 +330,9 @@ public sealed class WindowsInputService
 
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int virtualKey);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     }
 }

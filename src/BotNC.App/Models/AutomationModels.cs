@@ -35,6 +35,23 @@ public sealed record DailyRoutineOptions(
     TimeSpan GuildDirectiveAt,
     GuildDirectiveArea GuildDirectiveArea);
 
+public enum FarmScheduleDestination
+{
+    Abbey,
+    Ta1,
+    Ta2,
+    Ta3
+}
+
+public sealed record FarmScheduleStep(
+    FarmScheduleDestination Destination,
+    TimeSpan Duration);
+
+public sealed record FarmScheduleOptions(
+    bool Enabled,
+    IReadOnlyList<FarmScheduleStep> Client1,
+    IReadOnlyList<FarmScheduleStep> Client2);
+
 public sealed record FarmCoordinate(int X, int Y);
 
 public sealed record AutomationClientOptions(
@@ -52,6 +69,7 @@ public sealed record BotRunOptions(
     SapherasOptions Sapheras,
     AntiOverkillOptions AntiOverkill,
     DailyRoutineOptions DailyRoutines,
+    FarmScheduleOptions FarmSchedule,
     IReadOnlyList<AutomationClientOptions> Clients);
 
 public enum BotRunState

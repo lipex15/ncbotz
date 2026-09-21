@@ -17,6 +17,26 @@
             <Setter Property="FontSize" Value="10" />
             <Setter Property="FontWeight" Value="Bold" />
         </Style>
+        <Style x:Key="CardContainer" TargetType="Border">
+            <Setter Property="Background" Value="#142239" />
+            <Setter Property="BorderBrush" Value="#2B405E" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="13" />
+            <Setter Property="Padding" Value="22" />
+            <Setter Property="Margin" Value="0,0,0,14" />
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect Color="#050A12" BlurRadius="18" ShadowDepth="4" Opacity="0.32" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PillBadge" TargetType="Border">
+            <Setter Property="Background" Value="#102D3D" />
+            <Setter Property="BorderBrush" Value="#27627A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="10,5" />
+        </Style>
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="Background" Value="#253A58" />

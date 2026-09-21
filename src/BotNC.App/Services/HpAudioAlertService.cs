@@ -68,6 +68,7 @@ public sealed class HpAudioAlertService
     }
 
     public bool IsHealthy => _healthy;
+    public bool HasPendingAlert => Volatile.Read(ref _pendingAlert) != 0;
     public long CapturedBufferCount => Interlocked.Read(ref _capturedBufferCount);
     public long AudibleBufferCount => Interlocked.Read(ref _audibleBufferCount);
 

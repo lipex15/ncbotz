@@ -48,13 +48,27 @@
                     <Button x:Name="RoutinesNavigationButton" Content="▣   Rotinas diárias" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowRoutines" />
+                    <Button x:Name="FarmScheduleNavigationButton" Content="≡   Agenda de farm" HorizontalContentAlignment="Left"
+                            Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
+                            Click="OnShowFarmSchedule" />
                     <Button x:Name="ProtectionNavigationButton" Content="◈   Proteção" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowProtection" />
-                    <Button x:Name="UpdatesNavigationButton" Content="↻   Atualizações"
-                            Margin="0,4,0,0" HorizontalContentAlignment="Left"
+                    <Button x:Name="UpdatesNavigationButton"
+                            Margin="0,4,0,0" HorizontalContentAlignment="Stretch"
                             Background="Transparent" BorderThickness="0"
-                            Click="OnShowUpdates" />
+                            Click="OnShowUpdates">
+                        <Grid>
+                            <TextBlock Text="↻   Atualizações" VerticalAlignment="Center" />
+                            <Ellipse x:Name="UpdatesNotificationDot" Width="9" Height="9"
+                                     Fill="#FF4D67" HorizontalAlignment="Right"
+                                     VerticalAlignment="Center" Visibility="Collapsed">
+                                <Ellipse.Effect>
+                                    <DropShadowEffect Color="#FF3557" BlurRadius="9" ShadowDepth="0" Opacity="0.85" />
+                                </Ellipse.Effect>
+                            </Ellipse>
+                        </Grid>
+                    </Button>
                 </StackPanel>
                 <StackPanel Grid.Row="4">
                     <TextBlock x:Name="ApplicationVersionText" Text="PEXBOT" Foreground="#52647A"
@@ -536,6 +550,101 @@
                     </Grid>
                 </StackPanel>
             </Border>
+        </Grid>
+
+        <Grid x:Name="FarmSchedulePanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="18" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="Agenda de farm" FontSize="27" FontWeight="Bold" />
+                <TextBlock Text="Organize destinos e duração. Proteções e rotinas prioritárias pausam a etapa e depois retomam o plano."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
+            </StackPanel>
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Border Style="{StaticResource CardContainer}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Plano sequencial" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                                <TextBlock Text="Ao terminar uma etapa, o cliente segue para a próxima e reinicia a lista ao chegar ao fim."
+                                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,20,0" />
+                            </StackPanel>
+                            <CheckBox x:Name="FarmScheduleEnabledCheckBox" Grid.Column="1"
+                                      Content="Usar Agenda" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <Grid x:Name="FarmScheduleEditorGrid">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Style="{StaticResource CardContainer}">
+                            <StackPanel>
+                                <TextBlock Text="Cliente 1" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                                <Grid Margin="0,14,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="105" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="Client1ScheduleDestinationComboBox" Height="40" />
+                                    <TextBox x:Name="Client1ScheduleDurationTextBox" Grid.Column="2" Height="40" Text="60" />
+                                    <Button Grid.Column="4" Content="Adicionar" Click="OnAddClient1ScheduleStep" />
+                                </Grid>
+                                <TextBlock Text="DESTINO · DURAÇÃO EM MINUTOS" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
+                                <ListBox x:Name="Client1ScheduleListBox" MinHeight="150" MaxHeight="260"
+                                         ItemsSource="{Binding Client1ScheduleSteps}" DisplayMemberPath="DisplayText"
+                                         Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                    <Button Content="↑" Padding="12,7" Click="OnMoveClient1ScheduleUp" />
+                                    <Button Content="↓" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient1ScheduleDown" />
+                                    <Button Content="Remover" Padding="12,7" Margin="7,0,0,0" Click="OnRemoveClient1ScheduleStep" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Style="{StaticResource CardContainer}">
+                            <StackPanel>
+                                <TextBlock Text="Cliente 2" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                                <Grid Margin="0,14,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="105" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="Client2ScheduleDestinationComboBox" Height="40" />
+                                    <TextBox x:Name="Client2ScheduleDurationTextBox" Grid.Column="2" Height="40" Text="60" />
+                                    <Button Grid.Column="4" Content="Adicionar" Click="OnAddClient2ScheduleStep" />
+                                </Grid>
+                                <TextBlock Text="DESTINO · DURAÇÃO EM MINUTOS" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
+                                <ListBox x:Name="Client2ScheduleListBox" MinHeight="150" MaxHeight="260"
+                                         ItemsSource="{Binding Client2ScheduleSteps}" DisplayMemberPath="DisplayText"
+                                         Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                    <Button Content="↑" Padding="12,7" Click="OnMoveClient2ScheduleUp" />
+                                    <Button Content="↓" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient2ScheduleDown" />
+                                    <Button Content="Remover" Padding="12,7" Margin="7,0,0,0" Click="OnRemoveClient2ScheduleStep" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                    <Border Style="{StaticResource CardContainer}" Background="#102035">
+                        <TextBlock Text="Abadia respeita o orçamento semanal e o bloqueio de 24 horas por limite de entradas. Se não estiver disponível, a etapa usa a T.A configurada como destino seguro."
+                                   Foreground="#AFC2D9" TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <Grid x:Name="UpdatesPanel" Grid.Column="1" Margin="28,22,28,24"

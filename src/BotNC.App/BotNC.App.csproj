@@ -4,7 +4,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>BotNC.App</RootNamespace>
     <AssemblyName>PEXBOT</AssemblyName>
-    <Version>0.9.13</Version>
+    <Version>0.9.14</Version>
     <ApplicationIcon>..\..\branding\PEXBOT.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>

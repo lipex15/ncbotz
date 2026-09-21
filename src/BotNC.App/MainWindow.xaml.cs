@@ -1,8 +1,11 @@
 using System.ComponentModel;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using BotNC.App.Models;
 using BotNC.App.Services;
 
@@ -10,6 +13,8 @@ namespace BotNC.App;
 
 public partial class MainWindow : Window
 {
+    public ObservableCollection<FarmScheduleStepEditor> Client1ScheduleSteps { get; } = [];
+    public ObservableCollection<FarmScheduleStepEditor> Client2ScheduleSteps { get; } = [];
     private readonly GameWindowService _gameWindows = new();
     private readonly ScreenCaptureService _capture = new();
     private readonly AppDatabase _database = new();
@@ -33,10 +38,16 @@ public partial class MainWindow : Window
     private FarmCoordinate? _client1AbbeyCoordinate;
     private FarmCoordinate? _client2AbbeyCoordinate;
     private bool _capturingCustomCoordinate;
+    private string? _lastSeenUpdateVersion;
+    private readonly DispatcherTimer _updateCheckTimer = new()
+    {
+        Interval = TimeSpan.FromMinutes(15)
+    };
 
     public MainWindow()
     {
         InitializeComponent();
+        DataContext = this;
         var recognition = new VisualRecognitionService(_database, _capture);
         _engine = new BotAutomationEngine(
             _gameWindows,
@@ -54,6 +65,11 @@ public partial class MainWindow : Window
         Ta2ComboBox.SelectedIndex = 1;
         GuildDirectiveAreaComboBox.ItemsSource = new[] { "Mapa Aberto", "T.A", "Masmorras" };
         GuildDirectiveAreaComboBox.SelectedIndex = 0;
+        var scheduleDestinations = new[] { "Abadia", "T.A 1", "T.A 2", "T.A 3" };
+        Client1ScheduleDestinationComboBox.ItemsSource = scheduleDestinations;
+        Client2ScheduleDestinationComboBox.ItemsSource = scheduleDestinations;
+        Client1ScheduleDestinationComboBox.SelectedIndex = 0;
+        Client2ScheduleDestinationComboBox.SelectedIndex = 0;
 
         TeleportKeyComboBox.ItemsSource = BuildKeyChoices();
         TeleportKeyComboBox.Text = "E";
@@ -67,6 +83,7 @@ public partial class MainWindow : Window
         InstalledVersionText.Text = $"v{AppUpdateService.CurrentVersion.ToString(3)}";
         ApplicationVersionText.Text = $"v{AppUpdateService.CurrentVersion.ToString(3)}";
         DatabasePathText.Text = $"Dados: {_database.DatabasePath} · Log: {_engine.RuntimeLogPath}";
+        _updateCheckTimer.Tick += async (_, _) => await CheckForUpdatesAsync(userInitiated: false);
     }
 
     private void OnShowOverview(object sender, RoutedEventArgs e)
@@ -76,11 +93,13 @@ public partial class MainWindow : Window
         RoutinesPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
+        FarmSchedulePanel.Visibility = Visibility.Collapsed;
         OverviewNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
         UpdatesNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = Brushes.Transparent;
         RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
+        FarmScheduleNavigationButton.Background = Brushes.Transparent;
     }
 
     private void OnShowSapheras(object sender, RoutedEventArgs e)
@@ -95,18 +114,26 @@ public partial class MainWindow : Window
         OverviewScrollViewer.ScrollToTop();
     }
 
-    private void OnShowUpdates(object sender, RoutedEventArgs e)
+    private async void OnShowUpdates(object sender, RoutedEventArgs e)
     {
         OverviewPanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Collapsed;
         RoutinesPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Visible;
+        FarmSchedulePanel.Visibility = Visibility.Collapsed;
         OverviewNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = Brushes.Transparent;
         RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
+        FarmScheduleNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        UpdatesNotificationDot.Visibility = Visibility.Collapsed;
+        if (_availableUpdate is not null)
+        {
+            _lastSeenUpdateVersion = _availableUpdate.Version.ToString(3);
+            await _database.SaveSettingAsync("updates.lastSeenVersion", _lastSeenUpdateVersion);
+        }
     }
 
     private void OnShowAbbey(object sender, RoutedEventArgs e)
@@ -115,12 +142,14 @@ public partial class MainWindow : Window
         RoutinesPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Collapsed;
+        FarmSchedulePanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Visible;
         OverviewNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
         RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
+        FarmScheduleNavigationButton.Background = Brushes.Transparent;
     }
 
     private void OnShowRoutines(object sender, RoutedEventArgs e)
@@ -129,12 +158,14 @@ public partial class MainWindow : Window
         AbbeyPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
+        FarmSchedulePanel.Visibility = Visibility.Collapsed;
         RoutinesPanel.Visibility = Visibility.Visible;
         OverviewNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
         RoutinesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        FarmScheduleNavigationButton.Background = Brushes.Transparent;
     }
 
     private void OnShowProtection(object sender, RoutedEventArgs e)
@@ -143,20 +174,99 @@ public partial class MainWindow : Window
         AbbeyPanel.Visibility = Visibility.Collapsed;
         RoutinesPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
+        FarmSchedulePanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Visible;
         OverviewNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = Brushes.Transparent;
         RoutinesNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        FarmScheduleNavigationButton.Background = Brushes.Transparent;
+    }
+
+    private void OnShowFarmSchedule(object sender, RoutedEventArgs e)
+    {
+        OverviewPanel.Visibility = Visibility.Collapsed;
+        AbbeyPanel.Visibility = Visibility.Collapsed;
+        RoutinesPanel.Visibility = Visibility.Collapsed;
+        ProtectionPanel.Visibility = Visibility.Collapsed;
+        UpdatesPanel.Visibility = Visibility.Collapsed;
+        FarmSchedulePanel.Visibility = Visibility.Visible;
+        OverviewNavigationButton.Background = Brushes.Transparent;
+        AbbeyNavigationButton.Background = Brushes.Transparent;
+        RoutinesNavigationButton.Background = Brushes.Transparent;
+        ProtectionNavigationButton.Background = Brushes.Transparent;
+        UpdatesNavigationButton.Background = Brushes.Transparent;
+        FarmScheduleNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
     }
 
     internal void ShowUpdatesForScreenshot() => OnShowUpdates(this, new RoutedEventArgs());
     internal void ShowAbbeyForScreenshot() => OnShowAbbey(this, new RoutedEventArgs());
     internal void ShowProtectionForScreenshot() => OnShowProtection(this, new RoutedEventArgs());
     internal void ShowRoutinesForScreenshot() => OnShowRoutines(this, new RoutedEventArgs());
+    internal void ShowFarmScheduleForScreenshot() => OnShowFarmSchedule(this, new RoutedEventArgs());
 
-    private async void OnCheckForUpdates(object sender, RoutedEventArgs e)
+    private void OnAddClient1ScheduleStep(object sender, RoutedEventArgs e) =>
+        AddScheduleStep(Client1ScheduleSteps, Client1ScheduleDestinationComboBox.SelectedItem, Client1ScheduleDurationTextBox.Text);
+
+    private void OnAddClient2ScheduleStep(object sender, RoutedEventArgs e) =>
+        AddScheduleStep(Client2ScheduleSteps, Client2ScheduleDestinationComboBox.SelectedItem, Client2ScheduleDurationTextBox.Text);
+
+    private void AddScheduleStep(
+        ObservableCollection<FarmScheduleStepEditor> steps,
+        object? destination,
+        string durationText)
+    {
+        if (!double.TryParse(durationText, NumberStyles.Float, CultureInfo.CurrentCulture, out var minutes) &&
+            !double.TryParse(durationText, NumberStyles.Float, CultureInfo.InvariantCulture, out minutes) ||
+            minutes is <= 0 or > 10080)
+        {
+            ShowValidation("Informe uma duração entre 1 e 10080 minutos para a etapa.");
+            return;
+        }
+
+        steps.Add(new FarmScheduleStepEditor(ParseFarmScheduleDestination(destination), minutes));
+    }
+
+    private void OnRemoveClient1ScheduleStep(object sender, RoutedEventArgs e) =>
+        RemoveScheduleStep(Client1ScheduleSteps, Client1ScheduleListBox.SelectedIndex);
+
+    private void OnRemoveClient2ScheduleStep(object sender, RoutedEventArgs e) =>
+        RemoveScheduleStep(Client2ScheduleSteps, Client2ScheduleListBox.SelectedIndex);
+
+    private void OnMoveClient1ScheduleUp(object sender, RoutedEventArgs e) =>
+        MoveScheduleStep(Client1ScheduleSteps, Client1ScheduleListBox.SelectedIndex, -1);
+
+    private void OnMoveClient1ScheduleDown(object sender, RoutedEventArgs e) =>
+        MoveScheduleStep(Client1ScheduleSteps, Client1ScheduleListBox.SelectedIndex, 1);
+
+    private void OnMoveClient2ScheduleUp(object sender, RoutedEventArgs e) =>
+        MoveScheduleStep(Client2ScheduleSteps, Client2ScheduleListBox.SelectedIndex, -1);
+
+    private void OnMoveClient2ScheduleDown(object sender, RoutedEventArgs e) =>
+        MoveScheduleStep(Client2ScheduleSteps, Client2ScheduleListBox.SelectedIndex, 1);
+
+    private static void RemoveScheduleStep(ObservableCollection<FarmScheduleStepEditor> steps, int index)
+    {
+        if (index >= 0 && index < steps.Count)
+        {
+            steps.RemoveAt(index);
+        }
+    }
+
+    private static void MoveScheduleStep(ObservableCollection<FarmScheduleStepEditor> steps, int index, int offset)
+    {
+        var target = index + offset;
+        if (index >= 0 && index < steps.Count && target >= 0 && target < steps.Count)
+        {
+            steps.Move(index, target);
+        }
+    }
+
+    private async void OnCheckForUpdates(object sender, RoutedEventArgs e) =>
+        await CheckForUpdatesAsync(userInitiated: true);
+
+    private async Task CheckForUpdatesAsync(bool userInitiated)
     {
         if (_updateBusy)
         {
@@ -164,27 +274,46 @@ public partial class MainWindow : Window
         }
 
         _updateBusy = true;
-        _availableUpdate = null;
         CheckUpdatesButton.IsEnabled = false;
         InstallUpdateButton.IsEnabled = false;
-        UpdateStatusText.Text = "Consultando versões publicadas…";
+        var previousStatus = UpdateStatusText.Text;
+        if (userInitiated || _availableUpdate is null)
+        {
+            UpdateStatusText.Text = "Consultando versões publicadas…";
+        }
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            _availableUpdate = await _updates.CheckAsync(timeout.Token);
+            var checkedUpdate = await _updates.CheckAsync(timeout.Token);
+            _availableUpdate = checkedUpdate;
             UpdateStatusText.Text = _availableUpdate is null
                 ? "Nenhuma atualização disponível. Sua versão está em dia."
                 : $"Versão v{_availableUpdate.Version.ToString(3)} disponível para instalar.";
             InstallUpdateButton.IsEnabled = _availableUpdate is not null;
+            if (_availableUpdate is not null && UpdatesPanel.Visibility == Visibility.Visible)
+            {
+                _lastSeenUpdateVersion = _availableUpdate.Version.ToString(3);
+                await _database.SaveSettingAsync("updates.lastSeenVersion", _lastSeenUpdateVersion);
+            }
+
+            UpdatesNotificationDot.Visibility = _availableUpdate is not null &&
+                !string.Equals(_lastSeenUpdateVersion, _availableUpdate.Version.ToString(3), StringComparison.Ordinal)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
         catch (Exception exception)
         {
-            UpdateStatusText.Text = $"Não foi possível verificar: {exception.GetBaseException().Message}";
+            UpdateStatusText.Text = userInitiated
+                ? $"Não foi possível verificar: {exception.GetBaseException().Message}"
+                : _availableUpdate is not null
+                    ? previousStatus
+                    : "Verificação automática indisponível; o aplicativo tentará novamente.";
         }
         finally
         {
             _updateBusy = false;
             CheckUpdatesButton.IsEnabled = true;
+            InstallUpdateButton.IsEnabled = _availableUpdate is not null;
         }
     }
 
@@ -249,12 +378,15 @@ public partial class MainWindow : Window
             ValidateEnvironment();
             _environmentReady = true;
             await LoadSettingsAsync();
+            _lastSeenUpdateVersion = await _database.GetSettingAsync("updates.lastSeenVersion");
             RefreshClients();
             SetStatus(BotRunState.Stopped, "Bot parado", "Configure o módulo e clique em Iniciar.");
             AddLog("PEXBOT iniciado.");
             AddLog("Banco de imagens carregado com sucesso.");
             AddLog("Ambiente validado: Windows, captura visual e resolução compatíveis.");
             AddLog("O instalador do PEXBOT já inclui o runtime necessário; nenhuma instalação adicional é exigida.");
+            _ = CheckForUpdatesAsync(userInitiated: false);
+            _updateCheckTimer.Start();
         }
         catch (Exception exception)
         {
@@ -666,6 +798,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (FarmScheduleEnabledCheckBox.IsChecked == true &&
+            ((client1 is not null && Client1ScheduleSteps.Count == 0) ||
+             (client2 is not null && Client2ScheduleSteps.Count == 0)))
+        {
+            ShowValidation("Adicione ao menos uma etapa da Agenda para cada cliente ativo.");
+            return;
+        }
+
         var keyName = TeleportKeyComboBox.Text.Trim().ToUpperInvariant();
         if (!TryParseVirtualKey(keyName, out var teleportKey))
         {
@@ -729,7 +869,11 @@ public partial class MainWindow : Window
             GuildDirectiveCheckBox.IsChecked == true,
             guildDirectiveAt,
             ParseGuildDirectiveArea(GuildDirectiveAreaComboBox.SelectedItem));
-        var runOptions = new BotRunOptions(options, antiOverkill, dailyRoutines, clients);
+        var farmSchedule = new FarmScheduleOptions(
+            FarmScheduleEnabledCheckBox.IsChecked == true,
+            Client1ScheduleSteps.Select(item => item.ToModel()).ToArray(),
+            Client2ScheduleSteps.Select(item => item.ToModel()).ToArray());
+        var runOptions = new BotRunOptions(options, antiOverkill, dailyRoutines, farmSchedule, clients);
         await SaveSettingsAsync(runOptions);
 
         _runCancellation = new CancellationTokenSource();
@@ -1050,6 +1194,8 @@ public partial class MainWindow : Window
         GuildDirectiveCheckBox.IsEnabled = !isRunning;
         GuildDirectiveTimeTextBox.IsEnabled = !isRunning;
         GuildDirectiveAreaComboBox.IsEnabled = !isRunning;
+        FarmScheduleEnabledCheckBox.IsEnabled = !isRunning;
+        FarmScheduleEditorGrid.IsEnabled = !isRunning;
         Client1AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient1CheckBox.IsChecked == true;
         Client2AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient2CheckBox.IsChecked == true;
         ScheduleStartButton.IsEnabled = !isRunning;
@@ -1111,6 +1257,9 @@ public partial class MainWindow : Window
         var directiveEnabled = await _database.GetSettingAsync("routines.directive.enabled");
         var directiveTime = await _database.GetSettingAsync("routines.directive.time");
         var directiveArea = await _database.GetSettingAsync("routines.directive.area");
+        var farmScheduleEnabled = await _database.GetSettingAsync("farmSchedule.enabled");
+        var client1FarmSchedule = await _database.GetSettingAsync("farmSchedule.client1");
+        var client2FarmSchedule = await _database.GetSettingAsync("farmSchedule.client2");
         if (!string.IsNullOrWhiteSpace(schedule))
         {
             ScheduleTextBox.Text = schedule;
@@ -1174,6 +1323,9 @@ public partial class MainWindow : Window
             nameof(GuildDirectiveArea.Dungeon) => "Masmorras",
             _ => "Mapa Aberto"
         };
+        FarmScheduleEnabledCheckBox.IsChecked = string.Equals(farmScheduleEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        LoadScheduleSteps(Client1ScheduleSteps, client1FarmSchedule);
+        LoadScheduleSteps(Client2ScheduleSteps, client2FarmSchedule);
         UpdateCustomCoordinateLabels();
         UpdateCustomCoordinateControls();
     }
@@ -1226,6 +1378,35 @@ public partial class MainWindow : Window
         await _database.SaveSettingAsync("routines.directive.enabled", runOptions.DailyRoutines.EnableGuildDirective.ToString().ToLowerInvariant());
         await _database.SaveSettingAsync("routines.directive.time", runOptions.DailyRoutines.GuildDirectiveAt.ToString(@"hh\:mm", CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync("routines.directive.area", runOptions.DailyRoutines.GuildDirectiveArea.ToString());
+        await _database.SaveSettingAsync("farmSchedule.enabled", runOptions.FarmSchedule.Enabled.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync("farmSchedule.client1", JsonSerializer.Serialize(runOptions.FarmSchedule.Client1));
+        await _database.SaveSettingAsync("farmSchedule.client2", JsonSerializer.Serialize(runOptions.FarmSchedule.Client2));
+    }
+
+    private static void LoadScheduleSteps(
+        ObservableCollection<FarmScheduleStepEditor> target,
+        string? json)
+    {
+        target.Clear();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var step in JsonSerializer.Deserialize<FarmScheduleStep[]>(json) ?? [])
+            {
+                if (step.Duration > TimeSpan.Zero)
+                {
+                    target.Add(new FarmScheduleStepEditor(step.Destination, step.Duration.TotalMinutes));
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            target.Clear();
+        }
     }
 
     private static string TaDisplayName(string? stored, string fallback) => stored switch
@@ -1291,6 +1472,14 @@ public partial class MainWindow : Window
         "T.A" => GuildDirectiveArea.Ta,
         "Masmorras" => GuildDirectiveArea.Dungeon,
         _ => GuildDirectiveArea.OpenMap
+    };
+
+    private static FarmScheduleDestination ParseFarmScheduleDestination(object? selectedItem) => selectedItem?.ToString() switch
+    {
+        "T.A 1" => FarmScheduleDestination.Ta1,
+        "T.A 2" => FarmScheduleDestination.Ta2,
+        "T.A 3" => FarmScheduleDestination.Ta3,
+        _ => FarmScheduleDestination.Abbey
     };
 
     private static bool TryParseClock(string text, out TimeSpan time)
@@ -1392,11 +1581,29 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        _updateCheckTimer.Stop();
         CancelScheduledStart();
         _runCancellation?.Cancel();
         _updateDownloadCancellation?.Cancel();
         _engine.Log -= OnEngineLog;
         _engine.StatusChanged -= OnEngineStatusChanged;
         base.OnClosing(e);
+    }
+
+    public sealed record FarmScheduleStepEditor(
+        FarmScheduleDestination Destination,
+        double DurationMinutes)
+    {
+        public string DisplayText => $"{DestinationName(Destination)}  ·  {DurationMinutes:0.#} min";
+
+        public FarmScheduleStep ToModel() => new(Destination, TimeSpan.FromMinutes(DurationMinutes));
+
+        private static string DestinationName(FarmScheduleDestination destination) => destination switch
+        {
+            FarmScheduleDestination.Abbey => "Abadia",
+            FarmScheduleDestination.Ta1 => "T.A 1",
+            FarmScheduleDestination.Ta2 => "T.A 2",
+            _ => "T.A 3"
+        };
     }
 }

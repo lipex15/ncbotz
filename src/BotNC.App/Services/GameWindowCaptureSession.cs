@@ -278,51 +278,94 @@ public static class HpBarAnalyzer
 {
     public static HpBarReading Measure(PixelFrame frame)
     {
-        // Night Crows keeps the HP bar in the lower-left corner in both normal and rest views.
-        // Coordinates are relative to the captured game window (1936x1056 at the supported setup).
-        var scaleX = frame.Width / 1936d;
-        var scaleY = frame.Height / 1056d;
-        var left = (int)Math.Round(101 * scaleX);
-        var right = (int)Math.Round(303 * scaleX);
-        var top = (int)Math.Round(983 * scaleY);
-        var bottom = (int)Math.Round(994 * scaleY);
-        if (left < 0 || right >= frame.Width || top < 0 || bottom >= frame.Height || right <= left)
+        // Ler apenas o preenchimento contínuo, não a moldura vermelha nem os
+        // números de HP (ambos podem permanecer no lado vazio da barra).
+        var left = (int)Math.Round(100d * frame.Width / 1920);
+        var right = (int)Math.Round(301d * frame.Width / 1920);
+        if (left < 0 || right >= frame.Width || right <= left)
         {
             return new HpBarReading(false, 0);
         }
 
-        var lastFilled = -1;
-        var filledColumns = 0;
-        for (var x = left; x <= right; x++)
+        var bestPercent = 0d;
+        foreach (var baseline in new[]
+                 { frame.Height - 50, frame.Height - 51, frame.Height - 49,
+                   frame.Height - 28, frame.Height - 29, frame.Height - 27 })
         {
-            var redSamples = 0;
-            for (var y = top; y <= bottom; y++)
-            {
-                var index = (y * frame.Stride) + (x * 4);
-                var blue = frame.Pixels[index];
-                var green = frame.Pixels[index + 1];
-                var red = frame.Pixels[index + 2];
-                if (red >= 95 && red >= green * 1.28 && red >= blue * 1.18)
-                {
-                    redSamples++;
-                }
-            }
-
-            if (redSamples < 2)
+            if (baseline - 2 < 0 || baseline + 2 >= frame.Height)
             {
                 continue;
             }
 
-            filledColumns++;
-            lastFilled = x;
+            var firstTwentyRed = 0;
+            var filledColumns = 0;
+            for (var x = left; x <= right; x++)
+            {
+                var hits = 0;
+                foreach (var y in new[] { baseline - 2, baseline, baseline + 2 })
+                {
+                    var index = (y * frame.Stride) + (x * 4);
+                    var blue = frame.Pixels[index];
+                    var green = frame.Pixels[index + 1];
+                    var red = frame.Pixels[index + 2];
+                    if (red >= 105 && red >= green * 1.45 && red >= blue * 1.3)
+                    {
+                        hits++;
+                    }
+                }
+
+                if (hits >= 2)
+                {
+                    if (x <= left + 20)
+                    {
+                        firstTwentyRed++;
+                    }
+                    filledColumns++;
+                }
+            }
+
+            if (firstTwentyRed >= 8 && filledColumns >= 10)
+            {
+                var percent = Math.Clamp((double)filledColumns / (right - left + 1), 0, 1);
+                bestPercent = Math.Max(bestPercent, percent);
+            }
         }
 
-        if (lastFilled < left + 4 || filledColumns < 8)
+        return bestPercent > 0
+            ? new HpBarReading(true, bestPercent)
+            : new HpBarReading(false, 0);
+    }
+}
+
+public static class TombstoneIconAnalyzer
+{
+    public static bool HasRedIcon(PixelFrame frame)
+    {
+        var left = (int)Math.Round(1512d * frame.Width / 1920);
+        var right = (int)Math.Round(1558d * frame.Width / 1920);
+        var top = (int)Math.Round(17d * frame.Height / 1040);
+        var bottom = (int)Math.Round(85d * frame.Height / 1040);
+        if (left < 0 || right >= frame.Width || top < 0 || bottom >= frame.Height)
         {
-            return new HpBarReading(false, 0);
+            return false;
         }
 
-        var percent = Math.Clamp((lastFilled - left + 1d) / (right - left + 1d), 0, 1);
-        return new HpBarReading(true, percent);
+        var redPixels = 0;
+        for (var y = top; y <= bottom; y += 2)
+        {
+            for (var x = left; x <= right; x += 2)
+            {
+                var offset = y * frame.Stride + x * 4;
+                var blue = frame.Pixels[offset];
+                var green = frame.Pixels[offset + 1];
+                var red = frame.Pixels[offset + 2];
+                if (red >= 110 && red >= green * 1.35 && red >= blue * 1.25)
+                {
+                    redPixels++;
+                }
+            }
+        }
+
+        return redPixels >= 24;
     }
 }

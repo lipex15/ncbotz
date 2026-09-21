@@ -93,6 +93,38 @@ public partial class App : Application
             return;
         }
 
+        var abbeyTimeProbeIndex = Array.IndexOf(e.Args, "--abbey-time-probe");
+        if (abbeyTimeProbeIndex >= 0 && abbeyTimeProbeIndex + 2 < e.Args.Length)
+        {
+            await using var stream = File.OpenRead(Path.GetFullPath(e.Args[abbeyTimeProbeIndex + 1]));
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            var converted = new FormatConvertedBitmap(decoder.Frames[0], PixelFormats.Bgra32, null, 0);
+            var stride = converted.PixelWidth * 4;
+            var pixels = new byte[stride * converted.PixelHeight];
+            converted.CopyPixels(pixels, stride, 0);
+            var frame = new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
+            if (frame.Width is >= 1918 and <= 1922 && frame.Height is >= 1078 and <= 1082)
+            {
+                // Capturas enviadas incluem barra de título e barra de tarefas;
+                // a captura do jogo em produção contém apenas a área cliente.
+                const int titleHeight = 23;
+                var clientHeight = frame.Height - titleHeight - 40;
+                var clientPixels = new byte[stride * clientHeight];
+                Array.Copy(pixels, stride * titleHeight, clientPixels, 0, clientPixels.Length);
+                frame = new PixelFrame(frame.Width, clientHeight, stride, clientPixels);
+            }
+            var reader = new AbbeyTimeReader();
+            var inGame = await reader.ReadAsync(frame, CancellationToken.None);
+            var inMenu = await reader.ReadMenuAsync(frame, CancellationToken.None);
+            await File.WriteAllLinesAsync(Path.GetFullPath(e.Args[abbeyTimeProbeIndex + 2]),
+                [$"inGame={inGame.Remaining};text={inGame.Text}",
+                 $"inMenu={inMenu.Remaining};text={inMenu.Text}",
+                 $"tombstoneRed={TombstoneIconAnalyzer.HasRedIcon(frame)}",
+                 $"hp={HpBarAnalyzer.Measure(frame)}"]);
+            Shutdown();
+            return;
+        }
+
         var spotLevelProbeIndex = Array.IndexOf(e.Args, "--spot-level-probe");
         if (spotLevelProbeIndex >= 0 && spotLevelProbeIndex + 2 < e.Args.Length)
         {
@@ -136,6 +168,7 @@ public partial class App : Application
             var mailItems = await recognition.FindInImageAsync("mail_item_obtained", imagePath);
             var mailEmpty = await recognition.FindInImageAsync("mail_empty", imagePath);
             var mailNotification = await recognition.HasUnclaimedServerMailInImageAsync(imagePath);
+            var restorationIcon = await recognition.FindInImageAsync("icone_perda_exp", imagePath);
             await File.WriteAllLinesAsync(
                 imageProbeOutputPath,
                 [
@@ -159,7 +192,8 @@ public partial class App : Application
                     $"mailReceiveAll={mailReceiveAll.Found};confidence={mailReceiveAll.Confidence:F4}",
                     $"mailItems={mailItems.Found};confidence={mailItems.Confidence:F4}",
                     $"mailEmpty={mailEmpty.Found};confidence={mailEmpty.Confidence:F4}",
-                    $"mailNotification={mailNotification}"
+                    $"mailNotification={mailNotification}",
+                    $"restorationIcon={restorationIcon.Found};confidence={restorationIcon.Confidence:F4}"
                 ]);
             Shutdown();
             return;
@@ -222,6 +256,10 @@ public partial class App : Application
         else if (isScreenshotMode && e.Args.Contains("--routines-tab", StringComparer.Ordinal))
         {
             window.ShowRoutinesForScreenshot();
+        }
+        else if (isScreenshotMode && e.Args.Contains("--farm-schedule-tab", StringComparer.Ordinal))
+        {
+            window.ShowFarmScheduleForScreenshot();
         }
 
         if (!isScreenshotMode)

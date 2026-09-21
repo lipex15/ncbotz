@@ -2,7 +2,7 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.9.13
+## Ciclo disponível — v0.9.14
 
 ### Rotinas Diárias e Diretivas
 
