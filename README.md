@@ -2,7 +2,17 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
-## Ciclo disponível — v0.9.14
+## Ciclo disponível — v0.9.15
+
+- Diretivas: diferencia Aceitar, Em andamento/Desistir e 5/5; não cancela uma diretiva ativa.
+- Coordenadas de farm independentes por T.A e cliente; a T.A 1 continua exigindo ponto capturado.
+- Reconhecimento da loja Artigos da T.A 1 calibrado com capturas de chegada e loja aberta.
+- Agenda, Diárias, Diretivas, Correio e Anti Over Kill selecionáveis por cliente; opção Ambos disponível.
+- TP de emergência enviado uma vez por evento, sem sequência aleatória de consumo; recuperação de lápide com tentativas limitadas.
+- Esperas visuais mantêm retorno rápido quando reconhecem a tela e dão tolerância adicional a máquinas lentas.
+- Plano do futuro mock-up em `docs/MOCKUP_VISUAL_PLAN.md`; o novo visual não faz parte desta versão.
+
+## Ciclo anterior — v0.9.14
 
 ### Rotinas Diárias e Diretivas
 

@@ -63,7 +63,13 @@ public sealed record AutomationClientOptions(
     FarmCoordinate? CustomFarmCoordinate,
     bool UseAbbey = false,
     int AbbeyReturnLimit = 0,
-    FarmCoordinate? AbbeyCustomFarmCoordinate = null);
+    FarmCoordinate? AbbeyCustomFarmCoordinate = null,
+    bool UseFarmSchedule = false,
+    bool EnableDailyMissions = true,
+    bool EnableGuildDirective = true,
+    bool EnableMail = true,
+    bool EnableAntiOverkill = true,
+    IReadOnlyDictionary<TaDestination, FarmCoordinate>? CustomFarmCoordinates = null);
 
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,

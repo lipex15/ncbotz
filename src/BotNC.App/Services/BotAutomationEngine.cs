@@ -114,7 +114,7 @@ public sealed class BotAutomationEngine(
             await LoadFarmScheduleStateAsync(session, runOptions.FarmSchedule);
             await LoadAbbeyBudgetStateAsync(session);
 
-            if (runOptions.DailyRoutines.EnableDailyMissions)
+            if (runOptions.DailyRoutines.EnableDailyMissions && session.Options.EnableDailyMissions)
             {
                 var cycle = DailyCycleKey(DateTime.Now);
                 if (session.DailyCompletedCycle == cycle)
@@ -284,7 +284,7 @@ public sealed class BotAutomationEngine(
         var configured = session.Options.Label.EndsWith("2", StringComparison.Ordinal)
             ? schedule.Client2
             : schedule.Client1;
-        if (!schedule.Enabled || configured.Count == 0)
+        if (!schedule.Enabled || !session.Options.UseFarmSchedule || configured.Count == 0)
         {
             return;
         }
@@ -1171,16 +1171,8 @@ public sealed class BotAutomationEngine(
             return;
         }
 
-        var attempts = _random.Next(3, 6);
-        WriteLog(session, $"Proteção em Sapheras: TP {sapheras.EmergencyTeleportKeyName} {attempts} vez(es).");
-        for (var index = 0; index < attempts; index++)
-        {
-            await input.PressEmergencyKeyAsync(sapheras.EmergencyTeleportVirtualKey, cancellationToken);
-            if (Volatile.Read(ref session.PendingVisualDeath) != 0)
-            {
-                break;
-            }
-        }
+        WriteLog(session, $"Proteção em Sapheras: enviando um TP {sapheras.EmergencyTeleportKeyName}.");
+        await input.PressEmergencyKeyAsync(sapheras.EmergencyTeleportVirtualKey, cancellationToken);
 
         if (await WaitForDeathAfterEmergencyAsync(
                 session,
@@ -2015,7 +2007,7 @@ public sealed class BotAutomationEngine(
         }
 
         int? spotLevel = null;
-        if (session.Options.CustomFarmCoordinate is null)
+        if (EffectiveCustomFarmCoordinate(session) is null)
         {
             session.AwaitingFavoriteSpotRecognition = true;
             spotLevel = await RecognizeFavoriteSpotLevelAsync(session, pause, cancellationToken);
@@ -2027,8 +2019,8 @@ public sealed class BotAutomationEngine(
             session.AwaitingFavoriteSpotRecognition = false;
             WriteLog(
                 session,
-                $"Coordenada personalizada ativa: ({session.Options.CustomFarmCoordinate.X}, " +
-                $"{session.Options.CustomFarmCoordinate.Y}). A leitura do nível e o sorteio serão ignorados.");
+                $"Coordenada personalizada ativa: ({EffectiveCustomFarmCoordinate(session)!.X}, " +
+                $"{EffectiveCustomFarmCoordinate(session)!.Y}). A leitura do nível e o sorteio serão ignorados.");
         }
 
         WriteLog(session, "Selecionando o primeiro favorito (área de farm) em (1702, 285).");
@@ -2038,7 +2030,7 @@ public sealed class BotAutomationEngine(
         await input.ClickAsync(1484, 532, cancellationToken);
 
         (int X, int Y) spot;
-        if (session.Options.CustomFarmCoordinate is { } customCoordinate)
+        if (EffectiveCustomFarmCoordinate(session) is { } customCoordinate)
         {
             spot = gameWindows.MapReferencePoint(
                 session.Options.Target,
@@ -2110,7 +2102,7 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        var custom = session.Options.CustomFarmCoordinate ??
+        var custom = EffectiveCustomFarmCoordinate(session) ??
             throw new InvalidOperationException("A T.A 1 (Codex) exige uma coordenada personalizada.");
         SetStatus(BotRunState.Running, $"{session.Options.Label}: T.A 1 (Codex)", "Abrindo todo o mapa e indo ao ponto personalizado");
         await WaitForReferenceAsync("mapa_ta1", "mapa de Kildebat", TimeSpan.FromSeconds(15), pause, cancellationToken);
@@ -2498,6 +2490,11 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        if (!session.Options.EnableMail)
+        {
+            return false;
+        }
+
         var now = DateTime.Now;
         var today = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var dueAt01 = now.Hour >= 1 && session.Mail01Date != today;
@@ -2714,17 +2711,10 @@ public sealed class BotAutomationEngine(
 
         var now = DateTime.Now;
         var cycle = DailyCycleKey(now);
-        var dailyDue = options.EnableDailyMissions && session.DailyCompletedCycle != cycle &&
+        var dailyDue = options.EnableDailyMissions && session.Options.EnableDailyMissions && session.DailyCompletedCycle != cycle &&
                        now >= ScheduledInCycle(now, options.DailyMissionsAt);
-        var directiveDue = options.EnableGuildDirective && session.DirectiveCycle != cycle &&
+        var directiveDue = options.EnableGuildDirective && session.Options.EnableGuildDirective && session.DirectiveCycle != cycle &&
                            now >= ScheduledInCycle(now, options.GuildDirectiveAt);
-
-        // Mapa Aberto é aceito junto das Diárias para que ambas progridam no mesmo deslocamento.
-        if (options.GuildDirectiveArea == GuildDirectiveArea.OpenMap && options.EnableDailyMissions)
-        {
-            directiveDue = options.EnableGuildDirective && session.DirectiveCycle != cycle &&
-                           now >= ScheduledInCycle(now, options.DailyMissionsAt);
-        }
 
         if (!dailyDue && !directiveDue)
         {
@@ -2862,7 +2852,7 @@ public sealed class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         var currentCycle = DailyCycleKey(DateTime.Now);
-        if (!options.EnableDailyMissions || session.InAgenda || session.HandlingDeath ||
+        if (!options.EnableDailyMissions || !session.Options.EnableDailyMissions || session.InAgenda || session.HandlingDeath ||
             session.InDailyCampaign || session.NextRecoveryAttemptAt != default ||
             DateTime.UtcNow < session.NextVisibleDailyScanAt ||
             session.DailyCompletedCycle == currentCycle)
@@ -3000,6 +2990,13 @@ public sealed class BotAutomationEngine(
                 await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
                 await CloseGuildScreenAsync(session, pause, cancellationToken);
             }
+            else if (await IsGuildDirectiveInProgressAsync(cancellationToken))
+            {
+                WriteLog(session, "Diretiva já aceita e em andamento ao iniciar; não clicando em Desistir.");
+                session.DirectiveCycle = cycle;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+                await CloseGuildScreenAsync(session, pause, cancellationToken);
+            }
             else if ((await recognition.FindAsync("guild_page", cancellationToken)).Found)
             {
                 WriteLog(session, "Tela da Guilda aberta ao iniciar; retornando ao jogo para continuar o fluxo.");
@@ -3095,6 +3092,10 @@ public sealed class BotAutomationEngine(
         {
             return;
         }
+        if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+        {
+            return;
+        }
 
         await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
         await WaitForReferenceAsync("menu_guild", "ícone Guilda", TimeSpan.FromSeconds(10), pause, cancellationToken);
@@ -3107,6 +3108,10 @@ public sealed class BotAutomationEngine(
         {
             await CheckpointAsync(pause, cancellationToken);
             if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+            {
+                return;
+            }
+            if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
             {
                 return;
             }
@@ -3131,12 +3136,45 @@ public sealed class BotAutomationEngine(
         {
             return;
         }
+        if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+        {
+            return;
+        }
         var point = area switch
         {
             GuildDirectiveArea.Ta => (1160, 809),
             GuildDirectiveArea.Dungeon => (1507, 805),
             _ => (834, 805)
         };
+        var buttonSearchX = point.Item1 - 145;
+        var buttonIsAvailable = false;
+        for (var sample = 0; sample < 2; sample++)
+        {
+            if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+            {
+                return;
+            }
+
+            var accept = await recognition.FindAsync(
+                "guild_directive_accept_button", buttonSearchX, 740, 290, 115, cancellationToken);
+            var desist = await recognition.FindAsync(
+                "guild_directive_decline_button", buttonSearchX, 740, 290, 115, cancellationToken);
+            buttonIsAvailable = accept.Found && !desist.Found;
+            if (!buttonIsAvailable)
+            {
+                break;
+            }
+
+            await Task.Delay(350, cancellationToken);
+        }
+
+        if (!buttonIsAvailable)
+        {
+            await CloseGuildScreenAsync(session, pause, cancellationToken);
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: botão Aceitar não foi confirmado; não clicando na possível opção Desistir.");
+        }
+
         await input.MoveAndClickAsync(point.Item1, point.Item2, TimeSpan.FromMilliseconds(350), cancellationToken);
         var confirmationDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(12);
         var accepted = false;
@@ -3144,6 +3182,10 @@ public sealed class BotAutomationEngine(
         {
             await CheckpointAsync(pause, cancellationToken);
             if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
+            {
+                return;
+            }
+            if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
             {
                 return;
             }
@@ -3185,6 +3227,28 @@ public sealed class BotAutomationEngine(
         await CloseGuildScreenAsync(session, pause, cancellationToken);
         return true;
     }
+
+    private async Task<bool> CloseActiveGuildDirectiveIfPresentAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsGuildDirectiveInProgressAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var cycle = DailyCycleKey(DateTime.Now);
+        session.DirectiveCycle = cycle;
+        await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+        WriteLog(session, "Diretiva já está Em andamento; registrada neste ciclo sem tocar em Desistir.");
+        await CloseGuildScreenAsync(session, pause, cancellationToken);
+        return true;
+    }
+
+    private async Task<bool> IsGuildDirectiveInProgressAsync(CancellationToken cancellationToken) =>
+        (await recognition.FindAsync("guild_directive_in_progress", 650, 425, 1050, 160, cancellationToken)).Found ||
+        (await recognition.FindAsync("guild_directive_decline_button", 685, 740, 975, 115, cancellationToken)).Found;
 
     private async Task<bool> IsGuildDirectiveCompletedAsync(CancellationToken cancellationToken) =>
         (await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found ||
@@ -4648,17 +4712,8 @@ public sealed class BotAutomationEngine(
             return;
         }
 
-        var attempts = _random.Next(3, 6);
-        WriteLog(session, $"Usando TP {options.EmergencyTeleportKeyName} {attempts} vez(es).");
-        await RecordAbbeyExitAsync(session);
-        for (var index = 0; index < attempts; index++)
-        {
-            await input.PressEmergencyKeyAsync(options.EmergencyTeleportVirtualKey, cancellationToken);
-            if (Volatile.Read(ref session.PendingVisualDeath) != 0)
-            {
-                break;
-            }
-        }
+        WriteLog(session, $"Enviando um TP de emergência ({options.EmergencyTeleportKeyName}); sem repetição cega que gaste gold.");
+        await input.PressEmergencyKeyAsync(options.EmergencyTeleportVirtualKey, cancellationToken);
 
         var deathAfterTeleport = await WaitForDeathAfterEmergencyAsync(
             session,
@@ -4808,6 +4863,12 @@ public sealed class BotAutomationEngine(
 
     private bool RegisterDeath(ClientSession session, AntiOverkillOptions antiOverkill)
     {
+        if (!session.Options.EnableAntiOverkill)
+        {
+            WriteLog(session, "Morte registrada; Anti Over Kill desativado para este cliente.");
+            return false;
+        }
+
         var now = DateTime.Now;
         session.Deaths.Enqueue(now);
         while (session.Deaths.Count > 0 && now - session.Deaths.Peek() > antiOverkill.DeathWindow)
@@ -4943,8 +5004,11 @@ public sealed class BotAutomationEngine(
             if ((await FindReferenceOnClientAsync(
                     session, "painel_restauracao", cancellationToken, requireObservable: true)).Found)
             {
-                throw new InvalidOperationException(
-                    $"{session.Options.Label}: o painel de restauração está aberto, mas seu contador não pôde ser lido.");
+                var diagnostic = await recognition.SaveDiagnosticAsync($"restauracao_contador_{session.Options.Priority}");
+                WriteLog(session, $"Painel de restauração aberto, mas contador ilegível; fechando sem clicar em itens e retomando o fluxo. Diagnóstico: {diagnostic}");
+                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                session.NeedsDeathRestoration = false;
+                return;
             }
 
             WriteLog(session, "Verificando se esta morte gerou lápide de restauração.");
@@ -5023,8 +5087,10 @@ public sealed class BotAutomationEngine(
                 var diagnostic = await recognition.SaveDiagnosticAsync(
                     $"painel_restauracao_{session.Options.Priority}",
                     diagnosticFrame);
-                throw new TimeoutException(
-                    $"{session.Options.Label}: o painel de restauração não abriu após três tentativas. Diagnóstico: {diagnostic}");
+                WriteLog(session, $"Painel da lápide não pôde ser lido após três tentativas. Fechando e retomando sem clicar às cegas. Diagnóstico: {diagnostic}");
+                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                session.NeedsDeathRestoration = false;
+                return;
             }
         }
 
@@ -5299,12 +5365,8 @@ public sealed class BotAutomationEngine(
         SetStatus(BotRunState.Running, $"{session.Options.Label}: saindo da Agenda", "Retornando à cidade");
         await ActivateGameAsync(session, cancellationToken);
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
-        var attempts = _random.Next(3, 6);
-        WriteLog(session, $"Encerrando Agenda com TP {sapheras.EmergencyTeleportKeyName} ({attempts} tentativas).");
-        for (var index = 0; index < attempts; index++)
-        {
-            await input.PressEmergencyKeyAsync(sapheras.EmergencyTeleportVirtualKey, cancellationToken);
-        }
+        WriteLog(session, $"Encerrando Agenda com um TP {sapheras.EmergencyTeleportKeyName}.");
+        await input.PressEmergencyKeyAsync(sapheras.EmergencyTeleportVirtualKey, cancellationToken);
 
         await ActionDelayAsync(cancellationToken, 4200, 5600);
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
@@ -5637,10 +5699,17 @@ public sealed class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         var startedAt = DateTime.UtcNow;
+        var grace = TimeSpan.FromSeconds(Math.Min(20, Math.Max(5, timeout.TotalSeconds * 0.75)));
+        var graceLogged = false;
         var best = new RecognitionResult(false, 0, 0, 0);
-        while (DateTime.UtcNow - startedAt < timeout)
+        while (DateTime.UtcNow - startedAt < timeout + grace)
         {
             await CheckpointAsync(pause, cancellationToken);
+            if (!graceLogged && DateTime.UtcNow - startedAt >= timeout)
+            {
+                graceLogged = true;
+                WriteLog($"{description}: aguardando mais {grace.TotalSeconds:F0}s por carregamento lento; melhor confiança até agora {best.Confidence:P0}.");
+            }
             if (referenceId != "aviso_agenda")
             {
                 var agenda = await recognition.FindAsync("aviso_agenda", cancellationToken);
@@ -5820,6 +5889,14 @@ public sealed class BotAutomationEngine(
             FarmScheduleDestination.Ta3 => TaDestination.Ta3,
             _ => session.Options.Destination
         };
+
+    private static FarmCoordinate? EffectiveCustomFarmCoordinate(ClientSession session)
+    {
+        var destination = EffectiveTaDestination(session);
+        if (session.Options.CustomFarmCoordinates?.TryGetValue(destination, out var coordinate) == true)
+            return coordinate;
+        return destination == session.Options.Destination ? session.Options.CustomFarmCoordinate : null;
+    }
 
     private static bool WantsAbbey(ClientSession session) =>
         CurrentFarmScheduleStep(session) is { } step

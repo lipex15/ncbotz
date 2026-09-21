@@ -35,6 +35,10 @@ public partial class MainWindow : Window
     private string? _savedClient2Title;
     private FarmCoordinate? _client1CustomCoordinate;
     private FarmCoordinate? _client2CustomCoordinate;
+    private readonly Dictionary<TaDestination, FarmCoordinate> _client1TaCoordinates = [];
+    private readonly Dictionary<TaDestination, FarmCoordinate> _client2TaCoordinates = [];
+    private readonly HashSet<TaDestination> _client1TaCoordinatesEnabled = [];
+    private readonly HashSet<TaDestination> _client2TaCoordinatesEnabled = [];
     private FarmCoordinate? _client1AbbeyCoordinate;
     private FarmCoordinate? _client2AbbeyCoordinate;
     private bool _capturingCustomCoordinate;
@@ -65,11 +69,24 @@ public partial class MainWindow : Window
         Ta2ComboBox.SelectedIndex = 1;
         GuildDirectiveAreaComboBox.ItemsSource = new[] { "Mapa Aberto", "T.A", "Masmorras" };
         GuildDirectiveAreaComboBox.SelectedIndex = 0;
+        var clientScopes = new[] { "Ambos", "Cliente 1", "Cliente 2", "Nenhum" };
+        DailyMissionsScopeComboBox.ItemsSource = clientScopes;
+        GuildDirectiveScopeComboBox.ItemsSource = clientScopes;
+        MailScopeComboBox.ItemsSource = clientScopes;
+        AntiOverkillScopeComboBox.ItemsSource = clientScopes;
+        FarmScheduleScopeComboBox.ItemsSource = clientScopes;
+        DailyMissionsScopeComboBox.SelectedItem = "Nenhum";
+        GuildDirectiveScopeComboBox.SelectedItem = "Nenhum";
+        MailScopeComboBox.SelectedItem = "Ambos";
+        AntiOverkillScopeComboBox.SelectedItem = "Ambos";
+        FarmScheduleScopeComboBox.SelectedItem = "Nenhum";
         var scheduleDestinations = new[] { "Abadia", "T.A 1", "T.A 2", "T.A 3" };
         Client1ScheduleDestinationComboBox.ItemsSource = scheduleDestinations;
         Client2ScheduleDestinationComboBox.ItemsSource = scheduleDestinations;
         Client1ScheduleDestinationComboBox.SelectedIndex = 0;
         Client2ScheduleDestinationComboBox.SelectedIndex = 0;
+        Client1ScheduleSteps.CollectionChanged += (_, _) => UpdateScheduleTotals();
+        Client2ScheduleSteps.CollectionChanged += (_, _) => UpdateScheduleTotals();
 
         TeleportKeyComboBox.ItemsSource = BuildKeyChoices();
         TeleportKeyComboBox.Text = "E";
@@ -101,6 +118,24 @@ public partial class MainWindow : Window
         ProtectionNavigationButton.Background = Brushes.Transparent;
         FarmScheduleNavigationButton.Background = Brushes.Transparent;
     }
+
+    private void OnSelectBothSapheras(object sender, RoutedEventArgs e)
+    {
+        Client1SapherasCheckBox.IsChecked = true;
+        Client2SapherasCheckBox.IsChecked = true;
+    }
+
+    private static bool ScopeIncludesClient(object? selectedScope, int clientNumber) =>
+        selectedScope?.ToString() == "Ambos" ||
+        selectedScope?.ToString() == $"Cliente {clientNumber}";
+
+    private static string ScopeFromClients(bool client1, bool client2) => (client1, client2) switch
+    {
+        (true, true) => "Ambos",
+        (true, false) => "Cliente 1",
+        (false, true) => "Cliente 2",
+        _ => "Nenhum"
+    };
 
     private void OnShowSapheras(object sender, RoutedEventArgs e)
     {
@@ -226,6 +261,33 @@ public partial class MainWindow : Window
         }
 
         steps.Add(new FarmScheduleStepEditor(ParseFarmScheduleDestination(destination), minutes));
+    }
+
+    private void UpdateScheduleTotals()
+    {
+        if (Client1ScheduleTotalText is null || Client2ScheduleTotalText is null)
+            return;
+        Client1ScheduleTotalText.Text = $"Tempo total: {Client1ScheduleSteps.Sum(step => step.DurationMinutes):0} min";
+        Client2ScheduleTotalText.Text = $"Tempo total: {Client2ScheduleSteps.Sum(step => step.DurationMinutes):0} min";
+    }
+
+    private async void OnSaveFarmSchedule(object sender, RoutedEventArgs e)
+    {
+        if (!_databaseReady || _runCancellation is not null)
+            return;
+        try
+        {
+            await _database.SaveSettingAsync("farmSchedule.scope", FarmScheduleScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
+            await _database.SaveSettingAsync("farmSchedule.client1", JsonSerializer.Serialize(
+                Client1ScheduleSteps.Select(step => step.ToModel()).ToArray()));
+            await _database.SaveSettingAsync("farmSchedule.client2", JsonSerializer.Serialize(
+                Client2ScheduleSteps.Select(step => step.ToModel()).ToArray()));
+            AddLog("Agenda de farm salva para os clientes selecionados.");
+        }
+        catch (Exception exception)
+        {
+            ShowValidation($"Não foi possível salvar a agenda: {exception.GetBaseException().Message}");
+        }
     }
 
     private void OnRemoveClient1ScheduleStep(object sender, RoutedEventArgs e) =>
@@ -439,6 +501,29 @@ public partial class MainWindow : Window
         UpdateCustomCoordinateControls();
     }
 
+    private void OnTaDestinationChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!_databaseReady || Client1CustomCoordinateCheckBox is null || Client2CustomCoordinateCheckBox is null)
+        {
+            return;
+        }
+
+        if (sender == Ta1ComboBox)
+        {
+            var destination = ParseTaDestination(Ta1ComboBox.SelectedItem);
+            _client1CustomCoordinate = _client1TaCoordinates.GetValueOrDefault(destination);
+            Client1CustomCoordinateCheckBox.IsChecked = _client1TaCoordinatesEnabled.Contains(destination);
+        }
+        else
+        {
+            var destination = ParseTaDestination(Ta2ComboBox.SelectedItem);
+            _client2CustomCoordinate = _client2TaCoordinates.GetValueOrDefault(destination);
+            Client2CustomCoordinateCheckBox.IsChecked = _client2TaCoordinatesEnabled.Contains(destination);
+        }
+
+        UpdateCustomCoordinateLabels();
+    }
+
     private void OnClient2EnabledChanged(object sender, RoutedEventArgs e)
     {
         if (Client2ComboBox is null || Ta2ComboBox is null)
@@ -465,14 +550,24 @@ public partial class MainWindow : Window
         {
             if (sender == Client1CustomCoordinateCheckBox)
             {
+                var destination = ParseTaDestination(Ta1ComboBox.SelectedItem);
+                if (Client1CustomCoordinateCheckBox.IsChecked == true)
+                    _client1TaCoordinatesEnabled.Add(destination);
+                else
+                    _client1TaCoordinatesEnabled.Remove(destination);
                 await _database.SaveSettingAsync(
-                    "client1.customFarm.enabled",
+                    $"client1.customFarm.{destination}.enabled",
                     (Client1CustomCoordinateCheckBox.IsChecked == true).ToString().ToLowerInvariant());
             }
             else if (sender == Client2CustomCoordinateCheckBox)
             {
+                var destination = ParseTaDestination(Ta2ComboBox.SelectedItem);
+                if (Client2CustomCoordinateCheckBox.IsChecked == true)
+                    _client2TaCoordinatesEnabled.Add(destination);
+                else
+                    _client2TaCoordinatesEnabled.Remove(destination);
                 await _database.SaveSettingAsync(
-                    "client2.customFarm.enabled",
+                    $"client2.customFarm.{destination}.enabled",
                     (Client2CustomCoordinateCheckBox.IsChecked == true).ToString().ToLowerInvariant());
             }
         }
@@ -548,11 +643,13 @@ public partial class MainWindow : Window
             else if (clientNumber == 1)
             {
                 _client1CustomCoordinate = coordinate;
+                _client1TaCoordinates[ParseTaDestination(Ta1ComboBox.SelectedItem)] = coordinate;
                 Client1CustomCoordinateCheckBox.IsChecked = true;
             }
             else
             {
                 _client2CustomCoordinate = coordinate;
+                _client2TaCoordinates[ParseTaDestination(Ta2ComboBox.SelectedItem)] = coordinate;
                 Client2CustomCoordinateCheckBox.IsChecked = true;
             }
 
@@ -580,7 +677,10 @@ public partial class MainWindow : Window
         bool enabled,
         bool abbey = false)
     {
-        var prefix = abbey ? $"client{clientNumber}.abbey.customFarm" : $"client{clientNumber}.customFarm";
+        var destination = clientNumber == 1
+            ? ParseTaDestination(Ta1ComboBox.SelectedItem)
+            : ParseTaDestination(Ta2ComboBox.SelectedItem);
+        var prefix = abbey ? $"client{clientNumber}.abbey.customFarm" : $"client{clientNumber}.customFarm.{destination}";
         await _database.SaveSettingAsync($"{prefix}.enabled", enabled.ToString().ToLowerInvariant());
         await _database.SaveSettingAsync($"{prefix}.x", coordinate.X.ToString(CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync($"{prefix}.y", coordinate.Y.ToString(CultureInfo.InvariantCulture));
@@ -798,11 +898,21 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (FarmScheduleEnabledCheckBox.IsChecked == true &&
-            ((client1 is not null && Client1ScheduleSteps.Count == 0) ||
-             (client2 is not null && Client2ScheduleSteps.Count == 0)))
+        if ((client1 is not null && ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 1) && Client1ScheduleSteps.Count == 0) ||
+            (client2 is not null && ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 2) && Client2ScheduleSteps.Count == 0))
         {
             ShowValidation("Adicione ao menos uma etapa da Agenda para cada cliente ativo.");
+            return;
+        }
+
+        if ((client1 is not null && ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 1) &&
+             Client1ScheduleSteps.Any(step => step.Destination == FarmScheduleDestination.Ta1) &&
+             (!_client1TaCoordinatesEnabled.Contains(TaDestination.Ta1Codex) || !_client1TaCoordinates.ContainsKey(TaDestination.Ta1Codex))) ||
+            (client2 is not null && ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 2) &&
+             Client2ScheduleSteps.Any(step => step.Destination == FarmScheduleDestination.Ta1) &&
+             (!_client2TaCoordinatesEnabled.Contains(TaDestination.Ta1Codex) || !_client2TaCoordinates.ContainsKey(TaDestination.Ta1Codex))))
+        {
+            ShowValidation("A etapa T.A 1 da agenda exige um ponto personalizado para o respectivo cliente.");
             return;
         }
 
@@ -835,14 +945,21 @@ public partial class MainWindow : Window
                 "Cliente 1",
                 client1,
                 ParseTaDestination(Ta1ComboBox.SelectedItem),
-                Client1SapherasCheckBox.IsChecked == true || Client1AbbeyCheckBox.IsChecked == true,
+                Client1SapherasCheckBox.IsChecked == true,
                 1,
                 Client1CustomCoordinateCheckBox.IsChecked == true
                     ? _client1CustomCoordinate
                     : null,
                 Client1AbbeyCheckBox.IsChecked == true,
                 abbeyLimit1,
-                Client1AbbeyCustomCheckBox.IsChecked == true ? _client1AbbeyCoordinate : null));
+                Client1AbbeyCustomCheckBox.IsChecked == true ? _client1AbbeyCoordinate : null,
+                ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 1),
+                ScopeIncludesClient(DailyMissionsScopeComboBox.SelectedItem, 1),
+                ScopeIncludesClient(GuildDirectiveScopeComboBox.SelectedItem, 1),
+                ScopeIncludesClient(MailScopeComboBox.SelectedItem, 1),
+                ScopeIncludesClient(AntiOverkillScopeComboBox.SelectedItem, 1),
+                _client1TaCoordinates.Where(pair => _client1TaCoordinatesEnabled.Contains(pair.Key))
+                    .ToDictionary(pair => pair.Key, pair => pair.Value)));
         }
 
         if (client2 is not null)
@@ -852,25 +969,32 @@ public partial class MainWindow : Window
                     "Cliente 2",
                     client2,
                     ParseTaDestination(Ta2ComboBox.SelectedItem),
-                    Client2SapherasCheckBox.IsChecked == true || Client2AbbeyCheckBox.IsChecked == true,
+                    Client2SapherasCheckBox.IsChecked == true,
                     client1 is null ? 1 : 2,
                     Client2CustomCoordinateCheckBox.IsChecked == true
                         ? _client2CustomCoordinate
                         : null,
                     Client2AbbeyCheckBox.IsChecked == true,
                     abbeyLimit2,
-                    Client2AbbeyCustomCheckBox.IsChecked == true ? _client2AbbeyCoordinate : null));
+                    Client2AbbeyCustomCheckBox.IsChecked == true ? _client2AbbeyCoordinate : null,
+                    ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 2),
+                    ScopeIncludesClient(DailyMissionsScopeComboBox.SelectedItem, 2),
+                    ScopeIncludesClient(GuildDirectiveScopeComboBox.SelectedItem, 2),
+                    ScopeIncludesClient(MailScopeComboBox.SelectedItem, 2),
+                    ScopeIncludesClient(AntiOverkillScopeComboBox.SelectedItem, 2),
+                    _client2TaCoordinates.Where(pair => _client2TaCoordinatesEnabled.Contains(pair.Key))
+                        .ToDictionary(pair => pair.Key, pair => pair.Value)));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
         var dailyRoutines = new DailyRoutineOptions(
-            DailyMissionsCheckBox.IsChecked == true,
+            clients.Any(client => client.EnableDailyMissions),
             dailyMissionsAt,
-            GuildDirectiveCheckBox.IsChecked == true,
+            clients.Any(client => client.EnableGuildDirective),
             guildDirectiveAt,
             ParseGuildDirectiveArea(GuildDirectiveAreaComboBox.SelectedItem));
         var farmSchedule = new FarmScheduleOptions(
-            FarmScheduleEnabledCheckBox.IsChecked == true,
+            clients.Any(client => client.UseFarmSchedule),
             Client1ScheduleSteps.Select(item => item.ToModel()).ToArray(),
             Client2ScheduleSteps.Select(item => item.ToModel()).ToArray());
         var runOptions = new BotRunOptions(options, antiOverkill, dailyRoutines, farmSchedule, clients);
@@ -1189,12 +1313,14 @@ public partial class MainWindow : Window
         DeathThresholdTextBox.IsEnabled = !isRunning;
         DeathWindowTextBox.IsEnabled = !isRunning;
         AgendaDurationTextBox.IsEnabled = !isRunning;
-        DailyMissionsCheckBox.IsEnabled = !isRunning;
+        DailyMissionsScopeComboBox.IsEnabled = !isRunning;
         DailyMissionsTimeTextBox.IsEnabled = !isRunning;
-        GuildDirectiveCheckBox.IsEnabled = !isRunning;
+        GuildDirectiveScopeComboBox.IsEnabled = !isRunning;
+        MailScopeComboBox.IsEnabled = !isRunning;
+        AntiOverkillScopeComboBox.IsEnabled = !isRunning;
         GuildDirectiveTimeTextBox.IsEnabled = !isRunning;
         GuildDirectiveAreaComboBox.IsEnabled = !isRunning;
-        FarmScheduleEnabledCheckBox.IsEnabled = !isRunning;
+        FarmScheduleScopeComboBox.IsEnabled = !isRunning;
         FarmScheduleEditorGrid.IsEnabled = !isRunning;
         Client1AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient1CheckBox.IsChecked == true;
         Client2AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient2CheckBox.IsChecked == true;
@@ -1242,6 +1368,8 @@ public partial class MainWindow : Window
         var client2CustomEnabled = await _database.GetSettingAsync("client2.customFarm.enabled");
         var client2CustomX = await _database.GetSettingAsync("client2.customFarm.x");
         var client2CustomY = await _database.GetSettingAsync("client2.customFarm.y");
+        await LoadTaCoordinatesAsync(1, _client1TaCoordinates, _client1TaCoordinatesEnabled);
+        await LoadTaCoordinatesAsync(2, _client2TaCoordinates, _client2TaCoordinatesEnabled);
         var abbey1Enabled = await _database.GetSettingAsync("client1.abbey.enabled");
         var abbey2Enabled = await _database.GetSettingAsync("client2.abbey.enabled");
         var abbey1Limit = await _database.GetSettingAsync("client1.abbey.returnLimit");
@@ -1253,11 +1381,16 @@ public partial class MainWindow : Window
         var abbey2X = await _database.GetSettingAsync("client2.abbey.customFarm.x");
         var abbey2Y = await _database.GetSettingAsync("client2.abbey.customFarm.y");
         var dailyEnabled = await _database.GetSettingAsync("routines.daily.enabled");
+        var dailyScope = await _database.GetSettingAsync("routines.daily.scope");
         var dailyTime = await _database.GetSettingAsync("routines.daily.time");
         var directiveEnabled = await _database.GetSettingAsync("routines.directive.enabled");
+        var directiveScope = await _database.GetSettingAsync("routines.directive.scope");
+        var mailScope = await _database.GetSettingAsync("routines.mail.scope");
+        var antiOverkillScope = await _database.GetSettingAsync("antiOverkill.scope");
         var directiveTime = await _database.GetSettingAsync("routines.directive.time");
         var directiveArea = await _database.GetSettingAsync("routines.directive.area");
         var farmScheduleEnabled = await _database.GetSettingAsync("farmSchedule.enabled");
+        var farmScheduleScope = await _database.GetSettingAsync("farmSchedule.scope");
         var client1FarmSchedule = await _database.GetSettingAsync("farmSchedule.client1");
         var client2FarmSchedule = await _database.GetSettingAsync("farmSchedule.client2");
         if (!string.IsNullOrWhiteSpace(schedule))
@@ -1295,14 +1428,24 @@ public partial class MainWindow : Window
         DeathWindowTextBox.Text = string.IsNullOrWhiteSpace(deathWindow) ? "30" : deathWindow;
         AgendaDurationTextBox.Text = string.IsNullOrWhiteSpace(agendaDuration) ? "60" : agendaDuration;
         StartDelayMinutesTextBox.Text = string.IsNullOrWhiteSpace(startDelay) ? "0" : startDelay;
-        _client1CustomCoordinate = ParseFarmCoordinate(client1CustomX, client1CustomY);
-        _client2CustomCoordinate = ParseFarmCoordinate(client2CustomX, client2CustomY);
+        var selectedTa1 = ParseTaDestination(Ta1ComboBox.SelectedItem);
+        var selectedTa2 = ParseTaDestination(Ta2ComboBox.SelectedItem);
+        _client1CustomCoordinate = _client1TaCoordinates.GetValueOrDefault(selectedTa1) ?? ParseFarmCoordinate(client1CustomX, client1CustomY);
+        _client2CustomCoordinate = _client2TaCoordinates.GetValueOrDefault(selectedTa2) ?? ParseFarmCoordinate(client2CustomX, client2CustomY);
+        if (_client1CustomCoordinate is not null) _client1TaCoordinates.TryAdd(selectedTa1, _client1CustomCoordinate);
+        if (_client2CustomCoordinate is not null) _client2TaCoordinates.TryAdd(selectedTa2, _client2CustomCoordinate);
+        if (_client1CustomCoordinate is not null && string.Equals(client1CustomEnabled, "true", StringComparison.OrdinalIgnoreCase))
+            _client1TaCoordinatesEnabled.Add(selectedTa1);
+        if (_client2CustomCoordinate is not null && string.Equals(client2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase))
+            _client2TaCoordinatesEnabled.Add(selectedTa2);
         Client1CustomCoordinateCheckBox.IsChecked =
             _client1CustomCoordinate is not null &&
-            string.Equals(client1CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
+            (_client1TaCoordinatesEnabled.Contains(selectedTa1) ||
+             string.Equals(client1CustomEnabled, "true", StringComparison.OrdinalIgnoreCase));
         Client2CustomCoordinateCheckBox.IsChecked =
             _client2CustomCoordinate is not null &&
-            string.Equals(client2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
+            (_client2TaCoordinatesEnabled.Contains(selectedTa2) ||
+             string.Equals(client2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase));
         Client1AbbeyCheckBox.IsChecked = string.Equals(abbey1Enabled, "true", StringComparison.OrdinalIgnoreCase);
         Client2AbbeyCheckBox.IsChecked = string.Equals(abbey2Enabled, "true", StringComparison.OrdinalIgnoreCase);
         Client1AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey1Limit) ? "0" : abbey1Limit;
@@ -1313,8 +1456,10 @@ public partial class MainWindow : Window
             string.Equals(abbey1CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
         Client2AbbeyCustomCheckBox.IsChecked = _client2AbbeyCoordinate is not null &&
             string.Equals(abbey2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
-        DailyMissionsCheckBox.IsChecked = string.Equals(dailyEnabled, "true", StringComparison.OrdinalIgnoreCase);
-        GuildDirectiveCheckBox.IsChecked = string.Equals(directiveEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        DailyMissionsScopeComboBox.SelectedItem = dailyScope ?? (string.Equals(dailyEnabled, "true", StringComparison.OrdinalIgnoreCase) ? "Ambos" : "Nenhum");
+        GuildDirectiveScopeComboBox.SelectedItem = directiveScope ?? (string.Equals(directiveEnabled, "true", StringComparison.OrdinalIgnoreCase) ? "Ambos" : "Nenhum");
+        MailScopeComboBox.SelectedItem = mailScope ?? "Ambos";
+        AntiOverkillScopeComboBox.SelectedItem = antiOverkillScope ?? "Ambos";
         DailyMissionsTimeTextBox.Text = string.IsNullOrWhiteSpace(dailyTime) ? "04:05" : dailyTime;
         GuildDirectiveTimeTextBox.Text = string.IsNullOrWhiteSpace(directiveTime) ? "04:05" : directiveTime;
         GuildDirectiveAreaComboBox.SelectedItem = directiveArea switch
@@ -1323,7 +1468,7 @@ public partial class MainWindow : Window
             nameof(GuildDirectiveArea.Dungeon) => "Masmorras",
             _ => "Mapa Aberto"
         };
-        FarmScheduleEnabledCheckBox.IsChecked = string.Equals(farmScheduleEnabled, "true", StringComparison.OrdinalIgnoreCase);
+        FarmScheduleScopeComboBox.SelectedItem = farmScheduleScope ?? (string.Equals(farmScheduleEnabled, "true", StringComparison.OrdinalIgnoreCase) ? "Ambos" : "Nenhum");
         LoadScheduleSteps(Client1ScheduleSteps, client1FarmSchedule);
         LoadScheduleSteps(Client2ScheduleSteps, client2FarmSchedule);
         UpdateCustomCoordinateLabels();
@@ -1374,11 +1519,16 @@ public partial class MainWindow : Window
             "antiOverkill.agendaDurationMinutes",
             runOptions.AntiOverkill.AgendaDuration.TotalMinutes.ToString(CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync("routines.daily.enabled", runOptions.DailyRoutines.EnableDailyMissions.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync("routines.daily.scope", DailyMissionsScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
         await _database.SaveSettingAsync("routines.daily.time", runOptions.DailyRoutines.DailyMissionsAt.ToString(@"hh\:mm", CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync("routines.directive.enabled", runOptions.DailyRoutines.EnableGuildDirective.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync("routines.directive.scope", GuildDirectiveScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
+        await _database.SaveSettingAsync("routines.mail.scope", MailScopeComboBox.SelectedItem?.ToString() ?? "Ambos");
+        await _database.SaveSettingAsync("antiOverkill.scope", AntiOverkillScopeComboBox.SelectedItem?.ToString() ?? "Ambos");
         await _database.SaveSettingAsync("routines.directive.time", runOptions.DailyRoutines.GuildDirectiveAt.ToString(@"hh\:mm", CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync("routines.directive.area", runOptions.DailyRoutines.GuildDirectiveArea.ToString());
         await _database.SaveSettingAsync("farmSchedule.enabled", runOptions.FarmSchedule.Enabled.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync("farmSchedule.scope", FarmScheduleScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
         await _database.SaveSettingAsync("farmSchedule.client1", JsonSerializer.Serialize(runOptions.FarmSchedule.Client1));
         await _database.SaveSettingAsync("farmSchedule.client2", JsonSerializer.Serialize(runOptions.FarmSchedule.Client2));
     }
@@ -1421,7 +1571,10 @@ public partial class MainWindow : Window
         int clientNumber,
         FarmCoordinate? coordinate)
     {
-        var prefix = $"client{clientNumber}.customFarm";
+        var destination = clientNumber == 1
+            ? ParseTaDestination(Ta1ComboBox.SelectedItem)
+            : ParseTaDestination(Ta2ComboBox.SelectedItem);
+        var prefix = $"client{clientNumber}.customFarm.{destination}";
         await _database.SaveSettingAsync(
             $"{prefix}.enabled",
             (coordinate is not null).ToString().ToLowerInvariant());
@@ -1432,6 +1585,28 @@ public partial class MainWindow : Window
 
         await _database.SaveSettingAsync($"{prefix}.x", coordinate.X.ToString(CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync($"{prefix}.y", coordinate.Y.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private async Task LoadTaCoordinatesAsync(
+        int clientNumber,
+        Dictionary<TaDestination, FarmCoordinate> coordinates,
+        HashSet<TaDestination> enabled)
+    {
+        coordinates.Clear();
+        enabled.Clear();
+        foreach (var destination in Enum.GetValues<TaDestination>())
+        {
+            var prefix = $"client{clientNumber}.customFarm.{destination}";
+            var coordinate = ParseFarmCoordinate(
+                await _database.GetSettingAsync($"{prefix}.x"),
+                await _database.GetSettingAsync($"{prefix}.y"));
+            if (coordinate is not null)
+            {
+                coordinates[destination] = coordinate;
+                if (string.Equals(await _database.GetSettingAsync($"{prefix}.enabled"), "true", StringComparison.OrdinalIgnoreCase))
+                    enabled.Add(destination);
+            }
+        }
     }
 
     private async Task SaveClientAbbeySettingsAsync(int clientNumber, AutomationClientOptions client)

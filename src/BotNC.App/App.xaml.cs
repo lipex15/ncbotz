@@ -169,6 +169,10 @@ public partial class App : Application
             var mailEmpty = await recognition.FindInImageAsync("mail_empty", imagePath);
             var mailNotification = await recognition.HasUnclaimedServerMailInImageAsync(imagePath);
             var restorationIcon = await recognition.FindInImageAsync("icone_perda_exp", imagePath);
+            var ta1Arrival = await recognition.FindInImageAsync("ta1_chegada", imagePath);
+            var shop = await recognition.FindInImageAsync("loja_artigos", imagePath);
+            var directiveAccept = await recognition.FindInImageAsync("guild_directive_accept_button", imagePath);
+            var directiveDecline = await recognition.FindInImageAsync("guild_directive_decline_button", imagePath);
             await File.WriteAllLinesAsync(
                 imageProbeOutputPath,
                 [
@@ -193,7 +197,11 @@ public partial class App : Application
                     $"mailItems={mailItems.Found};confidence={mailItems.Confidence:F4}",
                     $"mailEmpty={mailEmpty.Found};confidence={mailEmpty.Confidence:F4}",
                     $"mailNotification={mailNotification}",
-                    $"restorationIcon={restorationIcon.Found};confidence={restorationIcon.Confidence:F4}"
+                    $"restorationIcon={restorationIcon.Found};confidence={restorationIcon.Confidence:F4}",
+                    $"ta1Arrival={ta1Arrival.Found};confidence={ta1Arrival.Confidence:F4}",
+                    $"shop={shop.Found};confidence={shop.Confidence:F4}",
+                    $"directiveAccept={directiveAccept.Found};confidence={directiveAccept.Confidence:F4}",
+                    $"directiveDecline={directiveDecline.Found};confidence={directiveDecline.Confidence:F4}"
                 ]);
             Shutdown();
             return;
