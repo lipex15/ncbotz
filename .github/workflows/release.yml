@@ -25,7 +25,8 @@ jobs:
           }
           [xml]$project = Get-Content 'src/BotNC.App/BotNC.App.csproj'
           $tagPrefix = if ($env:GITHUB_REPOSITORY -eq 'lipex15/ncbotz-testing') { 'test-v' } else { 'v' }
-          $expected = $tagPrefix + $project.Project.PropertyGroup.Version
+          $version = [string](($project.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version)
+          $expected = $tagPrefix + $version.Trim()
           if ($env:GITHUB_REF_NAME -ne $expected) {
             throw "Tag $env:GITHUB_REF_NAME does not match application version $expected."
           }
