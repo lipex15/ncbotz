@@ -13,7 +13,7 @@ public sealed record AvailableUpdate(Version Version, string InstallerUrl, strin
 
 public sealed class AppUpdateService
 {
-    private const string Repository = "lipex15/ncbotz";
+    private const string Repository = AppIdentity.Repository;
     private static readonly Uri LatestReleaseUri = new($"https://github.com/{Repository}/releases/latest");
     private static readonly HttpClient Client = CreateClient();
 
@@ -59,7 +59,7 @@ public sealed class AppUpdateService
             return null;
         }
 
-        var baseName = $"PEXBOT-Setup-v{version.ToString(3)}";
+        var baseName = $"{AppIdentity.InstallerBaseName}{version.ToString(3)}";
         var releaseBase = $"https://github.com/{Repository}/releases/download/{Uri.EscapeDataString(tag)}";
         var installer = $"{releaseBase}/{baseName}.exe";
         var checksum = $"{releaseBase}/{baseName}.sha256";
@@ -72,11 +72,11 @@ public sealed class AppUpdateService
         IProgress<int> progress,
         CancellationToken cancellationToken)
     {
-        var expectedName = $"PEXBOT-Setup-v{update.Version.ToString(3)}.exe";
+        var expectedName = $"{AppIdentity.InstallerBaseName}{update.Version.ToString(3)}.exe";
         var expectedHash = await ReadExpectedHashAsync(update.ChecksumUrl, cancellationToken);
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PEXBOT",
+            AppIdentity.DataDirectoryName,
             "Updates");
         Directory.CreateDirectory(directory);
         var completedPath = Path.Combine(directory, expectedName);
@@ -140,7 +140,7 @@ public sealed class AppUpdateService
 
         var logDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PEXBOT",
+            AppIdentity.DataDirectoryName,
             "Logs");
         Directory.CreateDirectory(logDirectory);
         var logPath = Path.Combine(logDirectory, "update-install.log");
@@ -185,7 +185,7 @@ public sealed class AppUpdateService
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PEXBOT", "1.0"));
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue(AppIdentity.IsTesting ? "PEXBOT-Teste" : "PEXBOT", "1.0"));
         return client;
     }
 }

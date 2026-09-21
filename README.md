@@ -2,6 +2,10 @@
 
 Aplicativo modular de automação visual para Night Crows.
 
+## Canal de testes
+
+O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
+
 ## Ciclo disponível — v0.9.15
 
 - Diretivas: diferencia Aceitar, Em andamento/Desistir e 5/5; não cancela uma diretiva ativa.

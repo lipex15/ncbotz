@@ -12,7 +12,7 @@ public sealed class AppDatabase
     {
         var dataDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PEXBOT");
+            AppIdentity.DataDirectoryName);
         Directory.CreateDirectory(dataDirectory);
         DatabasePath = Path.Combine(dataDirectory, "pexbot.db");
         _connectionString = new SqliteConnectionStringBuilder
@@ -64,6 +64,9 @@ public sealed class AppDatabase
 
     private void MigrateLegacyDatabaseIfNeeded()
     {
+#if TEST_CHANNEL
+        return;
+#else
         if (File.Exists(DatabasePath))
         {
             return;
@@ -88,6 +91,7 @@ public sealed class AppDatabase
         previous.Open();
         migrated.Open();
         previous.BackupDatabase(migrated);
+#endif
     }
 
     public async Task<VisualReference> GetReferenceAsync(string id)

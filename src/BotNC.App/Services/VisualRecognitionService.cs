@@ -287,7 +287,7 @@ public sealed class VisualRecognitionService(
     {
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PEXBOT",
+            AppIdentity.DataDirectoryName,
             "Diagnosticos");
         Directory.CreateDirectory(directory);
         var safeName = string.Concat(name.Select(character =>

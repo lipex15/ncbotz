@@ -97,8 +97,17 @@ public partial class MainWindow : Window
         DeathThresholdTextBox.Text = "3";
         DeathWindowTextBox.Text = "30";
         AgendaDurationTextBox.Text = "60";
+        Title = AppIdentity.DisplayName;
+        AppNameText.Text = "PEXBOT";
+        TestChannelBadge.Visibility = AppIdentity.IsTesting ? Visibility.Visible : Visibility.Collapsed;
+        if (AppIdentity.IsTesting)
+        {
+            UpdatesIntroText.Text = "Canal de testes: atualizações independentes da versão usada pelos demais.";
+        }
         InstalledVersionText.Text = $"v{AppUpdateService.CurrentVersion.ToString(3)}";
-        ApplicationVersionText.Text = $"v{AppUpdateService.CurrentVersion.ToString(3)}";
+        ApplicationVersionText.Text = AppIdentity.IsTesting
+            ? $"TESTE · v{AppUpdateService.CurrentVersion.ToString(3)}"
+            : $"v{AppUpdateService.CurrentVersion.ToString(3)}";
         DatabasePathText.Text = $"Dados: {_database.DatabasePath} · Log: {_engine.RuntimeLogPath}";
         _updateCheckTimer.Tick += async (_, _) => await CheckForUpdatesAsync(userInitiated: false);
     }

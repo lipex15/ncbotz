@@ -1,26 +1,44 @@
 #ifndef AppVersion
-  #define AppVersion "0.9.15"
+  #define AppVersion "0.9.16"
+#endif
+
+#ifdef TestChannel
+  #define ProductId "{{7F26CCB2-1A60-499E-94DC-D04CB989985E}"
+  #define ProductName "PEXBOT Teste"
+  #define ProductExe "PEXBOT-Teste.exe"
+  #define ProductDataDir "PEXBOT-Teste"
+  #define ProductMutex "PEXBOT.ByLIPEX.Test.AppRunning"
+  #define InstallerPrefix "PEXBOT-Teste-Setup-v"
+  #define ProductRepository "lipex15/ncbotz-testing"
+#else
+  #define ProductId "{{C29A523E-2908-45F7-A258-B54EFCA8A713}"
+  #define ProductName "PEXBOT"
+  #define ProductExe "PEXBOT.exe"
+  #define ProductDataDir "PEXBOT"
+  #define ProductMutex "PEXBOT.ByLIPEX.AppRunning"
+  #define InstallerPrefix "PEXBOT-Setup-v"
+  #define ProductRepository "lipex15/ncbotz"
 #endif
 #ifndef PublishDir
   #define PublishDir "..\publish"
 #endif
 
 [Setup]
-AppId={{C29A523E-2908-45F7-A258-B54EFCA8A713}
-AppName=PEXBOT
+AppId={#ProductId}
+AppName={#ProductName}
 AppVersion={#AppVersion}
 AppPublisher=PEXBOT
-AppPublisherURL=https://github.com/lipex15/ncbotz
-AppUpdatesURL=https://github.com/lipex15/ncbotz/releases
-DefaultDirName={localappdata}\Programs\PEXBOT
-DefaultGroupName=PEXBOT
-UninstallDisplayIcon={app}\PEXBOT.exe
+AppPublisherURL=https://github.com/{#ProductRepository}
+AppUpdatesURL=https://github.com/{#ProductRepository}/releases
+DefaultDirName={localappdata}\Programs\{#ProductDataDir}
+DefaultGroupName={#ProductName}
+UninstallDisplayIcon={app}\{#ProductExe}
 SetupIconFile=..\branding\PEXBOT.ico
 WizardImageFile=..\branding\wizard-main.png
 WizardSmallImageFile=..\branding\wizard-small.png
 WizardKeepAspectRatio=yes
 OutputDir=..\artifacts
-OutputBaseFilename=PEXBOT-Setup-v{#AppVersion}
+OutputBaseFilename={#InstallerPrefix}{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -28,22 +46,22 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 CloseApplications=yes
 RestartApplications=no
-AppMutex=PEXBOT.ByLIPEX.AppRunning
+AppMutex={#ProductMutex}
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; Flags: checkedonce
 
 [Files]
-Source: "{#PublishDir}\PEXBOT.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PublishDir}\{#ProductExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\Assets\*"; DestDir: "{app}\Assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\PEXBOT"; Filename: "{app}\PEXBOT.exe"
-Name: "{autodesktop}\PEXBOT"; Filename: "{app}\PEXBOT.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{#ProductName}"; Filename: "{app}\{#ProductExe}"
+Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\{#ProductExe}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\PEXBOT.exe"; Description: "Abrir PEXBOT"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\PEXBOT.exe"; Flags: nowait runasoriginaluser; Check: ShouldRestartAfterSilentUpdate
+Filename: "{app}\{#ProductExe}"; Description: "Abrir {#ProductName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#ProductExe}"; Flags: nowait runasoriginaluser; Check: ShouldRestartAfterSilentUpdate
 
 [Code]
 function HasCommandLineParameter(const Expected: String): Boolean;
@@ -73,7 +91,7 @@ begin
   if HasCommandLineParameter('/CLOSEAPPLICATIONS') and
      not HasCommandLineParameter('/RESTARTAPP=1') then
   begin
-    LogDirectory := ExpandConstant('{localappdata}\PEXBOT\Logs');
+    LogDirectory := ExpandConstant('{localappdata}\{#ProductDataDir}\Logs');
     ForceDirectories(LogDirectory);
     Parameters := '/SP- /VERYSILENT /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS ' +
       '/NORESTART /RESTARTAPP=1 /LOG="' + LogDirectory + '\update-install.log"';

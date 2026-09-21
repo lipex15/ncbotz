@@ -1,12 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <BuildChannel Condition="'$(BuildChannel)' == ''">Testing</BuildChannel>
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
     <RootNamespace>BotNC.App</RootNamespace>
     <AssemblyName>PEXBOT</AssemblyName>
-    <Version>0.9.15</Version>
+    <Version>0.9.16</Version>
     <ApplicationIcon>..\..\branding\PEXBOT.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(BuildChannel)' == 'Testing'">
+    <AssemblyName>PEXBOT-Teste</AssemblyName>
+    <DefineConstants>$(DefineConstants);TEST_CHANNEL</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

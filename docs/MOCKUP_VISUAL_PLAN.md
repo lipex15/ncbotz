@@ -19,10 +19,10 @@ Este documento prepara a implementação do mock-up enviado pelo usuário. **Nã
 
 ## Implementação futura
 
-1. Isolar estilos, cores, cantos, ícones e estados interativos em recursos WPF reutilizáveis.
+1. Isolar estilos, cores, cantos, emojis, animações e estados interativos em recursos WPF reutilizáveis. Priorizar fidelidade ao mock-up recebido; usar emojis reais em vez de símbolos genéricos.
 2. Migrar uma página por vez sem mudar as regras do motor; manter compatibilidade das configurações existentes.
 3. Implementar o novo botão Iniciar e painel de status com a mesma validação do motor.
-4. Conferir 100%, 125% e 150% de escala do Windows e janela pequena, além de teclado e contraste.
+4. Conferir 100%, 125% e 150% de escala do Windows e janela pequena, além de teclado, contraste e redução de movimento para quem preferir menos animações.
 5. Testar navegação, persistência, dois clientes, pausa/parada e instalação de atualização em build empacotado.
 
 O mock-up é referência visual, não uma licença para renomear ou alterar o fluxo de automação nesta entrega.

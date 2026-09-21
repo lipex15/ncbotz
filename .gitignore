@@ -5,6 +5,7 @@ obj/
 *.suo
 rotas/
 publish/
+publish-test/
 artifacts/
 Atalhos de Teste/
 Simbolos/

@@ -26,8 +26,11 @@
                     <Image Source="Assets/Brand/pexbot-mark.png" Width="42" Height="42"
                            Stretch="Uniform" Margin="0,0,9,0" />
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="PEXBOT" Foreground="#65CEFA"
+                        <TextBlock x:Name="AppNameText" Text="PEXBOT" Foreground="#65CEFA"
                                    FontSize="26" FontWeight="Black" />
+                        <TextBlock x:Name="TestChannelBadge" Text="AMBIENTE DE TESTES"
+                                   Foreground="#F7C66C" FontSize="9" FontWeight="Bold"
+                                   Visibility="Collapsed" />
                     </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Row="2">
@@ -679,7 +682,7 @@
             </Grid.RowDefinitions>
             <StackPanel>
                 <TextBlock Text="Atualizações" FontSize="27" FontWeight="Bold" />
-                <TextBlock Text="Confira e instale novas versões do PEXBOT."
+                <TextBlock x:Name="UpdatesIntroText" Text="Confira e instale novas versões do PEXBOT."
                            Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
             </StackPanel>
             <Border Grid.Row="2" Background="{StaticResource CardBrush}"

@@ -6010,7 +6010,7 @@ public sealed class BotAutomationEngine(
     {
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PEXBOT",
+            AppIdentity.DataDirectoryName,
             "Logs");
         Directory.CreateDirectory(directory);
         return Path.Combine(directory, $"pexbot-{DateTime.Now:yyyyMMdd-HHmmss}.log");
