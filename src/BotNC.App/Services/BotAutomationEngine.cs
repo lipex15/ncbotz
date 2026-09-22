@@ -432,7 +432,7 @@ public sealed class BotAutomationEngine(
         if (session.AnonymousDungeonInside && Volatile.Read(ref session.PendingAnonymousTimeExhausted) != 0)
         {
             Interlocked.Exchange(ref session.PendingAnonymousTimeExhausted, 0);
-            session.AnonymousDungeonInside = false;
+            await RecordAnonymousDungeonExitAsync(session);
             session.AnonymousDungeonExhausted = true;
             await SaveAbbeyBudgetStateAsync(session);
             await SkipUnavailableFarmScheduleStepsAsync(session);
@@ -463,7 +463,7 @@ public sealed class BotAutomationEngine(
         }
 
         await RecordAbbeyExitAsync(session);
-        session.AnonymousDungeonInside = false;
+        await RecordAnonymousDungeonExitAsync(session);
         if (session.FarmScheduleIndex + 1 >= session.FarmScheduleSteps.Count)
         {
             session.FarmScheduleCompleted = true;
@@ -546,6 +546,18 @@ public sealed class BotAutomationEngine(
         session.AbbeyUsed = CurrentAbbeyUsage(session);
         session.AbbeyInside = false;
         session.AbbeyActiveSinceUtc = default;
+        session.AbbeySupplyPurchasePending = true;
+        await SaveAbbeyBudgetStateAsync(session);
+    }
+
+    private async Task RecordAnonymousDungeonExitAsync(ClientSession session)
+    {
+        if (!session.AnonymousDungeonInside)
+        {
+            return;
+        }
+
+        session.AnonymousDungeonInside = false;
         session.AbbeySupplyPurchasePending = true;
         await SaveAbbeyBudgetStateAsync(session);
     }
@@ -752,6 +764,7 @@ public sealed class BotAutomationEngine(
                     session.Audio.Armed = false;
                     session.IsFarmingTa = false;
                     await RecordAbbeyExitAsync(session);
+                    await RecordAnonymousDungeonExitAsync(session);
                     session.SafeInRest = false;
                     SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando em Sapheras", "Preparando o cliente");
                     await ActivateGameAsync(session, cancellationToken);
@@ -1527,6 +1540,15 @@ public sealed class BotAutomationEngine(
         await RefreshAbbeyWeekAsync(session);
         await SkipUnavailableFarmScheduleStepsAsync(session);
 
+        if (session.AbbeyInside && !WantsAbbey(session))
+        {
+            await RecordAbbeyExitAsync(session);
+        }
+        if (session.AnonymousDungeonInside && !WantsAnonymousDungeon(session))
+        {
+            await RecordAnonymousDungeonExitAsync(session);
+        }
+
         if (session.InDailyCampaign)
         {
             var dailyResume = await ResumeDailyCampaignAsync(session, pause, cancellationToken);
@@ -1612,7 +1634,7 @@ public sealed class BotAutomationEngine(
                 return;
             }
 
-            session.AnonymousDungeonInside = false;
+            await RecordAnonymousDungeonExitAsync(session);
             if (!session.AnonymousDungeonEntryMayHaveBeenCharged && CanPayAgendaEntry(session))
             {
                 await EnterAnonymousDungeonAndStartFarmAsync(session, pause, cancellationToken);
@@ -1623,7 +1645,7 @@ public sealed class BotAutomationEngine(
         }
 
         await SkipUnavailableFarmScheduleStepsAsync(session);
-        session.AnonymousDungeonInside = false;
+        await RecordAnonymousDungeonExitAsync(session);
         await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency);
     }
 
@@ -1632,6 +1654,13 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        if (session.AbbeySupplyPurchasePending)
+        {
+            await BuySuppliesInCurrentCityAsync(session, pause, cancellationToken);
+            session.AbbeySupplyPurchasePending = false;
+            await SaveAbbeyBudgetStateAsync(session);
+        }
+
         var step = CurrentFarmScheduleStep(session) ?? throw new InvalidOperationException("Etapa do Estreito de Tenerys ausente.");
         session.Audio.Armed = false;
         session.SafeInRest = false;
@@ -2350,7 +2379,7 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        SetStatus(BotRunState.Running, $"{session.Options.Label}: compra preventiva", "Repondo Artigos antes de voltar à Abadia");
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: compra preventiva", "Repondo Artigos antes de voltar à masmorra da Agenda");
         await ActivateGameAsync(session, cancellationToken);
         var cityDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
         var cityVisible = false;
@@ -3231,6 +3260,11 @@ public sealed class BotAutomationEngine(
             await RecordAbbeyExitAsync(session);
             WriteLog(session, "Saída programada da Abadia: eventual reentrada contará no limite configurado.");
         }
+        if (WantsAnonymousDungeon(session) && session.AnonymousDungeonInside)
+        {
+            await RecordAnonymousDungeonExitAsync(session);
+            WriteLog(session, "Saída programada do Estreito: suprimentos serão conferidos antes da próxima entrada.");
+        }
 
         session.Audio.Armed = false;
         session.IsFarmingTa = false;
@@ -3674,6 +3708,10 @@ public sealed class BotAutomationEngine(
             if (WantsAbbey(session) && session.AbbeyInside)
             {
                 await RecordAbbeyExitAsync(session);
+            }
+            if (WantsAnonymousDungeon(session) && session.AnonymousDungeonInside)
+            {
+                await RecordAnonymousDungeonExitAsync(session);
             }
 
             session.Audio.Armed = false;
@@ -5775,6 +5813,7 @@ public sealed class BotAutomationEngine(
         }
 
         await RecordAbbeyExitAsync(session);
+        await RecordAnonymousDungeonExitAsync(session);
         WriteLog(session, $"Proteção visual executada sem morte; retomando {ConfiguredFarmName(session)}.");
         await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: true);
     }
@@ -5828,6 +5867,7 @@ public sealed class BotAutomationEngine(
         {
             await ClearRestorationIconAbsenceAsync(session);
             await RecordAbbeyExitAsync(session);
+            await RecordAnonymousDungeonExitAsync(session);
             SetStatus(BotRunState.Running, $"{session.Options.Label}: personagem morreu", "Ressuscitando e restaurando recursos");
             // A tela de morte tem contagem regressiva curta; devolver o foco
             // rapidamente evita que o renascimento automático passe antes do

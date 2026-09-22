@@ -6,6 +6,8 @@
     <RootNamespace>BotNC.App</RootNamespace>
     <AssemblyName>PEXBOT</AssemblyName>
     <Version>0.10.4</Version>
+    <LicenseServerUrl Condition="'$(LicenseServerUrl)' == ''"></LicenseServerUrl>
+    <LicensePublicKey Condition="'$(LicensePublicKey)' == ''"></LicensePublicKey>
     <ApplicationIcon>..\..\branding\PEXBOT.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
@@ -18,6 +20,18 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <PackageReference Include="NAudio" Version="3.1.1-preview.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BotNC.ActivationSmoke" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>LicenseServerUrl</_Parameter1>
+      <_Parameter2>$(LicenseServerUrl)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>LicensePublicKey</_Parameter1>
+      <_Parameter2>$(LicensePublicKey)</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>

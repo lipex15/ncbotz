@@ -315,6 +315,31 @@ public partial class App : Application
 
         var screenshotIndex = Array.IndexOf(e.Args, "--screenshot");
         var isScreenshotMode = screenshotIndex >= 0 && screenshotIndex + 1 < e.Args.Length;
+        if (!isScreenshotMode)
+        {
+            ActivationService activation;
+            try
+            {
+                activation = new ActivationService();
+                if (activation.IsRequired && !activation.HasValidActivation())
+                {
+                    ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                    if (new ActivationWindow(activation).ShowDialog() != true)
+                    {
+                        Shutdown();
+                        return;
+                    }
+                    ShutdownMode = ShutdownMode.OnLastWindowClose;
+                }
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show($"Não foi possível verificar a ativação: {exception.Message}",
+                    "PEXBOT", MessageBoxButton.OK, MessageBoxImage.Error);
+                Shutdown();
+                return;
+            }
+        }
         var window = new MainWindow();
         if (isScreenshotMode)
         {

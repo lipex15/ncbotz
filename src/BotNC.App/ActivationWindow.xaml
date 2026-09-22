@@ -1,0 +1,31 @@
+<Window x:Class="BotNC.App.ActivationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Ativar PEXBOT" Width="420" Height="330"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="#0B1523" Foreground="#EEF4FF">
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Ativação do PEXBOT" FontSize="23" FontWeight="Bold" Foreground="#94C4FF" />
+        <TextBlock Grid.Row="1" Text="Entre uma vez. Este computador ficará autorizado para abrir o bot mesmo offline."
+                   TextWrapping="Wrap" Foreground="#ACBDD2" Margin="0,8,0,16" />
+        <TextBlock Grid.Row="2" Text="Usuário" Margin="0,0,0,4" />
+        <TextBox Grid.Row="3" x:Name="UsernameBox" Height="34" Margin="0,0,0,12" MaxLength="80" />
+        <StackPanel Grid.Row="4">
+            <TextBlock Text="Senha" Margin="0,0,0,4" />
+            <PasswordBox x:Name="PasswordBox" Height="34" />
+        </StackPanel>
+        <TextBlock Grid.Row="5" x:Name="StatusText" TextWrapping="Wrap" Foreground="#FFAA9B"
+                   Margin="0,14,0,0" />
+        <Button Grid.Row="6" x:Name="ActivateButton" Content="Ativar neste computador" Height="40"
+                Background="#2677DA" Foreground="White" BorderThickness="0" Click="OnActivate" />
+    </Grid>
+</Window>
