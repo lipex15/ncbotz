@@ -464,6 +464,7 @@ public partial class App : Application
             ("daily_shop_common", "daily_shop_common.png"),
             ("daily_shop_bulk", "daily_shop_common.png"),
             ("daily_shop_bulk_popup", "daily_shop_bulk_popup_full.png"),
+            ("daily_shop_bulk_title", "daily_shop_bulk_popup_full.png"),
             ("daily_shop_result", "daily_shop_result.png"),
             ("daily_shop_summon", "daily_shop_summon.png"),
             ("boss_entry_panel", "boss_entry_panel.png"),
@@ -556,6 +557,10 @@ public partial class App : Application
             ("oferta_wemade", "agenda_tela.png")
         };
         var lines = new List<string>();
+        var bulkTitleOnSummonPage = await recognition.FindInImageAsync(
+            "daily_shop_bulk_title", Path.Combine(referenceDirectory, "daily_shop_summon.png"));
+        if (bulkTitleOnSummonPage.Found)
+            throw new InvalidOperationException("Popup da compra em lote confundido com a página de Invocação.");
         var requiredNewReferences = new HashSet<string>(StringComparer.Ordinal)
         {
             "guild_page", "guild_directive_page", "guild_directive_accepted", "guild_directive_in_progress",
@@ -564,7 +569,7 @@ public partial class App : Application
             "agenda_popup_ok", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max",
             "anonymous_epic_tab", "anonymous_tenerys_card", "anonymous_level_panel",
             "anonymous_entry_confirmation", "anonymous_arrival", "anonymous_map", "anonymous_go"
-            , "daily_shop_page", "daily_shop_coins", "daily_shop_common", "daily_shop_bulk", "daily_shop_bulk_popup"
+            , "daily_shop_page", "daily_shop_coins", "daily_shop_common", "daily_shop_bulk", "daily_shop_bulk_popup", "daily_shop_bulk_title"
         };
         foreach (var (referenceId, fileName) in cases)
         {

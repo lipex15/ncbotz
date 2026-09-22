@@ -316,6 +316,8 @@ public sealed class AppDatabase
                 616, 225, 690, 620,
                 500, 150, 900, 760,
                 0.65),
+            new("daily_shop_bulk_title", "Título Compra em Lote", "daily_shop_bulk_popup_full.png",
+                843, 239, 255, 49, 780, 215, 370, 105, 0.68),
             new("daily_shop_result", "Resultado da Compra", "daily_shop_result.png",
                 797, 412, 325, 49, 735, 380, 460, 110, 0.76),
             new("daily_shop_summon", "Categoria Invocação da Loja", "daily_shop_summon.png",

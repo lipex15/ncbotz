@@ -18,6 +18,7 @@ public sealed partial class BotAutomationEngine(
     private const int KeyM = 0x4D;
     private const int KeyV = 0x56;
     private const int KeyY = 0x59;
+    private const int Key7 = 0x37;
     private const int KeyEquals = 0xBB;
     private const double FullDeathConfidence = 0.66;
     private const double FixedDeathElementConfidence = 0.82;
@@ -560,6 +561,7 @@ public sealed partial class BotAutomationEngine(
         session.AbbeyInside = false;
         session.AbbeyActiveSinceUtc = default;
         session.AbbeySupplyPurchasePending = true;
+        session.SupplyCityTeleportAttempted = false;
         await SaveAbbeyBudgetStateAsync(session);
     }
 
@@ -572,6 +574,7 @@ public sealed partial class BotAutomationEngine(
 
         session.AnonymousDungeonInside = false;
         session.AbbeySupplyPurchasePending = true;
+        session.SupplyCityTeleportAttempted = false;
         await SaveAbbeyBudgetStateAsync(session);
     }
 
@@ -2431,35 +2434,20 @@ public sealed partial class BotAutomationEngine(
     {
         SetStatus(BotRunState.Running, $"{session.Options.Label}: compra preventiva", "Repondo Artigos antes de voltar à masmorra da Agenda");
         await ActivateGameAsync(session, cancellationToken);
-        var cityDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
-        var cityVisible = false;
-        while (DateTime.UtcNow < cityDeadline)
+        if (!(await recognition.FindAsync("loja_artigos", cancellationToken)).Found &&
+            !session.SupplyCityTeleportAttempted)
         {
-            await CheckpointAsync(pause, cancellationToken);
-            foreach (var referenceId in new[] { "ta1_chegada", "ta2_chegada", "ta3_chegada" })
-            {
-                if ((await recognition.FindAsync(referenceId, cancellationToken)).Found)
-                {
-                    cityVisible = true;
-                    break;
-                }
-            }
-
-            if (cityVisible)
-            {
-                break;
-            }
-
-            await Task.Delay(400, cancellationToken);
+            WriteLog(session, "Usando uma vez o teleporte 7 para voltar à cidade antes de procurar Artigos.");
+            session.SupplyCityTeleportAttempted = true;
+            await input.PressKeyAsync(Key7, cancellationToken: cancellationToken);
+            await ActionDelayAsync(cancellationToken, 4200, 5600);
         }
-
-        if (!cityVisible)
+        if (!(await recognition.FindAsync("loja_artigos", cancellationToken)).Found)
         {
-            throw new TimeoutException("Compra preventiva adiada: a chegada à cidade não foi reconhecida; não clicarei em uma coordenada sem confirmar a tela.");
+            await input.MoveAndClickAsync(189, 134, TimeSpan.FromMilliseconds(320), cancellationToken);
+            await WaitForReferenceAsync("loja_artigos", "Mercador de Artigos da cidade",
+                TimeSpan.FromSeconds(15), pause, cancellationToken);
         }
-
-        await input.MoveAndClickAsync(189, 134, TimeSpan.FromMilliseconds(320), cancellationToken);
-        await WaitForReferenceAsync("loja_artigos", "Mercador de Artigos da cidade", TimeSpan.FromSeconds(15), pause, cancellationToken);
         var buyButtonLuma = await WaitForStableBuyButtonLumaAsync(pause, cancellationToken);
         if (buyButtonLuma >= 72)
         {
@@ -2475,6 +2463,7 @@ public sealed partial class BotAutomationEngine(
         }
 
         await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        session.SupplyCityTeleportAttempted = false;
     }
 
     private async Task<double> WaitForStableBuyButtonLumaAsync(
@@ -3504,27 +3493,20 @@ public sealed partial class BotAutomationEngine(
         }
 
         await input.MoveAndClickAsync(145, 1009, TimeSpan.FromMilliseconds(340), cancellationToken, cooldown: TimeSpan.FromMilliseconds(180));
-        if (!await WaitForReferenceToAppearAsync("daily_shop_bulk_popup", TimeSpan.FromSeconds(10), pause, cancellationToken))
+        if (!await WaitForReferenceToAppearAsync("daily_shop_bulk_title", TimeSpan.FromSeconds(10), pause, cancellationToken))
         {
-            if (await IsDailyShopCategoryExhaustedStableAsync(session, summon, pause, cancellationToken))
+            if ((await recognition.FindAsync("daily_shop_result", cancellationToken)).Found)
             {
-                WriteLog(session, $"{category} já estava esgotada; popup de compra não será procurado novamente.");
+                await CloseDailyShopResultIfVisibleAsync(session, pause, cancellationToken);
+                WriteLog(session, $"Resultado do lote de {category} já estava aberto; compra confirmada sem novo Y.");
                 return;
             }
-
-            throw new TimeoutException($"{session.Options.Label}: o popup do lote de {category} não apareceu.");
+            throw new TimeoutException($"{session.Options.Label}: o diálogo do lote de {category} não foi reconhecido após o clique. Não presumirei esgotamento com o popup possivelmente aberto.");
         }
 
+        WriteLog(session, $"Popup Compra em Lote de {category} confirmado; enviando Y agora.");
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
-        try
-        {
-            await WaitForReferenceToDisappearAsync("daily_shop_bulk_popup", TimeSpan.FromSeconds(15), pause, cancellationToken);
-        }
-        catch (TimeoutException exception)
-        {
-            WritePersistentOnly(session, $"Popup da compra de {category} demorou a sumir após Y: {exception.Message}");
-            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-        }
+        await WaitForReferenceToDisappearAsync("daily_shop_bulk_title", TimeSpan.FromSeconds(8), pause, cancellationToken);
         await WaitForReferenceAsync("daily_shop_result", $"resultado da compra de {category}",
             TimeSpan.FromSeconds(15), pause, cancellationToken);
         await CloseDailyShopResultIfVisibleAsync(session, pause, cancellationToken);
@@ -7188,6 +7170,7 @@ public sealed partial class BotAutomationEngine(
         public TimeSpan AbbeyUsed { get; set; }
         public DateTime AbbeyActiveSinceUtc { get; set; }
         public bool AbbeySupplyPurchasePending { get; set; }
+        public bool SupplyCityTeleportAttempted { get; set; }
         public string? AbbeyWeek { get; set; }
         public DateTime LastAbbeyTimeReadUtc { get; set; }
         public int AbbeyTimeLowHits { get; set; }
