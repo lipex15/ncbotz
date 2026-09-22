@@ -66,6 +66,9 @@ public sealed class BotAutomationEngine(
     private static readonly (int X, int Y)[] AbbeySpots =
         [(869, 823), (1007, 814), (1147, 589), (771, 442)];
 
+    private static readonly (int X, int Y)[] AnonymousDungeonSpots =
+        [(667, 706), (812, 259), (827, 733), (1141, 989), (1123, 809)];
+
     private static readonly string[] RestStateReferences =
     [
         "caca_automatica",
@@ -290,9 +293,20 @@ public sealed class BotAutomationEngine(
             return;
         }
 
+        configured = configured
+            .Where(step => step.Destination is FarmScheduleDestination.Abbey or FarmScheduleDestination.AnonymousDungeon)
+            .ToArray();
+        if (configured.Count == 0)
+        {
+            WriteLog(session, "A Agenda antiga não contém Abadia ou Estreito de Tenerys; usando a T.A configurada.");
+            return;
+        }
+
         if (configured.Any(step => step.Duration <= TimeSpan.Zero ||
             step.Duration > TimeSpan.FromDays(7) ||
-            !Enum.IsDefined(step.Destination)))
+            !Enum.IsDefined(step.Destination) ||
+            step.Destination == FarmScheduleDestination.AnonymousDungeon &&
+            step.AnonymousDungeonLevel is not (86 or 97 or 110)))
         {
             WriteLog(session, "Agenda de farm inválida; usando o destino padrão deste cliente.");
             return;
@@ -303,16 +317,22 @@ public sealed class BotAutomationEngine(
         _ = int.TryParse(await database.GetSettingAsync($"{prefix}.index"), out var index);
         var savedSecondsText = await database.GetSettingAsync($"{prefix}.remainingSeconds");
         var savedSignature = await database.GetSettingAsync($"{prefix}.signature");
+        var savedCompleted = await database.GetSettingAsync($"{prefix}.completed");
         var signature = FarmScheduleSignature(configured);
         var samePlan = string.Equals(savedSignature, signature, StringComparison.Ordinal);
+        session.FarmScheduleCompleted = samePlan &&
+            string.Equals(savedCompleted, "true", StringComparison.OrdinalIgnoreCase);
         session.FarmScheduleIndex = samePlan ? Math.Clamp(index, 0, configured.Count - 1) : 0;
         var savedSeconds = 0d;
         var hasSavedTime = samePlan &&
             double.TryParse(savedSecondsText, NumberStyles.Float, CultureInfo.InvariantCulture, out savedSeconds) &&
             double.IsFinite(savedSeconds);
-        if (hasSavedTime && savedSeconds <= 0)
+        if (hasSavedTime && savedSeconds <= 0 && !session.FarmScheduleCompleted)
         {
-            session.FarmScheduleIndex = (session.FarmScheduleIndex + 1) % configured.Count;
+            if (session.FarmScheduleIndex + 1 < configured.Count)
+                session.FarmScheduleIndex++;
+            else
+                session.FarmScheduleCompleted = true;
         }
 
         session.FarmScheduleRemaining = hasSavedTime && savedSeconds > 0 &&
@@ -322,7 +342,9 @@ public sealed class BotAutomationEngine(
         session.FarmScheduleLastTickUtc = DateTime.UtcNow;
 
         await SaveFarmScheduleStateAsync(session);
-        WriteLog(session, $"Agenda de farm retomada em {ScheduleDestinationName(configured[session.FarmScheduleIndex].Destination)}; faltam {FormatDuration(session.FarmScheduleRemaining)} de farm ativo.");
+        WriteLog(session, session.FarmScheduleCompleted
+            ? "Agenda já concluída; seguindo para a T.A configurada."
+            : $"Agenda retomada em {ScheduleDestinationName(configured[session.FarmScheduleIndex].Destination)}; faltam {FormatDuration(session.FarmScheduleRemaining)} de farm ativo.");
     }
 
     private async Task SaveFarmScheduleStateAsync(ClientSession session)
@@ -338,10 +360,11 @@ public sealed class BotAutomationEngine(
             $"{prefix}.remainingSeconds",
             session.FarmScheduleRemaining.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture));
         await database.SaveSettingAsync($"{prefix}.signature", FarmScheduleSignature(session.FarmScheduleSteps));
+        await database.SaveSettingAsync($"{prefix}.completed", session.FarmScheduleCompleted.ToString().ToLowerInvariant());
     }
 
     private static string FarmScheduleSignature(IReadOnlyList<FarmScheduleStep> steps) =>
-        string.Join("|", steps.Select(step => $"{step.Destination}:{step.Duration.Ticks}"));
+        string.Join("|", steps.Select(step => $"{step.Destination}:{step.Duration.Ticks}:{step.AnonymousDungeonLevel}"));
 
     private async Task<bool> TryAdvanceFarmScheduleAsync(
         ClientSession session,
@@ -373,6 +396,15 @@ public sealed class BotAutomationEngine(
             return true;
         }
 
+
+        if (session.AnonymousDungeonInside && Volatile.Read(ref session.PendingAnonymousTimeExhausted) != 0)
+        {
+            Interlocked.Exchange(ref session.PendingAnonymousTimeExhausted, 0);
+            await CompleteFarmScheduleAsync(session, "O tempo do Estreito de Tenerys terminou; seguindo para a T.A configurada.");
+            await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+            return true;
+        }
+
         if (session.FarmScheduleSteps.Count == 0)
         {
             return false;
@@ -394,7 +426,17 @@ public sealed class BotAutomationEngine(
         }
 
         await RecordAbbeyExitAsync(session);
-        session.FarmScheduleIndex = (session.FarmScheduleIndex + 1) % session.FarmScheduleSteps.Count;
+        if (session.FarmScheduleIndex + 1 >= session.FarmScheduleSteps.Count)
+        {
+            session.FarmScheduleCompleted = true;
+            session.FarmScheduleRemaining = TimeSpan.Zero;
+            await SaveFarmScheduleStateAsync(session);
+            WriteLog(session, "Agenda concluída; redirecionando para a T.A configurada.");
+            await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+            return true;
+        }
+
+        session.FarmScheduleIndex++;
         var step = session.FarmScheduleSteps[session.FarmScheduleIndex];
         session.FarmScheduleRemaining = step.Duration;
         session.FarmScheduleLastTickUtc = DateTime.UtcNow;
@@ -1457,7 +1499,143 @@ public sealed class BotAutomationEngine(
                 : $"Limite de retornos à Abadia atingido ({session.AbbeyEntries} entrada(s)); usando a T.A configurada.");
         }
 
+
+        if (WantsAnonymousDungeon(session))
+        {
+            if (session.AnonymousDungeonEntryMayHaveBeenCharged &&
+                await IsAnonymousDungeonLocationVisibleAsync(cancellationToken))
+            {
+                session.AnonymousDungeonEntryMayHaveBeenCharged = false;
+                session.AnonymousDungeonInside = true;
+                WriteLog(session, "Chegada atrasada ao Estreito de Tenerys reconhecida; retomando sem pagar outra entrada.");
+            }
+
+            if (session.AnonymousDungeonInside && await IsAnonymousDungeonLocationVisibleAsync(cancellationToken))
+            {
+                WriteLog(session, "Estreito de Tenerys ainda acessível; retomando sem pagar outra entrada.");
+                await TravelToAnonymousDungeonSpotAsync(session, pause, cancellationToken);
+                return;
+            }
+
+            if (!session.AnonymousDungeonEntryMayHaveBeenCharged)
+            {
+                await EnterAnonymousDungeonAndStartFarmAsync(session, pause, cancellationToken);
+                return;
+            }
+
+            WriteLog(session, "A entrada do Estreito de Tenerys pode ter sido cobrada; evitando nova cobrança e usando a T.A configurada.");
+        }
+
         await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency);
+    }
+
+    private async Task EnterAnonymousDungeonAndStartFarmAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var step = CurrentFarmScheduleStep(session) ?? throw new InvalidOperationException("Etapa do Estreito de Tenerys ausente.");
+        session.Audio.Armed = false;
+        session.SafeInRest = false;
+        session.IsFarmingTa = false;
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando no Estreito de Tenerys", $"Selecionando nível {step.AnonymousDungeonLevel}");
+        await ActivateGameAsync(session, cancellationToken);
+        await AbortWorkflowIfDeathDetectedAsync(session, "antes de entrar no Estreito de Tenerys", cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        await OpenDungeonMenuAsync(session, pause, cancellationToken);
+        await input.MoveAndClickAsync(1740, 271, TimeSpan.FromMilliseconds(220), cancellationToken, cooldown: TimeSpan.FromMilliseconds(60));
+        await WaitForReferenceAsync("tela_masmorras", "página Masmorra", TimeSpan.FromSeconds(18), pause, cancellationToken);
+        await input.MoveAndClickAsync(720, 140, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+        await WaitForReferenceAsync("anonymous_epic_tab", "aba Épica", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await input.MoveAndClickAsync(239, 488, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+        await WaitForReferenceAsync("anonymous_level_panel", "níveis do Estreito de Tenerys", TimeSpan.FromSeconds(15), pause, cancellationToken);
+
+        var first = await _abbeyTimeReader.ReadEpicMenuAsync(await CaptureClientFrameAsync(session, cancellationToken), cancellationToken);
+        if (first.Remaining is { } firstTime && firstTime <= TimeSpan.FromMinutes(1))
+        {
+            await Task.Delay(300, cancellationToken);
+            var second = await _abbeyTimeReader.ReadEpicMenuAsync(await CaptureClientFrameAsync(session, cancellationToken), cancellationToken);
+            if (second.Remaining is { } secondTime && secondTime <= TimeSpan.FromMinutes(1))
+            {
+                await CompleteFarmScheduleAsync(session, "O tempo do Estreito de Tenerys acabou; Agenda concluída e retorno à T.A configurada.");
+                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                await EnterTaAndStartFarmAsync(session, pause, cancellationToken, isEmergency: false);
+                return;
+            }
+        }
+
+        var levelPoint = step.AnonymousDungeonLevel switch
+        {
+            86 => (1716, 237),
+            97 => (1643, 310),
+            110 => (1645, 381),
+            _ => throw new InvalidOperationException("Nível do Estreito de Tenerys inválido.")
+        };
+        await input.MoveAndClickAsync(levelPoint.Item1, levelPoint.Item2, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+        await Task.Delay(180, cancellationToken);
+        await input.MoveAndClickAsync(1798, 992, TimeSpan.FromMilliseconds(200), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+        await WaitForReferenceAsync("anonymous_entry_confirmation", "confirmação de entrada do Estreito de Tenerys", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        session.AnonymousDungeonEntryMayHaveBeenCharged = true;
+        await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+        await WaitForReferenceAsync("anonymous_arrival", "chegada ao Estreito de Tenerys", TimeSpan.FromSeconds(70), pause, cancellationToken);
+        session.AnonymousDungeonEntryMayHaveBeenCharged = false;
+        session.AnonymousDungeonInside = true;
+        WriteLog(session, $"Entrada no Estreito de Tenerys nível {step.AnonymousDungeonLevel} comprovada.");
+        await TravelToAnonymousDungeonSpotAsync(session, pause, cancellationToken);
+    }
+
+    private async Task<bool> IsAnonymousDungeonLocationVisibleAsync(CancellationToken cancellationToken) =>
+        (await recognition.FindAsync("anonymous_arrival", cancellationToken)).Found ||
+        (await recognition.FindAsync("anonymous_map", cancellationToken)).Found;
+
+    private async Task TravelToAnonymousDungeonSpotAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
+    {
+        if (!(await recognition.FindAsync("anonymous_map", cancellationToken)).Found)
+        {
+            await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
+            await WaitForReferenceAsync("anonymous_map", "mapa do Estreito de Tenerys", TimeSpan.FromSeconds(18), pause, cancellationToken);
+        }
+
+        var start = ChooseNextSpot(session, -3, AnonymousDungeonSpots.Length);
+        for (var offset = 0; offset < AnonymousDungeonSpots.Length; offset++)
+        {
+            var point = AnonymousDungeonSpots[(start + offset) % AnonymousDungeonSpots.Length];
+            await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+            await Task.Delay(140, cancellationToken);
+            if ((await recognition.FindAsync("anonymous_invalid_point", cancellationToken)).Found)
+                continue;
+
+            var go = await WaitForAnyReferenceInRegionAsync(
+                ["anonymous_go", "botao_ir", "botao_ir_legado"],
+                Math.Max(0, point.X - 180), Math.Max(0, point.Y - 130), 390, 220,
+                TimeSpan.FromSeconds(2), pause, cancellationToken);
+            if (go is null)
+                continue;
+
+            await input.MoveAndClickAsync(go.X, go.Y, TimeSpan.FromMilliseconds(160), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+            await CloseMapAfterGoAsync(session, pause, cancellationToken);
+            await OpenRestForTravelAsync(session, pause, cancellationToken);
+            await WaitForFarmArrivalAsync(session, pause, cancellationToken, "Estreito de Tenerys");
+            session.AwaitingHuntActivationAtSpot = true;
+            await StartAutomaticHuntAsync(session, pause, cancellationToken);
+            session.IsFarmingTa = true;
+            session.SafeInRest = true;
+            session.Audio.Armed = true;
+            WriteLog(session, $"Farm iniciado no Estreito de Tenerys pelo ponto ({point.X}, {point.Y}).");
+            return;
+        }
+
+        var diagnostic = await recognition.SaveDiagnosticAsync($"tenerys_spot_{session.Options.Priority}");
+        throw new TimeoutException($"{session.Options.Label}: nenhum ponto válido do Estreito de Tenerys confirmou o botão Ir. Diagnóstico: {diagnostic}");
+    }
+
+    private async Task CompleteFarmScheduleAsync(ClientSession session, string message)
+    {
+        session.FarmScheduleCompleted = true;
+        session.FarmScheduleRemaining = TimeSpan.Zero;
+        session.AnonymousDungeonInside = false;
+        await SaveFarmScheduleStateAsync(session);
+        WriteLog(session, message);
     }
 
     private async Task EnterAbbeyAndStartFarmAsync(
@@ -2381,6 +2559,11 @@ public sealed class BotAutomationEngine(
     private async Task<bool> IsMapOpenAsync(ClientSession session, CancellationToken cancellationToken)
     {
         if ((await recognition.FindAsync("mapa_abadia", cancellationToken)).Found)
+        {
+            return true;
+        }
+
+        if ((await recognition.FindAsync("anonymous_map", cancellationToken)).Found)
         {
             return true;
         }
@@ -4406,6 +4589,27 @@ public sealed class BotAutomationEngine(
                         WritePersistentOnly(session, $"Leitura do tempo da Abadia indisponível: {exception.Message}");
                     }
                 }
+                if (session.AnonymousDungeonInside &&
+                    DateTime.UtcNow - session.LastAnonymousTimeReadUtc >= TimeSpan.FromSeconds(30))
+                {
+                    session.LastAnonymousTimeReadUtc = DateTime.UtcNow;
+                    try
+                    {
+                        var remaining = await _abbeyTimeReader.ReadAsync(frame, cancellationToken);
+                        if (remaining.Remaining is { } time)
+                        {
+                            session.AnonymousTimeLowHits = time <= TimeSpan.FromMinutes(1)
+                                ? session.AnonymousTimeLowHits + 1
+                                : 0;
+                            if (session.AnonymousTimeLowHits >= 2)
+                                Interlocked.Exchange(ref session.PendingAnonymousTimeExhausted, 1);
+                        }
+                    }
+                    catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        WritePersistentOnly(session, $"Leitura do tempo do Estreito de Tenerys indisponível: {exception.Message}");
+                    }
+                }
                 if (hp.Found && hp.Percent <= 0.35)
                 {
                     session.LowHpVisualHits++;
@@ -5990,7 +6194,7 @@ public sealed class BotAutomationEngine(
     };
 
     private static FarmScheduleStep? CurrentFarmScheduleStep(ClientSession session) =>
-        session.FarmScheduleSteps.Count == 0
+        session.FarmScheduleCompleted || session.FarmScheduleSteps.Count == 0
             ? null
             : session.FarmScheduleSteps[session.FarmScheduleIndex];
 
@@ -6014,7 +6218,12 @@ public sealed class BotAutomationEngine(
     private static bool WantsAbbey(ClientSession session) =>
         CurrentFarmScheduleStep(session) is { } step
             ? step.Destination == FarmScheduleDestination.Abbey
-            : session.Options.UseAbbey;
+            : session.FarmScheduleSteps.Count > 0
+                ? false
+                : session.Options.UseAbbey;
+
+    private static bool WantsAnonymousDungeon(ClientSession session) =>
+        CurrentFarmScheduleStep(session)?.Destination == FarmScheduleDestination.AnonymousDungeon;
 
     private static bool AbbeyIsAvailable(ClientSession session) =>
         session.AbbeyLockedUntilUtc <= DateTime.UtcNow && CurrentAbbeyUsage(session) < TimeSpan.FromHours(10);
@@ -6022,9 +6231,10 @@ public sealed class BotAutomationEngine(
     private static string ScheduleDestinationName(FarmScheduleDestination destination) => destination switch
     {
         FarmScheduleDestination.Abbey => "Abadia",
-        FarmScheduleDestination.Ta1 => "T.A 1",
-        FarmScheduleDestination.Ta2 => "T.A 2",
-        _ => "T.A 3"
+        FarmScheduleDestination.AnonymousDungeon => "Estreito de Tenerys",
+        FarmScheduleDestination.Ta1 => "T.A 1 (legado)",
+        FarmScheduleDestination.Ta2 => "T.A 2 (legado)",
+        _ => "T.A 3 (legado)"
     };
 
     private static string AbbeyWeekKey(DateTime now)
@@ -6035,7 +6245,9 @@ public sealed class BotAutomationEngine(
     }
 
     private static string ConfiguredFarmName(ClientSession session) =>
-        WantsAbbey(session) && AbbeyIsAvailable(session) && (session.AbbeyInside ||
+        WantsAnonymousDungeon(session)
+            ? "o Estreito de Tenerys"
+            : WantsAbbey(session) && AbbeyIsAvailable(session) && (session.AbbeyInside ||
         (!session.AbbeyEntryMayHaveBeenCharged &&
         session.AbbeyEntries < 1 + session.Options.AbbeyReturnLimit))
             ? "a Abadia"
@@ -6159,7 +6371,13 @@ public sealed class BotAutomationEngine(
         public DateTime LastAbbeyTimeReadUtc { get; set; }
         public int AbbeyTimeLowHits { get; set; }
         public int PendingAbbeyTimeExhausted;
+        public bool AnonymousDungeonInside { get; set; }
+        public bool AnonymousDungeonEntryMayHaveBeenCharged { get; set; }
+        public DateTime LastAnonymousTimeReadUtc { get; set; }
+        public int AnonymousTimeLowHits { get; set; }
+        public int PendingAnonymousTimeExhausted;
         public IReadOnlyList<FarmScheduleStep> FarmScheduleSteps { get; set; } = [];
+        public bool FarmScheduleCompleted { get; set; }
         public int FarmScheduleIndex { get; set; }
         public TimeSpan FarmScheduleRemaining { get; set; }
         public DateTime FarmScheduleLastTickUtc { get; set; }

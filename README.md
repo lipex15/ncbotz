@@ -6,7 +6,17 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Ciclo disponível — v0.9.15
+## Ciclo disponível — v0.10.0 (testes)
+
+- Interface renovada em azul-marinho, com cards arredondados, navegação por emojis, estados interativos e hierarquia visual mais clara.
+- Agenda individual limitada à Abadia da Lembrança e ao Estreito de Tenerys; ao concluir, retorna à T.A configurada para o cliente.
+- Estreito de Tenerys (também chamado de Masmorra Anônima) nos níveis 86, 97 ou 110, com confirmação visual de cada tela, cinco spots e fuga para pontos inválidos.
+- A Agenda agora é sequencial e termina: não reinicia implicitamente nem altera a escolha de Sapheras.
+- Leitura do tempo semanal aceita durações acima de dez horas e evita nova entrada quando restar 00:01/00:00.
+- Proteção contra cobrança repetida quando a chegada da masmorra atrasar ou a captura visual estiver temporariamente indisponível.
+- Referências reais do Estreito incluídas no autoteste do pacote.
+
+## Ciclo anterior — v0.9.15
 
 - Diretivas: diferencia Aceitar, Em andamento/Desistir e 5/5; não cancela uma diretiva ativa.
 - Coordenadas de farm independentes por T.A e cliente; a T.A 1 continua exigindo ponto capturado.

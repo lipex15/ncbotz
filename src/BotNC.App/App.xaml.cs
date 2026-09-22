@@ -116,9 +116,11 @@ public partial class App : Application
             var reader = new AbbeyTimeReader();
             var inGame = await reader.ReadAsync(frame, CancellationToken.None);
             var inMenu = await reader.ReadMenuAsync(frame, CancellationToken.None);
+            var epicMenu = await reader.ReadEpicMenuAsync(frame, CancellationToken.None);
             await File.WriteAllLinesAsync(Path.GetFullPath(e.Args[abbeyTimeProbeIndex + 2]),
                 [$"inGame={inGame.Remaining};text={inGame.Text}",
                  $"inMenu={inMenu.Remaining};text={inMenu.Text}",
+                 $"epicMenu={epicMenu.Remaining};text={epicMenu.Text}",
                  $"tombstoneRed={TombstoneIconAnalyzer.HasRedIcon(frame)}",
                  $"hp={HpBarAnalyzer.Measure(frame)}"]);
             Shutdown();
@@ -372,6 +374,13 @@ public partial class App : Application
             ("abadia_chegada_apreciacao", "abadia_chegada_silencio.png"),
             ("mapa_abadia", "mapa_abadia.png"),
             ("mapa_abadia", "abadia_chegada_apreciacao.png"),
+            ("anonymous_epic_tab", "anonymous_epic_page.png"),
+            ("anonymous_tenerys_card", "anonymous_tenerys_page.png"),
+            ("anonymous_level_panel", "anonymous_tenerys_page.png"),
+            ("anonymous_entry_confirmation", "anonymous_entry_confirmation.png"),
+            ("anonymous_arrival", "anonymous_arrival.png"),
+            ("anonymous_map", "anonymous_map.png"),
+            ("anonymous_go", "anonymous_map_selected.png"),
             ("menu_masmorra", "menu_aberto.png"),
             ("tela_masmorras", "tela_masmorras.png"),
             ("confirmar_sepheras", "confirmar_sepheras.png"),
@@ -461,7 +470,9 @@ public partial class App : Application
             "guild_page", "guild_directive_page", "guild_directive_accepted", "guild_directive_in_progress",
             "campaign_page", "daily_page", "daily_all_accepted", "daily_30_accepted",
             "daily_automatic",
-            "agenda_popup_ok", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max"
+            "agenda_popup_ok", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max",
+            "anonymous_epic_tab", "anonymous_tenerys_card", "anonymous_level_panel",
+            "anonymous_entry_confirmation", "anonymous_arrival", "anonymous_map", "anonymous_go"
         };
         foreach (var (referenceId, fileName) in cases)
         {

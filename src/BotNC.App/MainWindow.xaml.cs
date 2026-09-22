@@ -80,9 +80,14 @@ public partial class MainWindow : Window
         MailScopeComboBox.SelectedItem = "Ambos";
         AntiOverkillScopeComboBox.SelectedItem = "Ambos";
         FarmScheduleScopeComboBox.SelectedItem = "Nenhum";
-        var scheduleDestinations = new[] { "Abadia", "T.A 1", "T.A 2", "T.A 3" };
+        var scheduleDestinations = new[] { "Abadia da Lembrança", "Masmorra Anônima · Estreito de Tenerys" };
         Client1ScheduleDestinationComboBox.ItemsSource = scheduleDestinations;
         Client2ScheduleDestinationComboBox.ItemsSource = scheduleDestinations;
+        var anonymousLevels = new[] { 86, 97, 110 };
+        Client1AnonymousLevelComboBox.ItemsSource = anonymousLevels;
+        Client2AnonymousLevelComboBox.ItemsSource = anonymousLevels;
+        Client1AnonymousLevelComboBox.SelectedItem = 97;
+        Client2AnonymousLevelComboBox.SelectedItem = 97;
         Client1ScheduleDestinationComboBox.SelectedIndex = 0;
         Client2ScheduleDestinationComboBox.SelectedIndex = 0;
         Client1ScheduleSteps.CollectionChanged += (_, _) => UpdateScheduleTotals();
@@ -251,15 +256,18 @@ public partial class MainWindow : Window
     internal void ShowFarmScheduleForScreenshot() => OnShowFarmSchedule(this, new RoutedEventArgs());
 
     private void OnAddClient1ScheduleStep(object sender, RoutedEventArgs e) =>
-        AddScheduleStep(Client1ScheduleSteps, Client1ScheduleDestinationComboBox.SelectedItem, Client1ScheduleDurationTextBox.Text);
+        AddScheduleStep(Client1ScheduleSteps, Client1ScheduleDestinationComboBox.SelectedItem,
+            Client1ScheduleDurationTextBox.Text, Client1AnonymousLevelComboBox.SelectedItem);
 
     private void OnAddClient2ScheduleStep(object sender, RoutedEventArgs e) =>
-        AddScheduleStep(Client2ScheduleSteps, Client2ScheduleDestinationComboBox.SelectedItem, Client2ScheduleDurationTextBox.Text);
+        AddScheduleStep(Client2ScheduleSteps, Client2ScheduleDestinationComboBox.SelectedItem,
+            Client2ScheduleDurationTextBox.Text, Client2AnonymousLevelComboBox.SelectedItem);
 
     private void AddScheduleStep(
         ObservableCollection<FarmScheduleStepEditor> steps,
         object? destination,
-        string durationText)
+        string durationText,
+        object? anonymousLevel)
     {
         if (!double.TryParse(durationText, NumberStyles.Float, CultureInfo.CurrentCulture, out var minutes) &&
             !double.TryParse(durationText, NumberStyles.Float, CultureInfo.InvariantCulture, out minutes) ||
@@ -269,7 +277,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        steps.Add(new FarmScheduleStepEditor(ParseFarmScheduleDestination(destination), minutes));
+        var parsedDestination = ParseFarmScheduleDestination(destination);
+        var level = parsedDestination == FarmScheduleDestination.AnonymousDungeon &&
+            int.TryParse(anonymousLevel?.ToString(), out var parsedLevel) && parsedLevel is 86 or 97 or 110
+                ? parsedLevel
+                : 97;
+        steps.Add(new FarmScheduleStepEditor(parsedDestination, minutes, level));
     }
 
     private void UpdateScheduleTotals()
@@ -914,17 +927,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        if ((client1 is not null && ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 1) &&
-             Client1ScheduleSteps.Any(step => step.Destination == FarmScheduleDestination.Ta1) &&
-             (!_client1TaCoordinatesEnabled.Contains(TaDestination.Ta1Codex) || !_client1TaCoordinates.ContainsKey(TaDestination.Ta1Codex))) ||
-            (client2 is not null && ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 2) &&
-             Client2ScheduleSteps.Any(step => step.Destination == FarmScheduleDestination.Ta1) &&
-             (!_client2TaCoordinatesEnabled.Contains(TaDestination.Ta1Codex) || !_client2TaCoordinates.ContainsKey(TaDestination.Ta1Codex))))
-        {
-            ShowValidation("A etapa T.A 1 da agenda exige um ponto personalizado para o respectivo cliente.");
-            return;
-        }
-
         var keyName = TeleportKeyComboBox.Text.Trim().ToUpperInvariant();
         if (!TryParseVirtualKey(keyName, out var teleportKey))
         {
@@ -1558,7 +1560,8 @@ public partial class MainWindow : Window
             {
                 if (step.Duration > TimeSpan.Zero)
                 {
-                    target.Add(new FarmScheduleStepEditor(step.Destination, step.Duration.TotalMinutes));
+                    if (step.Destination is FarmScheduleDestination.Abbey or FarmScheduleDestination.AnonymousDungeon)
+                        target.Add(new FarmScheduleStepEditor(step.Destination, step.Duration.TotalMinutes, step.AnonymousDungeonLevel));
                 }
             }
         }
@@ -1660,9 +1663,7 @@ public partial class MainWindow : Window
 
     private static FarmScheduleDestination ParseFarmScheduleDestination(object? selectedItem) => selectedItem?.ToString() switch
     {
-        "T.A 1" => FarmScheduleDestination.Ta1,
-        "T.A 2" => FarmScheduleDestination.Ta2,
-        "T.A 3" => FarmScheduleDestination.Ta3,
+        "Masmorra Anônima · Estreito de Tenerys" => FarmScheduleDestination.AnonymousDungeon,
         _ => FarmScheduleDestination.Abbey
     };
 
@@ -1776,18 +1777,20 @@ public partial class MainWindow : Window
 
     public sealed record FarmScheduleStepEditor(
         FarmScheduleDestination Destination,
-        double DurationMinutes)
+        double DurationMinutes,
+        int AnonymousDungeonLevel = 97)
     {
-        public string DisplayText => $"{DestinationName(Destination)}  ·  {DurationMinutes:0.#} min";
+        public string DisplayText => Destination == FarmScheduleDestination.AnonymousDungeon
+            ? $"{DestinationName(Destination)} · Nv. {AnonymousDungeonLevel} · {DurationMinutes:0.#} min"
+            : $"{DestinationName(Destination)} · {DurationMinutes:0.#} min";
 
-        public FarmScheduleStep ToModel() => new(Destination, TimeSpan.FromMinutes(DurationMinutes));
+        public FarmScheduleStep ToModel() => new(Destination, TimeSpan.FromMinutes(DurationMinutes), AnonymousDungeonLevel);
 
         private static string DestinationName(FarmScheduleDestination destination) => destination switch
         {
-            FarmScheduleDestination.Abbey => "Abadia",
-            FarmScheduleDestination.Ta1 => "T.A 1",
-            FarmScheduleDestination.Ta2 => "T.A 2",
-            _ => "T.A 3"
+            FarmScheduleDestination.Abbey => "Abadia da Lembrança",
+            FarmScheduleDestination.AnonymousDungeon => "Estreito de Tenerys",
+            _ => "Destino antigo"
         };
     }
 }

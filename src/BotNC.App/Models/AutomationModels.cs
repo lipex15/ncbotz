@@ -38,14 +38,18 @@ public sealed record DailyRoutineOptions(
 public enum FarmScheduleDestination
 {
     Abbey,
+    // Valores legados são mantidos para que configurações antigas possam ser
+    // lidas e descartadas com segurança durante a migração da Agenda.
     Ta1,
     Ta2,
-    Ta3
+    Ta3,
+    AnonymousDungeon
 }
 
 public sealed record FarmScheduleStep(
     FarmScheduleDestination Destination,
-    TimeSpan Duration);
+    TimeSpan Duration,
+    int AnonymousDungeonLevel = 97);
 
 public sealed record FarmScheduleOptions(
     bool Enabled,

@@ -1,6 +1,6 @@
-# Plano da futura interface do PEXBOT
+# Interface renovada do PEXBOT
 
-Este documento prepara a implementação do mock-up enviado pelo usuário. **Não altera a interface visual nesta entrega.**
+O plano visual foi aplicado inicialmente no canal de testes na versão 0.10.0. A automação permanece separada da apresentação, preservando as regras e configurações existentes.
 
 ## Estrutura
 
@@ -17,12 +17,12 @@ Este documento prepara a implementação do mock-up enviado pelo usuário. **Nã
 - Proteção Anti Over Kill, Diárias, Diretivas e Correio devem refletir o estado efetivo de cada cliente.
 - Notificação de atualização deve permanecer visível até o usuário abrir a página correspondente.
 
-## Implementação futura
+## Implementação aplicada
 
-1. Isolar estilos, cores, cantos, emojis, animações e estados interativos em recursos WPF reutilizáveis. Priorizar fidelidade ao mock-up recebido; usar emojis reais em vez de símbolos genéricos.
-2. Migrar uma página por vez sem mudar as regras do motor; manter compatibilidade das configurações existentes.
-3. Implementar o novo botão Iniciar e painel de status com a mesma validação do motor.
-4. Conferir 100%, 125% e 150% de escala do Windows e janela pequena, além de teclado, contraste e redução de movimento para quem preferir menos animações.
-5. Testar navegação, persistência, dois clientes, pausa/parada e instalação de atualização em build empacotado.
+1. Estilos, paleta, cantos, emojis e estados interativos foram centralizados nos recursos WPF.
+2. A navegação lateral e os cards foram modernizados sem alterar a validação do motor.
+3. Iniciar, programar, pausar e parar continuam visíveis no painel de controle, ao lado do estado e da atividade recente.
+4. Agenda ganhou cards próprios por cliente e configuração do nível do Estreito de Tenerys.
+5. Atualizações mantêm o indicador vermelho até a página ser aberta.
 
-O mock-up é referência visual, não uma licença para renomear ou alterar o fluxo de automação nesta entrega.
+O mock-up permanece como referência de identidade; os controles reais do PEXBOT foram preservados para não sacrificar funcionalidade.

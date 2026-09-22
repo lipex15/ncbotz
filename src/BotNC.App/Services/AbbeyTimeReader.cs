@@ -25,6 +25,12 @@ public sealed class AbbeyTimeReader
     public Task<AbbeyTimeReading> ReadMenuAsync(PixelFrame frame, CancellationToken cancellationToken) =>
         ReadRegionAsync(frame, 75, 535, 210, 85, cancellationToken);
 
+    // Nas masmorras Épicas o saldo aparece no primeiro cartão, próximo ao topo
+    // esquerdo. O mesmo leitor serve para a Masmorra Anônima, cujo saldo pode
+    // ultrapassar dez horas.
+    public Task<AbbeyTimeReading> ReadEpicMenuAsync(PixelFrame frame, CancellationToken cancellationToken) =>
+        ReadRegionAsync(frame, 70, 175, 230, 85, cancellationToken);
+
     private async Task<AbbeyTimeReading> ReadRegionAsync(
         PixelFrame frame,
         int referenceX,
@@ -91,7 +97,7 @@ public sealed class AbbeyTimeReader
             if (match.Success &&
                 int.TryParse(match.Groups["hours"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var hours) &&
                 int.TryParse(match.Groups["minutes"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var minutes) &&
-                hours <= 10 && minutes < 60)
+                hours <= 99 && minutes < 60)
             {
                 return new AbbeyTimeReading(TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(minutes),
                     string.Join(" | ", observations));

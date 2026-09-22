@@ -5,7 +5,7 @@
         Icon="Assets/Brand/pexbot-mark.png"
         Width="1320" Height="850" MinWidth="1100" MinHeight="740"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource BackgroundBrush}"
+        Background="{StaticResource BackgroundBrush}" FontFamily="Segoe UI"
         Loaded="OnWindowLoaded">
     <Grid>
         <Grid.ColumnDefinitions>
@@ -34,27 +34,27 @@
                     </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Row="2">
-                    <Button x:Name="OverviewNavigationButton" Content="⌂   Visão geral"
+                    <Button x:Name="OverviewNavigationButton" Content="🏠   Visão geral"
                             HorizontalContentAlignment="Left" Background="#275796"
                             BorderThickness="0" Click="OnShowOverview" />
                     <TextBlock Text="ÁREAS" Foreground="#8299B7" FontSize="10"
                                FontWeight="Bold" Margin="13,24,0,9" />
-                    <Button Content="◆   Sapheras" HorizontalContentAlignment="Left"
+                    <Button Content="⛏️   Sapheras" HorizontalContentAlignment="Left"
                             Background="#17283F" BorderThickness="0"
                             Click="OnShowSapheras" />
-                    <Button Content="◆   T.A 1 / T.A 2 / T.A 3" HorizontalContentAlignment="Left"
+                    <Button Content="🗺️   T.A 1 / T.A 2 / T.A 3" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarm" />
-                    <Button x:Name="AbbeyNavigationButton" Content="◆   Abadia" HorizontalContentAlignment="Left"
+                    <Button x:Name="AbbeyNavigationButton" Content="🏰   Abadia" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowAbbey" />
-                    <Button x:Name="RoutinesNavigationButton" Content="▣   Rotinas diárias" HorizontalContentAlignment="Left"
+                    <Button x:Name="RoutinesNavigationButton" Content="📋   Rotinas diárias" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowRoutines" />
-                    <Button x:Name="FarmScheduleNavigationButton" Content="≡   Agenda de farm" HorizontalContentAlignment="Left"
+                    <Button x:Name="FarmScheduleNavigationButton" Content="📅   Agenda de farm" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarmSchedule" />
-                    <Button x:Name="ProtectionNavigationButton" Content="◈   Proteção" HorizontalContentAlignment="Left"
+                    <Button x:Name="ProtectionNavigationButton" Content="🛡️   Proteção" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowProtection" />
                     <Button x:Name="UpdatesNavigationButton"
@@ -62,7 +62,7 @@
                             Background="Transparent" BorderThickness="0"
                             Click="OnShowUpdates">
                         <Grid>
-                            <TextBlock Text="↻   Atualizações" VerticalAlignment="Center" />
+                            <TextBlock Text="🔔   Atualizações" VerticalAlignment="Center" />
                             <Ellipse x:Name="UpdatesNotificationDot" Width="9" Height="9"
                                      Fill="#FF4D67" HorizontalAlignment="Right"
                                      VerticalAlignment="Center" Visibility="Collapsed">
@@ -592,7 +592,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="Plano sequencial" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
-                                <TextBlock Text="Ao terminar uma etapa, o cliente segue para a próxima e reinicia a lista ao chegar ao fim."
+                                <TextBlock Text="Execute Abadia e Estreito de Tenerys na ordem escolhida. Ao concluir, o cliente retorna à T.A configurada."
                                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,20,0" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -614,13 +614,16 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="10" />
-                                        <ColumnDefinition Width="105" />
+                                        <ColumnDefinition Width="82" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="82" />
                                         <ColumnDefinition Width="10" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <ComboBox x:Name="Client1ScheduleDestinationComboBox" Height="40" />
                                     <TextBox x:Name="Client1ScheduleDurationTextBox" Grid.Column="2" Height="40" Text="60" />
-                                    <Button Grid.Column="4" Content="Adicionar" Click="OnAddClient1ScheduleStep" />
+                                    <ComboBox x:Name="Client1AnonymousLevelComboBox" Grid.Column="4" Height="40" ToolTip="Nível do Estreito" />
+                                    <Button Grid.Column="6" Content="Adicionar" Click="OnAddClient1ScheduleStep" />
                                 </Grid>
                                 <TextBlock Text="DESTINO · DURAÇÃO EM MINUTOS" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
                                 <ListBox x:Name="Client1ScheduleListBox" MinHeight="150" MaxHeight="260"
@@ -628,8 +631,8 @@
                                          Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
                                 <TextBlock x:Name="Client1ScheduleTotalText" Text="Tempo total: 0 min" Margin="0,9,0,0" Foreground="#AFC2D9" />
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-                                    <Button Content="↑" Padding="12,7" Click="OnMoveClient1ScheduleUp" />
-                                    <Button Content="↓" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient1ScheduleDown" />
+                                    <Button Content="Subir" Padding="12,7" Click="OnMoveClient1ScheduleUp" />
+                                    <Button Content="Descer" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient1ScheduleDown" />
                                     <Button Content="Remover" Padding="12,7" Margin="7,0,0,0" Click="OnRemoveClient1ScheduleStep" />
                                 </StackPanel>
                             </StackPanel>
@@ -641,13 +644,16 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="10" />
-                                        <ColumnDefinition Width="105" />
+                                        <ColumnDefinition Width="82" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="82" />
                                         <ColumnDefinition Width="10" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <ComboBox x:Name="Client2ScheduleDestinationComboBox" Height="40" />
                                     <TextBox x:Name="Client2ScheduleDurationTextBox" Grid.Column="2" Height="40" Text="60" />
-                                    <Button Grid.Column="4" Content="Adicionar" Click="OnAddClient2ScheduleStep" />
+                                    <ComboBox x:Name="Client2AnonymousLevelComboBox" Grid.Column="4" Height="40" ToolTip="Nível do Estreito" />
+                                    <Button Grid.Column="6" Content="Adicionar" Click="OnAddClient2ScheduleStep" />
                                 </Grid>
                                 <TextBlock Text="DESTINO · DURAÇÃO EM MINUTOS" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
                                 <ListBox x:Name="Client2ScheduleListBox" MinHeight="150" MaxHeight="260"
@@ -655,8 +661,8 @@
                                          Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
                                 <TextBlock x:Name="Client2ScheduleTotalText" Text="Tempo total: 0 min" Margin="0,9,0,0" Foreground="#AFC2D9" />
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-                                    <Button Content="↑" Padding="12,7" Click="OnMoveClient2ScheduleUp" />
-                                    <Button Content="↓" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient2ScheduleDown" />
+                                    <Button Content="Subir" Padding="12,7" Click="OnMoveClient2ScheduleUp" />
+                                    <Button Content="Descer" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient2ScheduleDown" />
                                     <Button Content="Remover" Padding="12,7" Margin="7,0,0,0" Click="OnRemoveClient2ScheduleStep" />
                                 </StackPanel>
                             </StackPanel>
@@ -664,7 +670,7 @@
                     </Grid>
                     <Border Style="{StaticResource CardContainer}" Background="#102035">
                         <StackPanel>
-                            <TextBlock Text="Abadia respeita o orçamento semanal e o bloqueio de 24 horas por limite de entradas. Se não estiver disponível, a etapa usa a T.A configurada como destino seguro."
+                            <TextBlock Text="Abadia respeita o orçamento semanal e o limite de entradas. O Estreito de Tenerys usa o nível escolhido e testa os cinco spots seguros. Ao acabar a Agenda ou o tempo da masmorra, a T.A configurada é o destino seguro."
                                        Foreground="#AFC2D9" TextWrapping="Wrap" />
                             <Button Content="Salvar agenda" Width="150" HorizontalAlignment="Right" Margin="0,12,0,0" Click="OnSaveFarmSchedule" />
                         </StackPanel>

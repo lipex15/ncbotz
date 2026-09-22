@@ -2,10 +2,14 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
-        <SolidColorBrush x:Key="BackgroundBrush" Color="#0A1020" />
-        <SolidColorBrush x:Key="PanelBrush" Color="#101B2D" />
-        <SolidColorBrush x:Key="CardBrush" Color="#162238" />
-        <SolidColorBrush x:Key="BorderBrush" Color="#30405B" />
+        <LinearGradientBrush x:Key="BackgroundBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#050B15" Offset="0" />
+            <GradientStop Color="#091322" Offset="0.55" />
+            <GradientStop Color="#07101D" Offset="1" />
+        </LinearGradientBrush>
+        <SolidColorBrush x:Key="PanelBrush" Color="#0B1728" />
+        <SolidColorBrush x:Key="CardBrush" Color="#101E31" />
+        <SolidColorBrush x:Key="BorderBrush" Color="#253C58" />
         <SolidColorBrush x:Key="TextBrush" Color="#F2F6FF" />
         <SolidColorBrush x:Key="MutedBrush" Color="#A2B1C8" />
         <SolidColorBrush x:Key="AccentBrush" Color="#49C6ED" />
@@ -21,12 +25,12 @@
             <Setter Property="Background" Value="#142239" />
             <Setter Property="BorderBrush" Value="#2B405E" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="13" />
+            <Setter Property="CornerRadius" Value="16" />
             <Setter Property="Padding" Value="22" />
             <Setter Property="Margin" Value="0,0,0,14" />
             <Setter Property="Effect">
                 <Setter.Value>
-                    <DropShadowEffect Color="#050A12" BlurRadius="18" ShadowDepth="4" Opacity="0.32" />
+                    <DropShadowEffect Color="#02060C" BlurRadius="24" ShadowDepth="5" Opacity="0.5" />
                 </Setter.Value>
             </Setter>
         </Style>
@@ -45,6 +49,10 @@
             <Setter Property="Padding" Value="16,10" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+            <Setter Property="RenderTransform">
+                <Setter.Value><ScaleTransform ScaleX="1" ScaleY="1" /></Setter.Value>
+            </Setter>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -52,7 +60,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="7">
+                                CornerRadius="11">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                               Margin="{TemplateBinding Padding}" />
@@ -60,6 +68,9 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="ButtonSurface" Property="BorderBrush" Value="#51BCE7" />
+                                <Setter TargetName="ButtonSurface" Property="Effect">
+                                    <Setter.Value><DropShadowEffect Color="#188BFF" BlurRadius="16" ShadowDepth="0" Opacity="0.32" /></Setter.Value>
+                                </Setter>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="ButtonSurface" Property="Opacity" Value="0.78" />
@@ -69,9 +80,10 @@
                 </Setter.Value>
             </Setter>
             <Style.Triggers>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Opacity" Value="0.42" />
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="RenderTransform"><Setter.Value><ScaleTransform ScaleX="1.012" ScaleY="1.012" /></Setter.Value></Setter>
                 </Trigger>
+                <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42" /></Trigger>
             </Style.Triggers>
         </Style>
         <Style TargetType="TextBox">
