@@ -19,9 +19,13 @@ Tornar um repositório privado ou reescrever seu histórico não apaga cópias.
 
 ## Servidor no PC do administrador
 
-1. Publicar `src/BotNC.LicenseServer/BotNC.LicenseServer.csproj` para Windows.
-2. Executar o servidor no PC do administrador, inicialmente só em
-   `http://127.0.0.1:5927`, com `PEXBOT_LICENSE_DATA` apontando para uma pasta
+1. No PC do administrador, executar `scripts/Prepare-LicenseServer.ps1` uma
+   vez para gerar o executável em `artifacts/license-server`.
+2. Executar `scripts/Start-LicensePanel.ps1` no PC do administrador. O script
+   pede a senha apenas na primeira execução. O painel local fica em
+   `http://127.0.0.1:5928/admin`. Fechar a janela desliga o servidor.
+   A API escuta em `http://127.0.0.1:5927` e o painel em
+   `http://127.0.0.1:5928`, com `PEXBOT_LICENSE_DATA` apontando para uma pasta
    persistente protegida pelo usuário do Windows. Na **primeira** execução,
    definir `PEXBOT_ADMIN_INITIAL_PASSWORD` com uma senha forte de no mínimo
    16 caracteres. Depois que a senha for armazenada em hash, retirar a variável
@@ -31,10 +35,9 @@ Tornar um repositório privado ou reescrever seu histórico não apaga cópias.
    do PC. Ele contém as contas, vínculos e a chave que assina as ativações.
    Perder a chave quebra novas ativações e novas compilações com a chave antiga.
 4. Configurar um endereço HTTPS estável que aponte para o serviço local.
-   Não expor diretamente a porta do Windows na internet. Idealmente usar um
-   hostname para a API de login e outro para o painel, com proteção adicional
-   no hostname administrativo. Definir `PEXBOT_ADMIN_HOST` com o hostname do
-   painel para impedir acesso ao caminho `/admin` pelo hostname da API.
+   Não expor diretamente as portas do Windows na internet. O túnel deve
+   encaminhar **somente a porta 5927**; a porta 5928 do painel fica local.
+   Mesmo se alguém tentar `/admin` no endereço da API, recebe 404.
 5. Ler `GET /api/public-key` no servidor e configurar a chave pública como
    variável do repositório privado `PEXBOT_LICENSE_PUBLIC_KEY`. Configurar o
    endereço HTTPS como `PEXBOT_LICENSE_URL`.

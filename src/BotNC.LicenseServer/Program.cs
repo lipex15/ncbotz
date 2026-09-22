@@ -47,6 +47,13 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.SameSite = SameSiteMode.Strict;
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
         options.ExpireTimeSpan = TimeSpan.FromHours(4);
+        options.Events.OnSigningIn = context =>
+        {
+            // O painel local funciona em HTTP somente no loopback. Fora dele o cookie exige HTTPS.
+            if (context.Request.Host.Host is "localhost" or "127.0.0.1")
+                context.CookieOptions.Secure = false;
+            return Task.CompletedTask;
+        };
     });
 builder.Services.AddAuthorization();
 builder.Services.AddAntiforgery();
@@ -63,12 +70,12 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
-var adminHost = Environment.GetEnvironmentVariable("PEXBOT_ADMIN_HOST");
+var adminPort = int.TryParse(Environment.GetEnvironmentVariable("PEXBOT_ADMIN_PORT"), out var configuredAdminPort)
+    ? configuredAdminPort : 5928;
 app.Use(async (context, next) =>
 {
     if (context.Request.Path.StartsWithSegments("/admin") &&
-        !string.IsNullOrWhiteSpace(adminHost) &&
-        !string.Equals(context.Request.Host.Host, adminHost, StringComparison.OrdinalIgnoreCase))
+        context.Connection.LocalPort != adminPort)
     {
         context.Response.StatusCode = StatusCodes.Status404NotFound;
         return;
