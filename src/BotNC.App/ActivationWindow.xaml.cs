@@ -12,7 +12,10 @@ public partial class ActivationWindow : Window
     {
         _activation = activation;
         InitializeComponent();
+        Loaded += (_, _) => UsernameBox.Focus();
     }
+
+    private void OnClose(object sender, RoutedEventArgs e) => Close();
 
     private async void OnActivate(object sender, RoutedEventArgs e)
     {
