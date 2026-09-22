@@ -6,7 +6,9 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Ciclo disponível — v0.10.4 (testes)
+## Ciclo disponível — v0.10.4 (estável e testes)
+
+O conjunto validado no canal de testes foi promovido à versão normal. O aplicativo estável mantém seus próprios dados e recebe a atualização pelo repositório `lipex15/ncbotz`.
 
 - A Diretiva passa a ser decidida primeiro pela lista lateral: **Disponível** em verde abre o atalho direto; nome verde com `/500`, `/50` ou `/55` significa que ela já está em andamento; nenhuma linha verde significa ciclo concluído.
 - O atalho verde é clicado diretamente em `(1628, 210)`, sem percorrer `= → Guilda → Diretiva`.

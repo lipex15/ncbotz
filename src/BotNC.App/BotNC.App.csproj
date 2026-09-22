@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <BuildChannel Condition="'$(BuildChannel)' == ''">Testing</BuildChannel>
+    <BuildChannel Condition="'$(BuildChannel)' == ''">Stable</BuildChannel>
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
     <RootNamespace>BotNC.App</RootNamespace>
