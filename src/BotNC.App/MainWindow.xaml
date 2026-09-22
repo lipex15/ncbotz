@@ -475,7 +475,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="Compra diária na Loja" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
-                                <TextBlock Text="Sai do descanso, compra os lotes predefinidos de Comum e Invocação e retorna ao farm. O ciclo redefine diariamente às 13:00."
+                                <TextBlock Text="Sai do descanso, compra os lotes predefinidos de Comum e Invocação e retorna ao farm. O novo ciclo começa às 13:01."
                                            Foreground="{StaticResource MutedBrush}" Margin="0,7,24,12" TextWrapping="Wrap" />
                                 <ComboBox x:Name="DailyShopScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" />
                             </StackPanel>

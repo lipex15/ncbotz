@@ -30,6 +30,7 @@ public sealed class BotAutomationEngine(
     private readonly SpotLevelRecognitionService _spotLevelRecognition = new();
     private readonly AbbeyTimeReader _abbeyTimeReader = new();
     private readonly TaEntryTextReader _taEntryTextReader = new();
+    private readonly DailyShopStatusReader _dailyShopStatusReader = new();
 
     private static readonly IReadOnlyDictionary<TaDestination, (int X, int Y)> TaEntryPoints =
         new Dictionary<TaDestination, (int X, int Y)>
@@ -112,11 +113,23 @@ public sealed class BotAutomationEngine(
             session.DailyStartedCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyStartedCycle");
             session.DailyCompletedCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle");
             session.DirectiveCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle");
+            session.DirectiveAttemptCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveAttemptCycle");
+            _ = int.TryParse(
+                await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveAttemptCount"),
+                out var directiveAttemptCount);
+            session.DirectiveAttemptCount = Math.Max(0, directiveAttemptCount);
             session.RestorationAbsentCycle =
                 await database.GetSettingAsync($"{SessionSettingPrefix(session)}.restoration.absentCycle");
             session.Mail01Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.01Date");
             session.Mail07Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.07Date");
             session.DailyShopCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCycle");
+            session.DailyShopCommonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCommonCycle");
+            session.DailyShopSummonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopSummonCycle");
+            session.DailyShopAttemptCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopAttemptCycle");
+            _ = int.TryParse(
+                await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopAttemptCount"),
+                out var dailyShopAttemptCount);
+            session.DailyShopAttemptCount = Math.Max(0, dailyShopAttemptCount);
             await LoadFarmScheduleStateAsync(session, runOptions.FarmSchedule);
             await LoadAbbeyBudgetStateAsync(session);
 
@@ -903,11 +916,8 @@ public sealed class BotAutomationEngine(
 
         await ActivateGameAsync(session, cancellationToken);
 
-        var currentHunt = await FindReferenceOnClientAsync(
-            session,
-            "caca_automatica",
-            cancellationToken);
-        if (currentHunt.Found)
+        var currentRest = await FindRestStateAsync(cancellationToken);
+        if (currentRest is not null)
         {
             session.SafeInRest = true;
             session.IsFarmingTa = true;
@@ -921,8 +931,16 @@ public sealed class BotAutomationEngine(
             session.Audio.Armed = true;
             WriteLog(
                 session,
-                $"Bot iniciado com descanso e caça automática ativos ({currentHunt.Confidence:P0}); " +
+                $"Bot iniciado com o farm já em descanso, confirmado por " +
+                $"'{RestStateDescription(currentRest.Value.ReferenceId)}' ({currentRest.Value.Result.Confidence:P0}); " +
                 $"mantendo o farm atual e seguindo diretamente para o monitoramento {context}.");
+            return;
+        }
+
+        if (await IsConfiguredTaLocationVisibleAsync(session, cancellationToken))
+        {
+            WriteLog(session, $"O personagem já está na {TaName(EffectiveTaDestination(session))}; mantendo a área atual sem abrir uma nova entrada.");
+            await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
             return;
         }
 
@@ -1882,6 +1900,12 @@ public sealed class BotAutomationEngine(
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", "Abrindo Terra Avassaladora");
         await ActivateGameAsync(session, cancellationToken);
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir a {taName}", cancellationToken);
+        if (await IsConfiguredTaLocationVisibleAsync(session, cancellationToken))
+        {
+            WriteLog(session, $"Chegada da {taName} já está visível; reutilizando a entrada atual.");
+            await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
+            return;
+        }
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir o menu da {taName}", cancellationToken);
         if (session.AwaitingFavoriteSpotRecognition &&
@@ -1946,6 +1970,13 @@ public sealed class BotAutomationEngine(
         var taName = TaName(destination);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", isEmergency ? "Recuperação após alerta de HP" : "Selecionando a T.A");
         var readyReference = EntryReadyReference(destination);
+        if (await WaitForReferenceToAppearAsync("seletor_ta", TimeSpan.FromSeconds(15), pause, cancellationToken) &&
+            await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
+        {
+            WriteLog(session, $"O botão Entrar da {taName} está apagado de forma estável; o personagem já está nessa área.");
+            await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
+            return;
+        }
         await WaitForTaSelectorContextAsync(
             session,
             readyReference,
@@ -2047,6 +2078,95 @@ public sealed class BotAutomationEngine(
         WriteLog(session, $"{taName} reconhecida; verificando o NPC de suprimentos assim que estiver visível.");
         await BuySuppliesInsideTaAsync(session, pause, cancellationToken);
         await TravelToFarmSpotAsync(session, pause, cancellationToken);
+    }
+
+    private async Task<bool> IsConfiguredTaLocationVisibleAsync(
+        ClientSession session,
+        CancellationToken cancellationToken)
+    {
+        var destination = EffectiveTaDestination(session);
+        return (await FindReferenceOnClientAsync(
+            session,
+            ArrivalReference(destination),
+            cancellationToken,
+            requireObservable: true)).Found;
+    }
+
+    private async Task<bool> IsDesiredTaEntryDisabledStableAsync(
+        ClientSession session,
+        TaDestination destination,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var stableHits = 0;
+        var desiredIndex = destination switch
+        {
+            TaDestination.Ta1Codex => 0,
+            TaDestination.Ta2 => 1,
+            _ => 2
+        };
+        var buttonRegions = new[]
+        {
+            (455, 735, 220, 75),
+            (725, 735, 220, 75),
+            (1000, 735, 245, 75)
+        };
+
+        for (var sample = 0; sample < 4; sample++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var frame = await CaptureClientFrameAsync(session, cancellationToken);
+            var selector = await recognition.FindAsync("seletor_ta", frame, cancellationToken);
+            if (!selector.Found)
+                return false;
+
+            var lumas = buttonRegions
+                .Select(region => VisualRecognitionService.MeasureAverageLuma(
+                    frame, region.Item1, region.Item2, region.Item3, region.Item4))
+                .ToArray();
+            var brightestOther = lumas.Where((_, index) => index != desiredIndex).Max();
+            stableHits = lumas[desiredIndex] + 11 <= brightestOther ? stableHits + 1 : 0;
+            if (stableHits >= 3)
+                return true;
+
+            await Task.Delay(300, cancellationToken);
+        }
+
+        return false;
+    }
+
+    private async Task ResumeCurrentTaWithoutReentryAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        if ((await recognition.FindAsync("seletor_ta", cancellationToken)).Found)
+        {
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            await WaitForReferenceToDisappearAsync("seletor_ta", TimeSpan.FromSeconds(8), pause, cancellationToken);
+        }
+
+        // Abrir o descanso primeiro permite observar se a caça já estava ativa.
+        // Pressionar Q às cegas aqui poderia desligá-la justamente no caso em
+        // que o seletor informou que o personagem já estava dentro da T.A.
+        var rest = await FindRestStateAsync(cancellationToken) ??
+                   await TryOpenRestPanelAsync(session, pause, cancellationToken);
+        if (rest is null || rest.Value.ReferenceId != "caca_automatica")
+        {
+            session.AwaitingHuntActivationAtSpot = true;
+            await StartAutomaticHuntAsync(session, pause, cancellationToken);
+        }
+        else
+        {
+            WriteLog(session, "Caça automática já estava ativa; Q não será pressionado novamente.");
+            session.AwaitingHuntActivationAtSpot = false;
+        }
+        session.IsFarmingTa = true;
+        session.SafeInRest = await FindRestStateAsync(cancellationToken) is not null;
+        session.Audio.Armed = true;
+        session.ConsecutiveRecoveryFailures = 0;
+        session.RequiresHardFlowReset = false;
+        WriteLog(session, $"Farm existente na {TaName(EffectiveTaDestination(session))} preservado sem nova entrada.");
     }
 
     private async Task AbortWorkflowIfDeathDetectedAsync(
@@ -3063,9 +3183,11 @@ public sealed class BotAutomationEngine(
         var dailyDue = options.EnableDailyMissions && session.Options.EnableDailyMissions && session.DailyCompletedCycle != cycle &&
                        now >= ScheduledInCycle(now, options.DailyMissionsAt);
         var directiveDue = options.EnableGuildDirective && session.Options.EnableGuildDirective && session.DirectiveCycle != cycle &&
+                           DateTime.UtcNow >= session.NextDirectiveAttemptAt &&
                            now >= ScheduledInCycle(now, options.GuildDirectiveAt);
         var shopCycle = DailyShopCycleKey(now);
         var dailyShopDue = options.EnableDailyShop && session.Options.EnableDailyShop && session.DailyShopCycle != shopCycle &&
+                           DateTime.UtcNow >= session.NextDailyShopAttemptAt &&
                            now >= ScheduledInDailyShopCycle(now, options.DailyShopAt);
 
         if (!dailyDue && !directiveDue && !dailyShopDue)
@@ -3083,10 +3205,22 @@ public sealed class BotAutomationEngine(
 
         if (dailyShopDue)
         {
-            await PurchaseDailyShopAsync(session, pause, cancellationToken);
-            session.DailyShopCycle = shopCycle;
-            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCycle", shopCycle);
-            WriteLog(session, "Compra diária da Loja concluída e registrada para este ciclo.");
+            try
+            {
+                await PurchaseDailyShopAsync(session, pause, cancellationToken);
+                await MarkDailyShopHandledAsync(session, shopCycle);
+                WriteLog(session, "Compra diária da Loja concluída ou já esgotada e registrada para este ciclo.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                WritePersistentOnly(session, exception.ToString());
+                await RegisterDailyShopUncertainAsync(session, shopCycle, exception.GetBaseException().Message);
+            }
+
             if (!dailyDue && !directiveDue)
                 return true;
         }
@@ -3112,9 +3246,25 @@ public sealed class BotAutomationEngine(
 
         if (directiveDue)
         {
-            await AcceptGuildDirectiveAsync(session, options.GuildDirectiveArea, pause, cancellationToken);
-            session.DirectiveCycle = cycle;
-            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+            bool directiveHandled;
+            try
+            {
+                directiveHandled = await AcceptGuildDirectiveAsync(
+                    session, options.GuildDirectiveArea, pause, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                WritePersistentOnly(session, exception.ToString());
+                directiveHandled = await RegisterDirectiveUncertainAsync(
+                    session, pause, cancellationToken, exception.GetBaseException().Message);
+            }
+
+            if (directiveHandled)
+                await MarkDirectiveHandledAsync(session, cycle);
         }
 
         if (dailyDue)
@@ -3176,6 +3326,7 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        var shopCycle = DailyShopCycleKey(DateTime.Now);
         var resumeRest = session.SafeInRest || await FindRestStateAsync(cancellationToken) is not null;
         await ActivateGameAsync(session, cancellationToken);
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
@@ -3193,11 +3344,38 @@ public sealed class BotAutomationEngine(
             await input.MoveAndClickAsync(120, 264, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
             await WaitForReferenceAsync("daily_shop_common", "categoria Comum", TimeSpan.FromSeconds(12), pause, cancellationToken);
 
-            await ConfirmDailyBulkPurchaseAsync(session, pause, cancellationToken, "Comum");
+            if (session.DailyShopCommonCycle == shopCycle)
+            {
+                WriteLog(session, "Compra diária de Comum já foi registrada neste ciclo.");
+            }
+            else if (await IsDailyShopCategoryExhaustedStableAsync(session, summon: false, pause, cancellationToken))
+            {
+                WriteLog(session, "Compra diária de Comum já está esgotada neste ciclo; nenhuma nova tentativa será feita.");
+                await MarkDailyShopCategoryHandledAsync(session, shopCycle, summon: false);
+            }
+            else
+            {
+                await ConfirmDailyBulkPurchaseAsync(session, pause, cancellationToken, "Comum", summon: false);
+                await MarkDailyShopCategoryHandledAsync(session, shopCycle, summon: false);
+            }
+
             await Task.Delay(TimeSpan.FromSeconds(4), cancellationToken);
             await input.MoveAndClickAsync(146, 328, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
             await Task.Delay(500, cancellationToken);
-            await ConfirmDailyBulkPurchaseAsync(session, pause, cancellationToken, "Invocação");
+            if (session.DailyShopSummonCycle == shopCycle)
+            {
+                WriteLog(session, "Compra diária de Invocação já foi registrada neste ciclo.");
+            }
+            else if (await IsDailyShopCategoryExhaustedStableAsync(session, summon: true, pause, cancellationToken))
+            {
+                WriteLog(session, "Compra diária de Invocação já está esgotada neste ciclo; nenhuma nova tentativa será feita.");
+                await MarkDailyShopCategoryHandledAsync(session, shopCycle, summon: true);
+            }
+            else
+            {
+                await ConfirmDailyBulkPurchaseAsync(session, pause, cancellationToken, "Invocação", summon: true);
+                await MarkDailyShopCategoryHandledAsync(session, shopCycle, summon: true);
+            }
         }
         finally
         {
@@ -3223,14 +3401,125 @@ public sealed class BotAutomationEngine(
         ClientSession session,
         PauseController pause,
         CancellationToken cancellationToken,
-        string category)
+        string category,
+        bool summon)
     {
-        await WaitForReferenceAsync("daily_shop_bulk", $"Compra em Lote de {category}", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        if (!await WaitForReferenceToAppearAsync("daily_shop_bulk", TimeSpan.FromSeconds(8), pause, cancellationToken))
+        {
+            if (await IsDailyShopCategoryExhaustedStableAsync(session, summon, pause, cancellationToken))
+            {
+                WriteLog(session, $"{category} ficou esgotada antes do clique; etapa considerada concluída.");
+                return;
+            }
+
+            throw new TimeoutException($"{session.Options.Label}: Compra em Lote de {category} não apareceu e o esgotamento diário não foi confirmado.");
+        }
+
         await input.MoveAndClickAsync(145, 1009, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
-        await WaitForReferenceAsync("daily_shop_bulk_popup", $"confirmação do lote de {category}", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        if (!await WaitForReferenceToAppearAsync("daily_shop_bulk_popup", TimeSpan.FromSeconds(10), pause, cancellationToken))
+        {
+            if (await IsDailyShopCategoryExhaustedStableAsync(session, summon, pause, cancellationToken))
+            {
+                WriteLog(session, $"{category} já estava esgotada; popup de compra não será procurado novamente.");
+                return;
+            }
+
+            throw new TimeoutException($"{session.Options.Label}: o popup do lote de {category} não apareceu.");
+        }
+
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
-        await WaitForReferenceToDisappearAsync("daily_shop_bulk_popup", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        try
+        {
+            await WaitForReferenceToDisappearAsync("daily_shop_bulk_popup", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            WritePersistentOnly(session, $"Popup da compra de {category} demorou a sumir após Y: {exception.Message}");
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        }
         WriteLog(session, $"Compra em Lote de {category} confirmada.");
+    }
+
+    private async Task MarkDailyShopCategoryHandledAsync(
+        ClientSession session,
+        string cycle,
+        bool summon)
+    {
+        var key = summon ? "dailyShopSummonCycle" : "dailyShopCommonCycle";
+        if (summon)
+            session.DailyShopSummonCycle = cycle;
+        else
+            session.DailyShopCommonCycle = cycle;
+        await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.{key}", cycle);
+    }
+
+    private async Task MarkDailyShopHandledAsync(ClientSession session, string cycle)
+    {
+        session.DailyShopCycle = cycle;
+        session.DailyShopAttemptCycle = cycle;
+        session.DailyShopAttemptCount = 0;
+        session.NextDailyShopAttemptAt = default;
+        var prefix = $"{SessionSettingPrefix(session)}.routines";
+        await database.SaveSettingAsync($"{prefix}.dailyShopCycle", cycle);
+        await database.SaveSettingAsync($"{prefix}.dailyShopAttemptCycle", cycle);
+        await database.SaveSettingAsync($"{prefix}.dailyShopAttemptCount", "0");
+    }
+
+    private async Task RegisterDailyShopUncertainAsync(
+        ClientSession session,
+        string cycle,
+        string reason)
+    {
+        if (!string.Equals(session.DailyShopAttemptCycle, cycle, StringComparison.Ordinal))
+        {
+            session.DailyShopAttemptCycle = cycle;
+            session.DailyShopAttemptCount = 0;
+        }
+
+        session.DailyShopAttemptCount++;
+        var prefix = $"{SessionSettingPrefix(session)}.routines";
+        await database.SaveSettingAsync($"{prefix}.dailyShopAttemptCycle", cycle);
+        await database.SaveSettingAsync(
+            $"{prefix}.dailyShopAttemptCount",
+            session.DailyShopAttemptCount.ToString(CultureInfo.InvariantCulture));
+        if (session.DailyShopAttemptCount >= 3)
+        {
+            await MarkDailyShopHandledAsync(session, cycle);
+            WriteLog(session,
+                $"Loja não pôde ser confirmada após três verificações ({reason}). " +
+                "A rotina ficará encerrada neste ciclo para preservar o farm e evitar repetição.");
+            return;
+        }
+
+        var delay = session.DailyShopAttemptCount == 1 ? TimeSpan.FromMinutes(2) : TimeSpan.FromMinutes(10);
+        session.NextDailyShopAttemptAt = DateTime.UtcNow + delay;
+        WriteLog(session,
+            $"Compra diária adiada por {delay.TotalMinutes:0} min: {reason} " +
+            $"Tentativa segura {session.DailyShopAttemptCount}/3.");
+    }
+
+    private async Task<bool> IsDailyShopCategoryExhaustedStableAsync(
+        ClientSession session,
+        bool summon,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var confirmations = 0;
+        for (var sample = 0; sample < 3; sample++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var frame = await CaptureClientFrameAsync(session, cancellationToken);
+            var status = summon
+                ? await _dailyShopStatusReader.ReadSummonAsync(frame, cancellationToken)
+                : await _dailyShopStatusReader.ReadCommonAsync(frame, cancellationToken);
+            confirmations = status.Exhausted ? confirmations + 1 : 0;
+            if (confirmations >= 2)
+                return true;
+
+            await Task.Delay(280, cancellationToken);
+        }
+
+        return false;
     }
 
     private async Task<bool> RunDueDailyRoutinesSafelyAsync(
@@ -3250,6 +3539,7 @@ public sealed class BotAutomationEngine(
             if (started)
             {
                 session.NextDailyRoutineAttemptAt = default;
+                session.DailyRoutineFailureCount = 0;
             }
 
             return started;
@@ -3260,12 +3550,54 @@ public sealed class BotAutomationEngine(
         }
         catch (Exception exception)
         {
-            session.NextDailyRoutineAttemptAt = DateTime.UtcNow.AddSeconds(15);
-            session.NextRoutinePanelRecoveryAt = DateTime.UtcNow.AddSeconds(15);
+            session.DailyRoutineFailureCount++;
+            var retryDelay = session.DailyRoutineFailureCount switch
+            {
+                1 => TimeSpan.FromSeconds(30),
+                2 => TimeSpan.FromMinutes(2),
+                3 => TimeSpan.FromMinutes(10),
+                _ => TimeSpan.FromMinutes(30)
+            };
+            session.NextDailyRoutineAttemptAt = DateTime.UtcNow.Add(retryDelay);
+            session.NextRoutinePanelRecoveryAt = session.NextDailyRoutineAttemptAt;
             session.Audio.Armed = !session.InAgenda;
-            WriteLog(session, $"Falha recuperável na rotina diária: {exception.GetBaseException().Message}. O bot continuará ativo e reavaliará este cliente em 15 segundos.");
             WritePersistentOnly(session, exception.ToString());
+            await RecoverDailyRoutineFailureAsync(session, pause, cancellationToken);
+            WriteLog(session,
+                $"Falha recuperável na rotina diária: {exception.GetBaseException().Message}. " +
+                $"A interface foi liberada e a nova tentativa ocorrerá em {FormatDuration(retryDelay)}, " +
+                "sem repetir cliques durante a espera.");
             return true;
+        }
+    }
+
+    private async Task RecoverDailyRoutineFailureAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ActivateGameAsync(session, cancellationToken);
+            for (var attempt = 0; attempt < 5 && await IsKnownBlockingOverlayVisibleAsync(cancellationToken); attempt++)
+            {
+                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                await Task.Delay(300, cancellationToken);
+            }
+
+            if (!session.InAgenda && await FindRestStateAsync(cancellationToken) is null)
+            {
+                var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
+                session.SafeInRest = rest is not null;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception recoveryException)
+        {
+            WritePersistentOnly(session, $"Recuperação da rotina diária: {recoveryException}");
         }
     }
 
@@ -3407,18 +3739,27 @@ public sealed class BotAutomationEngine(
             session.NextRoutinePanelRecoveryAt = default;
             await ActivateGameAsync(session, cancellationToken);
             var cycle = DailyCycleKey(DateTime.Now);
-            if (await IsGuildDirectiveCompletedAsync(cancellationToken))
+            if ((await recognition.FindAsync("daily_shop_page", cancellationToken)).Found ||
+                (await recognition.FindAsync("daily_shop_bulk_popup", cancellationToken)).Found)
+            {
+                WriteLog(session, "Loja encontrada aberta ao iniciar; fechando a tela e sincronizando a compra no próximo ciclo da rotina.");
+                for (var attempt = 0; attempt < 3; attempt++)
+                {
+                    await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                    await Task.Delay(250, cancellationToken);
+                }
+            }
+
+            if (await IsGuildDirectiveCompletedAsync(session, cancellationToken))
             {
                 WriteLog(session, "Diretivas 5/5 já concluídas ao iniciar; fechando a Guilda sem recarregar.");
-                session.DirectiveCycle = cycle;
-                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+                await MarkDirectiveHandledAsync(session, cycle);
                 await CloseGuildScreenAsync(session, pause, cancellationToken);
             }
             else if (await IsGuildDirectiveInProgressAsync(cancellationToken))
             {
                 WriteLog(session, "Diretiva já aceita e em andamento ao iniciar; não clicando em Desistir.");
-                session.DirectiveCycle = cycle;
-                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+                await MarkDirectiveHandledAsync(session, cycle);
                 await CloseGuildScreenAsync(session, pause, cancellationToken);
             }
             else if ((await recognition.FindAsync("guild_page", cancellationToken)).Found)
@@ -3505,7 +3846,7 @@ public sealed class BotAutomationEngine(
         }
     }
 
-    private async Task AcceptGuildDirectiveAsync(
+    private async Task<bool> AcceptGuildDirectiveAsync(
         ClientSession session,
         GuildDirectiveArea area,
         PauseController pause,
@@ -3514,11 +3855,11 @@ public sealed class BotAutomationEngine(
         SetStatus(BotRunState.Running, $"{session.Options.Label}: Diretiva de Guilda", "Abrindo a Guilda e aceitando o local configurado");
         if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
         {
-            return;
+            return true;
         }
         if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
         {
-            return;
+            return true;
         }
 
         await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
@@ -3533,11 +3874,11 @@ public sealed class BotAutomationEngine(
             await CheckpointAsync(pause, cancellationToken);
             if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
             {
-                return;
+                return true;
             }
             if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
             {
-                return;
+                return true;
             }
 
             if ((await recognition.FindAsync("guild_directive_page", cancellationToken)).Found)
@@ -3552,17 +3893,19 @@ public sealed class BotAutomationEngine(
         if (!directivePageVisible)
         {
             var diagnostic = await recognition.SaveDiagnosticAsync($"guild_directive_page_{session.Options.Priority}");
-            throw new TimeoutException($"{session.Options.Label}: a página de Diretivas não foi reconhecida. Diagnóstico: {diagnostic}");
+            return await RegisterDirectiveUncertainAsync(
+                session, pause, cancellationToken,
+                $"a página de Diretivas não foi reconhecida. Diagnóstico: {diagnostic}");
         }
 
         await Task.Delay(400, cancellationToken);
         if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
         {
-            return;
+            return true;
         }
         if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
         {
-            return;
+            return true;
         }
         var point = area switch
         {
@@ -3576,7 +3919,7 @@ public sealed class BotAutomationEngine(
         {
             if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
             {
-                return;
+                return true;
             }
 
             var accept = await recognition.FindAsync(
@@ -3594,12 +3937,16 @@ public sealed class BotAutomationEngine(
 
         if (!buttonIsAvailable)
         {
-            await CloseGuildScreenAsync(session, pause, cancellationToken);
-            throw new InvalidOperationException(
-                $"{session.Options.Label}: botão Aceitar não foi confirmado; não clicando na possível opção Desistir.");
+            return await RegisterDirectiveUncertainAsync(
+                session, pause, cancellationToken,
+                "o botão Aceitar não foi confirmado; nenhuma área será clicada porque ela pode conter Desistir.");
         }
 
         await input.MoveAndClickAsync(point.Item1, point.Item2, TimeSpan.FromMilliseconds(350), cancellationToken);
+        // Depois deste clique, repetir pode cancelar uma Diretiva que foi aceita
+        // enquanto a captura ainda estava atualizando. Persistimos antes de
+        // observar o aviso para tornar a operação idempotente.
+        await MarkDirectiveHandledAsync(session, DailyCycleKey(DateTime.Now));
         var confirmationDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(12);
         var accepted = false;
         while (DateTime.UtcNow < confirmationDeadline)
@@ -3607,11 +3954,11 @@ public sealed class BotAutomationEngine(
             await CheckpointAsync(pause, cancellationToken);
             if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
             {
-                return;
+                return true;
             }
             if (await CloseActiveGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
             {
-                return;
+                return true;
             }
             if ((await recognition.FindAsync("guild_directive_accepted", cancellationToken)).Found ||
                 (await recognition.FindAsync("guild_directive_in_progress", cancellationToken)).Found)
@@ -3626,12 +3973,16 @@ public sealed class BotAutomationEngine(
         if (!accepted)
         {
             var diagnostic = await recognition.SaveDiagnosticAsync($"guild_directive_accept_{session.Options.Priority}");
-            throw new TimeoutException(
-                $"{session.Options.Label}: não foi possível confirmar a Diretiva pelo aviso nem pelo estado Em andamento. Diagnóstico: {diagnostic}");
+            WriteLog(session,
+                $"O clique em Aceitar foi enviado uma vez, mas o aviso final não apareceu. " +
+                $"O ciclo foi protegido contra novo clique. Diagnóstico: {diagnostic}");
         }
 
-        await CloseGuildScreenAsync(session, pause, cancellationToken);
-        WriteLog(session, $"Diretiva aceita em {DirectiveAreaName(area)}; o jogo executará as cinco automaticamente.");
+        await CloseGuildScreenBestEffortAsync(session, pause, cancellationToken);
+        WriteLog(session, accepted
+            ? $"Diretiva aceita em {DirectiveAreaName(area)}; o jogo executará as cinco automaticamente."
+            : "Diretiva encerrada em estado protegido; nenhuma nova tentativa ocorrerá neste ciclo.");
+        return true;
     }
 
     private async Task<bool> CloseCompletedGuildDirectiveIfPresentAsync(
@@ -3639,16 +3990,15 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        if (!await IsGuildDirectiveCompletedAsync(cancellationToken))
+        if (!await IsGuildDirectiveCompletedAsync(session, cancellationToken))
         {
             return false;
         }
 
         WriteLog(session, "As cinco Diretivas da Guilda já estão concluídas. Fechando a tela sem usar recarga.");
         var cycle = DailyCycleKey(DateTime.Now);
-        session.DirectiveCycle = cycle;
-        await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
-        await CloseGuildScreenAsync(session, pause, cancellationToken);
+        await MarkDirectiveHandledAsync(session, cycle);
+        await CloseGuildScreenBestEffortAsync(session, pause, cancellationToken);
         return true;
     }
 
@@ -3663,10 +4013,9 @@ public sealed class BotAutomationEngine(
         }
 
         var cycle = DailyCycleKey(DateTime.Now);
-        session.DirectiveCycle = cycle;
-        await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.directiveCycle", cycle);
+        await MarkDirectiveHandledAsync(session, cycle);
         WriteLog(session, "Diretiva já está Em andamento; registrada neste ciclo sem tocar em Desistir.");
-        await CloseGuildScreenAsync(session, pause, cancellationToken);
+        await CloseGuildScreenBestEffortAsync(session, pause, cancellationToken);
         return true;
     }
 
@@ -3674,7 +4023,9 @@ public sealed class BotAutomationEngine(
         (await recognition.FindAsync("guild_directive_in_progress", 650, 425, 1050, 160, cancellationToken)).Found ||
         (await recognition.FindAsync("guild_directive_decline_button", 685, 740, 975, 115, cancellationToken)).Found;
 
-    private async Task<bool> IsGuildDirectiveCompletedAsync(CancellationToken cancellationToken)
+    private async Task<bool> IsGuildDirectiveCompletedAsync(
+        ClientSession session,
+        CancellationToken cancellationToken)
     {
         // O texto central existe tanto com recarga disponível quanto sem ela.
         if ((await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found ||
@@ -3690,7 +4041,7 @@ public sealed class BotAutomationEngine(
             return false;
         }
 
-        var frame = capture.CapturePrimaryScreen();
+        var frame = await CaptureClientFrameAsync(session, cancellationToken);
         return await new GuildDirectiveCounterReader().IsCompleteAsync(frame, cancellationToken);
     }
 
@@ -3707,7 +4058,7 @@ public sealed class BotAutomationEngine(
             await Task.Delay(300, cancellationToken);
             var directiveVisible = (await recognition.FindAsync("guild_directive_page", cancellationToken)).Found;
             var guildVisible = (await recognition.FindAsync("guild_page", cancellationToken)).Found;
-            var completedVisible = await IsGuildDirectiveCompletedAsync(cancellationToken);
+            var completedVisible = await IsGuildDirectiveCompletedAsync(session, cancellationToken);
             if (!directiveVisible && !guildVisible && !completedVisible)
             {
                 WriteLog(session, $"Tela da Guilda fechada e confirmada após {attempt} ESC.");
@@ -3722,6 +4073,76 @@ public sealed class BotAutomationEngine(
         var diagnostic = await recognition.SaveDiagnosticAsync($"guild_directive_close_{session.Options.Priority}");
         throw new TimeoutException(
             $"{session.Options.Label}: a tela da Guilda não fechou após cinco ESC. Diagnóstico: {diagnostic}");
+    }
+
+    private async Task MarkDirectiveHandledAsync(ClientSession session, string cycle)
+    {
+        session.DirectiveCycle = cycle;
+        session.DirectiveAttemptCycle = cycle;
+        session.DirectiveAttemptCount = 0;
+        session.NextDirectiveAttemptAt = default;
+        var prefix = $"{SessionSettingPrefix(session)}.routines";
+        await database.SaveSettingAsync($"{prefix}.directiveCycle", cycle);
+        await database.SaveSettingAsync($"{prefix}.directiveAttemptCycle", cycle);
+        await database.SaveSettingAsync($"{prefix}.directiveAttemptCount", "0");
+    }
+
+    private async Task<bool> RegisterDirectiveUncertainAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken,
+        string reason)
+    {
+        var cycle = DailyCycleKey(DateTime.Now);
+        if (!string.Equals(session.DirectiveAttemptCycle, cycle, StringComparison.Ordinal))
+        {
+            session.DirectiveAttemptCycle = cycle;
+            session.DirectiveAttemptCount = 0;
+        }
+
+        session.DirectiveAttemptCount++;
+        var prefix = $"{SessionSettingPrefix(session)}.routines";
+        await database.SaveSettingAsync($"{prefix}.directiveAttemptCycle", cycle);
+        await database.SaveSettingAsync(
+            $"{prefix}.directiveAttemptCount",
+            session.DirectiveAttemptCount.ToString(CultureInfo.InvariantCulture));
+        await CloseGuildScreenBestEffortAsync(session, pause, cancellationToken);
+
+        if (session.DirectiveAttemptCount >= 3)
+        {
+            await MarkDirectiveHandledAsync(session, cycle);
+            WriteLog(session,
+                $"Diretiva não ficou segura para clicar após três verificações ({reason}). " +
+                "Ela será ignorada até o próximo ciclo para impedir repetição e inatividade.");
+            return true;
+        }
+
+        var delay = session.DirectiveAttemptCount == 1 ? TimeSpan.FromMinutes(2) : TimeSpan.FromMinutes(10);
+        session.NextDirectiveAttemptAt = DateTime.UtcNow + delay;
+        WriteLog(session,
+            $"Diretiva adiada por {delay.TotalMinutes:0} min: {reason} " +
+            $"Tentativa segura {session.DirectiveAttemptCount}/3.");
+        return false;
+    }
+
+    private async Task CloseGuildScreenBestEffortAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await CloseGuildScreenAsync(session, pause, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            WritePersistentOnly(session, $"Fechamento de segurança da Guilda: {exception.Message}");
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                await Task.Delay(250, cancellationToken);
+            }
+        }
     }
 
     private async Task<bool> AcceptDailyMissionsAsync(
@@ -4142,8 +4563,10 @@ public sealed class BotAutomationEngine(
     private static string DailyCycleKey(DateTime now) =>
         (now.TimeOfDay < TimeSpan.FromHours(4) ? now.Date.AddDays(-1) : now.Date).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
+    private static readonly TimeSpan DailyShopResetAt = new(13, 1, 0);
+
     private static string DailyShopCycleKey(DateTime now) =>
-        (now.TimeOfDay < TimeSpan.FromHours(13) ? now.Date.AddDays(-1) : now.Date).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        (now.TimeOfDay < DailyShopResetAt ? now.Date.AddDays(-1) : now.Date).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     internal static void VerifySchedulePolicy()
     {
@@ -4154,10 +4577,10 @@ public sealed class BotAutomationEngine(
         var monday = new DateTime(2026, 9, 28, 4, 0, 0);
         Check(AbbeyWeekKey(monday.AddSeconds(-1)) == "2026-09-21", "Reset semanal antecipado.");
         Check(AbbeyWeekKey(monday) == "2026-09-28", "Reset semanal ausente.");
-        var shopReset = new DateTime(2026, 9, 22, 13, 0, 0);
+        var shopReset = new DateTime(2026, 9, 22, 13, 1, 0);
         Check(DailyShopCycleKey(shopReset.AddSeconds(-1)) == "2026-09-21", "Reset da Loja antecipado.");
         Check(DailyShopCycleKey(shopReset) == "2026-09-22", "Reset da Loja ausente.");
-        Check(ScheduledInDailyShopCycle(shopReset, TimeSpan.FromHours(4)) == new DateTime(2026, 9, 23, 4, 0, 0), "Horário da Loja antes das 13h incorreto.");
+        Check(ScheduledInDailyShopCycle(shopReset, TimeSpan.FromHours(4)) == shopReset, "Margem de segurança da Loja incorreta.");
         var session = new ClientSession(new AutomationClientOptions(
             "Cliente 1", new GameWindowTarget(0, "Teste", 0, false, true),
             TaDestination.Ta2, false, 1, null, WeeklyAgendaEntryLimit: 2));
@@ -4177,8 +4600,9 @@ public sealed class BotAutomationEngine(
 
     private static DateTime ScheduledInDailyShopCycle(DateTime now, TimeSpan selectedTime)
     {
-        var cycleStart = now.TimeOfDay < TimeSpan.FromHours(13) ? now.Date.AddDays(-1) : now.Date;
-        return cycleStart + selectedTime + (selectedTime < TimeSpan.FromHours(13) ? TimeSpan.FromDays(1) : TimeSpan.Zero);
+        var cycleStart = now.TimeOfDay < DailyShopResetAt ? now.Date.AddDays(-1) : now.Date;
+        var effectiveTime = selectedTime < DailyShopResetAt ? DailyShopResetAt : selectedTime;
+        return cycleStart + effectiveTime;
     }
 
     private static DateTime ScheduledInCycle(DateTime now, TimeSpan selectedTime)
@@ -5102,7 +5526,14 @@ public sealed class BotAutomationEngine(
             "painel_restauracao",
             "agenda_tela",
             "menu_ta",
-            "menu_masmorra"
+            "menu_masmorra",
+            "daily_shop_page",
+            "daily_shop_bulk_popup",
+            "guild_page",
+            "guild_directive_page",
+            "campaign_page",
+            "daily_page",
+            "mail_page"
         ];
         foreach (var reference in references)
         {
@@ -6597,12 +7028,21 @@ public sealed class BotAutomationEngine(
         public string? DailyCompletedCycle { get; set; }
         public string? DailyListToggleCycle { get; set; }
         public string? DirectiveCycle { get; set; }
+        public string? DirectiveAttemptCycle { get; set; }
+        public int DirectiveAttemptCount { get; set; }
+        public DateTime NextDirectiveAttemptAt { get; set; }
         public string? DailyShopCycle { get; set; }
+        public string? DailyShopCommonCycle { get; set; }
+        public string? DailyShopSummonCycle { get; set; }
+        public string? DailyShopAttemptCycle { get; set; }
+        public int DailyShopAttemptCount { get; set; }
+        public DateTime NextDailyShopAttemptAt { get; set; }
         public string? Mail01Date { get; set; }
         public string? Mail07Date { get; set; }
         public DateTime NextMailAttemptAt { get; set; }
         public DateTime NextDailyMissionCheckAt { get; set; }
         public DateTime NextDailyRoutineAttemptAt { get; set; }
+        public int DailyRoutineFailureCount { get; set; }
         public DateTime NextVisibleDailyScanAt { get; set; }
         public DateTime NextRoutinePanelRecoveryAt { get; set; }
         public int DailyNoMissionHits { get; set; }

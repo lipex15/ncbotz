@@ -175,6 +175,27 @@ public partial class App : Application
             return;
         }
 
+        var shopStatusProbeIndex = Array.IndexOf(e.Args, "--shop-status-probe");
+        if (shopStatusProbeIndex >= 0 && shopStatusProbeIndex + 3 < e.Args.Length)
+        {
+            await using var stream = File.OpenRead(Path.GetFullPath(e.Args[shopStatusProbeIndex + 1]));
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            var converted = new FormatConvertedBitmap(decoder.Frames[0], PixelFormats.Bgra32, null, 0);
+            var stride = converted.PixelWidth * 4;
+            var pixels = new byte[stride * converted.PixelHeight];
+            converted.CopyPixels(pixels, stride, 0);
+            var frame = new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
+            var reader = new DailyShopStatusReader();
+            var result = string.Equals(e.Args[shopStatusProbeIndex + 2], "summon", StringComparison.OrdinalIgnoreCase)
+                ? await reader.ReadSummonAsync(frame, CancellationToken.None)
+                : await reader.ReadCommonAsync(frame, CancellationToken.None);
+            await File.WriteAllTextAsync(
+                Path.GetFullPath(e.Args[shopStatusProbeIndex + 3]),
+                $"exhausted={result.Exhausted};evidence={result.Evidence}");
+            Shutdown();
+            return;
+        }
+
         var imageProbeIndex = Array.IndexOf(e.Args, "--image-probe");
         if (imageProbeIndex >= 0 && imageProbeIndex + 2 < e.Args.Length)
         {

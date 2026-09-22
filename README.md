@@ -6,12 +6,21 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Ciclo disponível — v0.10.2 (testes)
+## Ciclo disponível — v0.10.3 (testes)
+
+- Ao iniciar dentro de uma T.A em descanso, o bot preserva o farm atual. A chegada já reconhecida ou o botão **Entrar** apagado impedem nova entrada e novo gasto de gold.
+- A compra diária da Loja reconhece os contadores já completos (`3/3` em Comum e `1/1` em Invocação), registra cada categoria separadamente e não procura novamente o popup quando os itens estão esgotados.
+- O novo ciclo da Loja começa às 13:01, com um minuto de segurança após o reset das 13:00.
+- Diretivas 5/5 e Diretivas em andamento são encerradas sem usar recarga nem tocar em **Desistir**. Estados incertos usam espera progressiva e no máximo três verificações por ciclo.
+- Falhas de painéis diários agora liberam a interface com `Esc`, restauram o descanso quando possível e usam espera progressiva, evitando cliques infinitos e personagem parado.
+- O reconhecimento das imagens reais confirmou as duas formas de Diretiva completa e os dois estados de Loja esgotada enviados para o teste.
+
+## Ciclo anterior — v0.10.2 (testes)
 
 - Limite semanal de entradas da Agenda por cliente, compartilhado entre Abadia e Estreito; novas entradas são bloqueadas até segunda às 04:00 quando o limite é atingido. O farm já pago continua.
 - Tempo zero confirmado em duas leituras bloqueia somente a masmorra esgotada até o reset semanal. Um minuto restante continua disponível; a estimativa local de dez horas não bloqueia saldo real.
 - Etapas esgotadas são ignoradas; se não restarem opções, o cliente segue à T.A e a Agenda pode retomar após o reset semanal.
-- Compra diária da Loja usa ciclo próprio das 13:00, independente das Diárias e Diretivas.
+- Compra diária da Loja usa ciclo próprio, independente das Diárias e Diretivas.
 
 ## Ciclo anterior — v0.10.1 (testes)
 
