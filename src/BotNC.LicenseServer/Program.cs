@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -219,6 +220,7 @@ static string Page(string title, string body) => $$"""
 
 static async Task SendTelegramAlertAsync(string username, string existingMachine, string attemptedMachine)
 {
+    TryShowLocalAlert(username, existingMachine, attemptedMachine);
     var token = Environment.GetEnvironmentVariable("PEXBOT_TELEGRAM_BOT_TOKEN");
     var chat = Environment.GetEnvironmentVariable("PEXBOT_TELEGRAM_CHAT_ID");
     if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(chat)) return;
@@ -233,6 +235,24 @@ static async Task SendTelegramAlertAsync(string username, string existingMachine
         await client.PostAsync($"https://api.telegram.org/bot{token}/sendMessage", body);
     }
     catch { /* O alerta permanece registrado no banco e no painel. */ }
+}
+
+static void TryShowLocalAlert(string username, string existingMachine, string attemptedMachine)
+{
+    if (!OperatingSystem.IsWindows()) return;
+    try
+    {
+        var start = new ProcessStartInfo
+        {
+            FileName = "msg.exe",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        start.ArgumentList.Add(Environment.UserName);
+        start.ArgumentList.Add($"PEXBOT: tentativa de compartilhar login. Usuário: {username}. PC autorizado: {existingMachine}. Novo PC: {attemptedMachine}.");
+        Process.Start(start)?.Dispose();
+    }
+    catch { /* O alerta continua registrado no painel mesmo sem aviso local. */ }
 }
 
 internal sealed record ActivationRequest(string Username, string Password, string DeviceId, string Fingerprint, string MachineName);
