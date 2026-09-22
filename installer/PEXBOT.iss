@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.9.17"
+  #define AppVersion "0.9.18"
 #endif
 
 #ifdef TestChannel

@@ -510,6 +510,10 @@ public sealed class BotAutomationEngine(
             WriteLog("Sapheras desativada para todos os clientes. Mantendo o farm contínuo nos destinos configurados.");
             foreach (var session in sessions)
             {
+                if (await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, cancellationToken))
+                {
+                    continue;
+                }
                 if (await RecoverOpenRoutinePanelsSafelyAsync(session, dailyRoutines, pause, cancellationToken))
                 {
                     continue;
@@ -545,6 +549,10 @@ public sealed class BotAutomationEngine(
             {
                 foreach (var session in sessions)
                 {
+                    if (await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, sapherasPriority.Token))
+                    {
+                        continue;
+                    }
                     if (await RecoverOpenRoutinePanelsSafelyAsync(session, dailyRoutines, pause, sapherasPriority.Token))
                     {
                         continue;
@@ -671,6 +679,73 @@ public sealed class BotAutomationEngine(
         await RunCoreAsync(sessions, nextSapheras, antiOverkill, dailyRoutines, pause, cancellationToken);
     }
 
+    private async Task<bool> RunStartupRestorationSafelyAsync(
+        ClientSession session,
+        SapherasOptions sapheras,
+        AntiOverkillOptions antiOverkill,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // A restauração precede Correio, Diretivas e Diárias: essas rotinas
+            // podem assumir o controle do cliente e pular a preparação do farm.
+            var death = await FindDeathOnClientAsync(session, cancellationToken);
+            if (death.Found)
+            {
+                WriteLog(session, $"Morte presente na inicialização ({death.Confidence:P0}); restaurando antes das rotinas.");
+                await HandleDeathAsync(session, sapheras, antiOverkill, pause, cancellationToken);
+                return true;
+            }
+
+            var panel = await WaitForRestorationCounterAsync(
+                session, TimeSpan.FromSeconds(2), pause, cancellationToken);
+            var iconConfirmed = false;
+            if (panel.State == RestorationCountState.Unknown)
+            {
+                for (var sample = 0; sample < 2; sample++)
+                {
+                    var frame = await CaptureClientFrameAsync(session, cancellationToken);
+                    var icon = await recognition.FindAsync("icone_perda_exp", frame, cancellationToken);
+                    if (!icon.Found || icon.Confidence < 0.59 || !TombstoneIconAnalyzer.HasRedIcon(frame))
+                    {
+                        iconConfirmed = false;
+                        break;
+                    }
+
+                    iconConfirmed = true;
+                    if (sample == 0)
+                    {
+                        await Task.Delay(400, cancellationToken);
+                    }
+                }
+            }
+
+            if (panel.State != RestorationCountState.Unknown || iconConfirmed)
+            {
+                WriteLog(session, panel.State != RestorationCountState.Unknown
+                    ? "Painel de restauração já aberto ao iniciar; resolvendo antes das rotinas."
+                    : "Lápide antiga confirmada ao iniciar; resolvendo antes das rotinas.");
+                await ActivateGameForEmergencyAsync(session, cancellationToken);
+                await RestoreDeathResourcesAsync(session, pause, cancellationToken);
+            }
+
+            return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            WriteLog(session, $"Falha na recuperação inicial; o monitoramento tentará novamente: {exception.GetBaseException().Message}");
+            WritePersistentOnly(session, exception.ToString());
+            session.NeedsDeathRestoration = true;
+            session.NextRecoveryAttemptAt = DateTime.UtcNow.AddSeconds(10);
+            return true;
+        }
+    }
+
     private async Task PrepareClientForFarmAsync(
         IReadOnlyList<ClientSession> sessions,
         ClientSession session,
@@ -697,44 +772,6 @@ public sealed class BotAutomationEngine(
         }
 
         await ActivateGameAsync(session, cancellationToken);
-        var death = await FindDeathOnClientAsync(session, cancellationToken);
-        if (death.Found)
-        {
-            WriteLog(session, $"O bot iniciou com a tela de morte aberta ({death.Confidence:P0}); restaurando antes de {context}.");
-            await HandleDeathAsync(session, sapheras, antiOverkill, pause, cancellationToken);
-            return;
-        }
-
-        var pendingRestorationPanel = await WaitForRestorationCounterAsync(
-            session, TimeSpan.FromSeconds(2), pause, cancellationToken);
-        var pendingRestorationIcon = new RecognitionResult(false, 0, 0, 0);
-        // Uma ausência observada antes de parar o bot não prova que a lápide
-        // continua ausente no próximo início: o personagem pode ter morrido
-        // enquanto o bot estava desligado.
-        if (pendingRestorationPanel.State == RestorationCountState.Unknown)
-        {
-            var firstFrame = await CaptureClientFrameAsync(session, cancellationToken);
-            var firstIcon = await recognition.FindAsync("icone_perda_exp", firstFrame, cancellationToken);
-            if (firstIcon.Found && firstIcon.Confidence >= 0.59 && TombstoneIconAnalyzer.HasRedIcon(firstFrame))
-            {
-                await Task.Delay(400, cancellationToken);
-                var secondFrame = await CaptureClientFrameAsync(session, cancellationToken);
-                var secondIcon = await recognition.FindAsync("icone_perda_exp", secondFrame, cancellationToken);
-                if (secondIcon.Found && secondIcon.Confidence >= 0.59 && TombstoneIconAnalyzer.HasRedIcon(secondFrame))
-                {
-                    pendingRestorationIcon = secondIcon;
-                }
-            }
-        }
-        if (pendingRestorationPanel.State != RestorationCountState.Unknown || pendingRestorationIcon.Found)
-        {
-            WriteLog(
-                session,
-                pendingRestorationPanel.State != RestorationCountState.Unknown
-                    ? "Bot iniciado com o painel de restauração pendente; concluindo antes do farm."
-                    : $"Bot iniciado com uma lápide pendente ({pendingRestorationIcon.Confidence:P0}); restaurando antes do farm.");
-            await RestoreDeathResourcesAsync(session, pause, cancellationToken);
-        }
 
         var currentHunt = await FindReferenceOnClientAsync(
             session,
@@ -3250,9 +3287,25 @@ public sealed class BotAutomationEngine(
         (await recognition.FindAsync("guild_directive_in_progress", 650, 425, 1050, 160, cancellationToken)).Found ||
         (await recognition.FindAsync("guild_directive_decline_button", 685, 740, 975, 115, cancellationToken)).Found;
 
-    private async Task<bool> IsGuildDirectiveCompletedAsync(CancellationToken cancellationToken) =>
-        (await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found ||
-        (await recognition.FindAsync("guild_directive_completed_alt", cancellationToken)).Found;
+    private async Task<bool> IsGuildDirectiveCompletedAsync(CancellationToken cancellationToken)
+    {
+        // O texto central existe tanto com recarga disponível quanto sem ela.
+        if ((await recognition.FindAsync("guild_directive_completed", cancellationToken)).Found ||
+            (await recognition.FindAsync("guild_directive_completed_alt", cancellationToken)).Found)
+        {
+            return true;
+        }
+
+        // Segunda evidência independente: 5/5 no rodapé, somente quando a
+        // aba Diretiva está aberta. Nunca usar o botão OK como sinal de conclusão.
+        if (!(await recognition.FindAsync("guild_directive_page", cancellationToken)).Found)
+        {
+            return false;
+        }
+
+        var frame = capture.CapturePrimaryScreen();
+        return await new GuildDirectiveCounterReader().IsCompleteAsync(frame, cancellationToken);
+    }
 
     private async Task CloseGuildScreenAsync(
         ClientSession session,
