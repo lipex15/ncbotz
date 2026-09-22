@@ -6,7 +6,14 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Ciclo disponível — v0.10.1 (testes)
+## Ciclo disponível — v0.10.2 (testes)
+
+- Limite semanal de entradas da Agenda por cliente, compartilhado entre Abadia e Estreito; novas entradas são bloqueadas até segunda às 04:00 quando o limite é atingido. O farm já pago continua.
+- Tempo zero confirmado em duas leituras bloqueia somente a masmorra esgotada até o reset semanal. Um minuto restante continua disponível; a estimativa local de dez horas não bloqueia saldo real.
+- Etapas esgotadas são ignoradas; se não restarem opções, o cliente segue à T.A e a Agenda pode retomar após o reset semanal.
+- Compra diária da Loja usa ciclo próprio das 13:00, independente das Diárias e Diretivas.
+
+## Ciclo anterior — v0.10.1 (testes)
 
 - Página unificada **Abadia / Masmorra Anônima**, com acesso direto à configuração do Estreito pela Agenda.
 - O nível 86/97/110 aparece somente para o Estreito de Tenerys; etapas da Abadia não exibem nível.

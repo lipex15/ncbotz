@@ -876,10 +876,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!int.TryParse(Client1AbbeyLimitTextBox.Text, out var abbeyLimit1) || abbeyLimit1 is < 0 or > 100 ||
-            !int.TryParse(Client2AbbeyLimitTextBox.Text, out var abbeyLimit2) || abbeyLimit2 is < 0 or > 100)
+        if (!int.TryParse(Client1AbbeyLimitTextBox.Text, out var abbeyLimit1) || abbeyLimit1 is < 1 or > 100 ||
+            !int.TryParse(Client2AbbeyLimitTextBox.Text, out var abbeyLimit2) || abbeyLimit2 is < 1 or > 100)
         {
-            ShowValidation("Informe de 0 a 100 retornos pagos para cada cliente da Abadia.");
+            ShowValidation("Informe de 1 a 100 entradas pagas semanais pela Agenda para cada cliente.");
             return;
         }
 
@@ -1406,8 +1406,14 @@ public partial class MainWindow : Window
         await LoadTaCoordinatesAsync(2, _client2TaCoordinates, _client2TaCoordinatesEnabled);
         var abbey1Enabled = await _database.GetSettingAsync("client1.abbey.enabled");
         var abbey2Enabled = await _database.GetSettingAsync("client2.abbey.enabled");
-        var abbey1Limit = await _database.GetSettingAsync("client1.abbey.returnLimit");
-        var abbey2Limit = await _database.GetSettingAsync("client2.abbey.returnLimit");
+        var abbey1Limit = await _database.GetSettingAsync("client1.farmSchedule.weeklyEntryLimit");
+        var abbey2Limit = await _database.GetSettingAsync("client2.farmSchedule.weeklyEntryLimit");
+        if (string.IsNullOrWhiteSpace(abbey1Limit) &&
+            int.TryParse(await _database.GetSettingAsync("client1.abbey.returnLimit"), out var legacyAbbey1Limit))
+            abbey1Limit = (Math.Max(0, legacyAbbey1Limit) + 1).ToString(CultureInfo.InvariantCulture);
+        if (string.IsNullOrWhiteSpace(abbey2Limit) &&
+            int.TryParse(await _database.GetSettingAsync("client2.abbey.returnLimit"), out var legacyAbbey2Limit))
+            abbey2Limit = (Math.Max(0, legacyAbbey2Limit) + 1).ToString(CultureInfo.InvariantCulture);
         var abbey1CustomEnabled = await _database.GetSettingAsync("client1.abbey.customFarm.enabled");
         var abbey2CustomEnabled = await _database.GetSettingAsync("client2.abbey.customFarm.enabled");
         var abbey1X = await _database.GetSettingAsync("client1.abbey.customFarm.x");
@@ -1484,8 +1490,8 @@ public partial class MainWindow : Window
              string.Equals(client2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase));
         Client1AbbeyCheckBox.IsChecked = string.Equals(abbey1Enabled, "true", StringComparison.OrdinalIgnoreCase);
         Client2AbbeyCheckBox.IsChecked = string.Equals(abbey2Enabled, "true", StringComparison.OrdinalIgnoreCase);
-        Client1AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey1Limit) ? "0" : abbey1Limit;
-        Client2AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey2Limit) ? "0" : abbey2Limit;
+        Client1AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey1Limit) ? "1" : abbey1Limit;
+        Client2AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey2Limit) ? "1" : abbey2Limit;
         _client1AbbeyCoordinate = ParseFarmCoordinate(abbey1X, abbey1Y);
         _client2AbbeyCoordinate = ParseFarmCoordinate(abbey2X, abbey2Y);
         Client1AbbeyCustomCheckBox.IsChecked = _client1AbbeyCoordinate is not null &&
@@ -1496,7 +1502,7 @@ public partial class MainWindow : Window
         GuildDirectiveScopeComboBox.SelectedItem = directiveScope ?? (string.Equals(directiveEnabled, "true", StringComparison.OrdinalIgnoreCase) ? "Ambos" : "Nenhum");
         MailScopeComboBox.SelectedItem = mailScope ?? "Ambos";
         DailyShopScopeComboBox.SelectedItem = dailyShopScope ?? "Nenhum";
-        DailyShopTimeTextBox.Text = string.IsNullOrWhiteSpace(dailyShopTime) ? "04:10" : dailyShopTime;
+        DailyShopTimeTextBox.Text = string.IsNullOrWhiteSpace(dailyShopTime) ? "13:05" : dailyShopTime;
         AntiOverkillScopeComboBox.SelectedItem = antiOverkillScope ?? "Ambos";
         DailyMissionsTimeTextBox.Text = string.IsNullOrWhiteSpace(dailyTime) ? "04:05" : dailyTime;
         GuildDirectiveTimeTextBox.Text = string.IsNullOrWhiteSpace(directiveTime) ? "04:05" : directiveTime;
@@ -1655,7 +1661,9 @@ public partial class MainWindow : Window
     {
         var prefix = $"client{clientNumber}.abbey";
         await _database.SaveSettingAsync($"{prefix}.enabled", client.UseAbbey.ToString().ToLowerInvariant());
-        await _database.SaveSettingAsync($"{prefix}.returnLimit", client.AbbeyReturnLimit.ToString(CultureInfo.InvariantCulture));
+        await _database.SaveSettingAsync(
+            $"client{clientNumber}.farmSchedule.weeklyEntryLimit",
+            client.WeeklyAgendaEntryLimit.ToString(CultureInfo.InvariantCulture));
         var custom = client.AbbeyCustomFarmCoordinate;
         await _database.SaveSettingAsync($"{prefix}.customFarm.enabled", (custom is not null).ToString().ToLowerInvariant());
         if (custom is not null)

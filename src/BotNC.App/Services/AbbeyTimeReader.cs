@@ -18,6 +18,9 @@ public sealed class AbbeyTimeReader
     private static readonly Regex TimePattern = new(
         @"(?<hours>\d{1,2})\s*[hH]\s*(?<minutes>\d{1,2})\s*(?:min|m)?",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private static readonly Regex MinutesOnlyPattern = new(
+        @"(?<![\d:hH])\b(?<minutes>\d{1,2})\s*min\b",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     public Task<AbbeyTimeReading> ReadAsync(PixelFrame frame, CancellationToken cancellationToken) =>
         ReadRegionAsync(frame, 75, 264, 180, 75, cancellationToken);
@@ -101,6 +104,11 @@ public sealed class AbbeyTimeReader
             {
                 return new AbbeyTimeReading(TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(minutes),
                     string.Join(" | ", observations));
+            }
+            if (!Regex.IsMatch(text, @"\d\s*[hH:]") && MinutesOnlyPattern.Match(text) is { Success: true } minuteMatch &&
+                int.TryParse(minuteMatch.Groups["minutes"].Value, out var minutesOnly) && minutesOnly < 60)
+            {
+                return new AbbeyTimeReading(TimeSpan.FromMinutes(minutesOnly), string.Join(" | ", observations));
             }
         }
 

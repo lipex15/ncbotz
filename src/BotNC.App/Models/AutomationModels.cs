@@ -68,7 +68,7 @@ public sealed record AutomationClientOptions(
     int Priority,
     FarmCoordinate? CustomFarmCoordinate,
     bool UseAbbey = false,
-    int AbbeyReturnLimit = 0,
+    int WeeklyAgendaEntryLimit = 1,
     FarmCoordinate? AbbeyCustomFarmCoordinate = null,
     bool UseFarmSchedule = false,
     bool EnableDailyMissions = true,

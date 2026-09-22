@@ -347,6 +347,7 @@ public partial class App : Application
 
     private static async Task RunSelfTestAsync(string outputPath)
     {
+        BotAutomationEngine.VerifySchedulePolicy();
         var database = new AppDatabase();
         await database.InitializeAsync();
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());

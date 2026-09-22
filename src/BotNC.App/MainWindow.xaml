@@ -475,13 +475,13 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="Compra diária na Loja" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
-                                <TextBlock Text="Sai do descanso, compra os lotes predefinidos de Comum e Invocação e retorna ao farm. O ciclo redefine às 04:00."
+                                <TextBlock Text="Sai do descanso, compra os lotes predefinidos de Comum e Invocação e retorna ao farm. O ciclo redefine diariamente às 13:00."
                                            Foreground="{StaticResource MutedBrush}" Margin="0,7,24,12" TextWrapping="Wrap" />
                                 <ComboBox x:Name="DailyShopScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" VerticalAlignment="Bottom">
                                 <TextBlock Text="HORÁRIO" Style="{StaticResource FieldLabel}" />
-                                <TextBox x:Name="DailyShopTimeTextBox" Text="04:10" Width="150" Height="40" Margin="0,7,0,0" />
+                                <TextBox x:Name="DailyShopTimeTextBox" Text="13:05" Width="150" Height="40" Margin="0,7,0,0" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -508,8 +508,8 @@
                             <TextBlock Text="Cliente 1" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
                             <CheckBox x:Name="Client1AbbeyCheckBox" Content="Farmar na Abadia (T.A selecionada é o plano B)"
                                       Margin="0,13,0,10" />
-                            <TextBlock Text="RETORNOS PAGOS APÓS A PRIMEIRA ENTRADA" Style="{StaticResource FieldLabel}" />
-                            <TextBox x:Name="Client1AbbeyLimitTextBox" Text="0" Width="110" Height="38"
+                            <TextBlock Text="ENTRADAS PAGAS SEMANAIS PELA AGENDA" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="Client1AbbeyLimitTextBox" Text="1" Width="110" Height="38"
                                      HorizontalAlignment="Left" Margin="0,6,0,12" />
                             <CheckBox x:Name="Client1AbbeyCustomCheckBox" Content="Usar ponto personalizado na Abadia" />
                             <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
@@ -526,8 +526,8 @@
                             <TextBlock Text="Cliente 2" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
                             <CheckBox x:Name="Client2AbbeyCheckBox" Content="Farmar na Abadia (T.A selecionada é o plano B)"
                                       Margin="0,13,0,10" />
-                            <TextBlock Text="RETORNOS PAGOS APÓS A PRIMEIRA ENTRADA" Style="{StaticResource FieldLabel}" />
-                            <TextBox x:Name="Client2AbbeyLimitTextBox" Text="0" Width="110" Height="38"
+                            <TextBlock Text="ENTRADAS PAGAS SEMANAIS PELA AGENDA" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="Client2AbbeyLimitTextBox" Text="1" Width="110" Height="38"
                                      HorizontalAlignment="Left" Margin="0,6,0,12" />
                             <CheckBox x:Name="Client2AbbeyCustomCheckBox" Content="Usar ponto personalizado na Abadia" />
                             <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
@@ -538,7 +538,7 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <TextBlock Text="Cada retorno após morte ou TP consome o limite. Reentrada causada por uma rotina programada não consome retorno."
+                    <TextBlock Text="O limite é compartilhado entre Abadia e Estreito de Tenerys e só conta entradas pagas confirmadas pela Agenda. Reinicia segunda-feira às 04:00."
                                Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="3,14,0,0" />
                     <Border Style="{StaticResource CardContainer}" Margin="0,16,0,0">
                         <Grid>
