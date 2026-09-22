@@ -45,7 +45,7 @@
                     <Button Content="🗺️   T.A 1 / T.A 2 / T.A 3" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarm" />
-                    <Button x:Name="AbbeyNavigationButton" Content="🏰   Abadia" HorizontalContentAlignment="Left"
+                    <Button x:Name="AbbeyNavigationButton" Content="🏰   Abadia / Anônima" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowAbbey" />
                     <Button x:Name="RoutinesNavigationButton" Content="📋   Rotinas diárias" HorizontalContentAlignment="Left"
@@ -466,6 +466,25 @@
                             <ComboBox x:Name="MailScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" />
                         </StackPanel>
                     </Border>
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="22" Margin="0,14,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Compra diária na Loja" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                                <TextBlock Text="Sai do descanso, compra os lotes predefinidos de Comum e Invocação e retorna ao farm. O ciclo redefine às 04:00."
+                                           Foreground="{StaticResource MutedBrush}" Margin="0,7,24,12" TextWrapping="Wrap" />
+                                <ComboBox x:Name="DailyShopScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Bottom">
+                                <TextBlock Text="HORÁRIO" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="DailyShopTimeTextBox" Text="04:10" Width="150" Height="40" Margin="0,7,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -477,8 +496,8 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <StackPanel>
-                <TextBlock Text="Abadia da Lembrança" FontSize="27" FontWeight="Bold" />
-                <TextBlock Text="Farm alternativo com limite de entradas; Sapheras continua prioritária."
+                <TextBlock Text="Abadia / Masmorra Anônima" FontSize="27" FontWeight="Bold" />
+                <TextBlock Text="Abadia da Lembrança e Estreito de Tenerys; Sapheras continua prioritária."
                            Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
             </StackPanel>
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
@@ -521,6 +540,20 @@
                     </Border>
                     <TextBlock Text="Cada retorno após morte ou TP consome o limite. Reentrada causada por uma rotina programada não consome retorno."
                                Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="3,14,0,0" />
+                    <Border Style="{StaticResource CardContainer}" Margin="0,16,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Masmorra Anônima · Estreito de Tenerys" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
+                                <TextBlock Text="Disponível pela Agenda para cada cliente nos níveis 86, 97 e 110. Somente esta masmorra possui seleção de nível; a Abadia não possui."
+                                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,24,0" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Configurar na Agenda" VerticalAlignment="Center" Click="OnShowFarmSchedule" />
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -620,7 +653,7 @@
                                         <ColumnDefinition Width="10" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <ComboBox x:Name="Client1ScheduleDestinationComboBox" Height="40" />
+                                    <ComboBox x:Name="Client1ScheduleDestinationComboBox" Height="40" SelectionChanged="OnScheduleDestinationChanged" />
                                     <TextBox x:Name="Client1ScheduleDurationTextBox" Grid.Column="2" Height="40" Text="60" />
                                     <ComboBox x:Name="Client1AnonymousLevelComboBox" Grid.Column="4" Height="40" ToolTip="Nível do Estreito" />
                                     <Button Grid.Column="6" Content="Adicionar" Click="OnAddClient1ScheduleStep" />
@@ -650,7 +683,7 @@
                                         <ColumnDefinition Width="10" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <ComboBox x:Name="Client2ScheduleDestinationComboBox" Height="40" />
+                                    <ComboBox x:Name="Client2ScheduleDestinationComboBox" Height="40" SelectionChanged="OnScheduleDestinationChanged" />
                                     <TextBox x:Name="Client2ScheduleDurationTextBox" Grid.Column="2" Height="40" Text="60" />
                                     <ComboBox x:Name="Client2AnonymousLevelComboBox" Grid.Column="4" Height="40" ToolTip="Nível do Estreito" />
                                     <Button Grid.Column="6" Content="Adicionar" Click="OnAddClient2ScheduleStep" />

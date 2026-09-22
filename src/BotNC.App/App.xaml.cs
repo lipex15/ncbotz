@@ -381,6 +381,11 @@ public partial class App : Application
             ("anonymous_arrival", "anonymous_arrival.png"),
             ("anonymous_map", "anonymous_map.png"),
             ("anonymous_go", "anonymous_map_selected.png"),
+            ("daily_shop_page", "daily_shop_open.png"),
+            ("daily_shop_coins", "daily_shop_common.png"),
+            ("daily_shop_common", "daily_shop_common.png"),
+            ("daily_shop_bulk", "daily_shop_common.png"),
+            ("daily_shop_bulk_popup", "daily_shop_bulk_popup_full.png"),
             ("menu_masmorra", "menu_aberto.png"),
             ("tela_masmorras", "tela_masmorras.png"),
             ("confirmar_sepheras", "confirmar_sepheras.png"),
@@ -473,6 +478,7 @@ public partial class App : Application
             "agenda_popup_ok", "ta1_chegada", "mapa_ta1", "mapa_ta1_zoom_max",
             "anonymous_epic_tab", "anonymous_tenerys_card", "anonymous_level_panel",
             "anonymous_entry_confirmation", "anonymous_arrival", "anonymous_map", "anonymous_go"
+            , "daily_shop_page", "daily_shop_coins", "daily_shop_common", "daily_shop_bulk", "daily_shop_bulk_popup"
         };
         foreach (var (referenceId, fileName) in cases)
         {

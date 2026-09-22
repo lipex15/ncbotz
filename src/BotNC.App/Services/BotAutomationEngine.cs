@@ -16,6 +16,7 @@ public sealed class BotAutomationEngine(
     private const int KeyQ = 0x51;
     private const int KeyL = 0x4C;
     private const int KeyM = 0x4D;
+    private const int KeyV = 0x56;
     private const int KeyY = 0x59;
     private const int KeyEquals = 0xBB;
     private const double FullDeathConfidence = 0.66;
@@ -115,6 +116,7 @@ public sealed class BotAutomationEngine(
                 await database.GetSettingAsync($"{SessionSettingPrefix(session)}.restoration.absentCycle");
             session.Mail01Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.01Date");
             session.Mail07Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.07Date");
+            session.DailyShopCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCycle");
             await LoadFarmScheduleStateAsync(session, runOptions.FarmSchedule);
             await LoadAbbeyBudgetStateAsync(session);
 
@@ -2989,8 +2991,10 @@ public sealed class BotAutomationEngine(
                        now >= ScheduledInCycle(now, options.DailyMissionsAt);
         var directiveDue = options.EnableGuildDirective && session.Options.EnableGuildDirective && session.DirectiveCycle != cycle &&
                            now >= ScheduledInCycle(now, options.GuildDirectiveAt);
+        var dailyShopDue = options.EnableDailyShop && session.Options.EnableDailyShop && session.DailyShopCycle != cycle &&
+                           now >= ScheduledInCycle(now, options.DailyShopAt);
 
-        if (!dailyDue && !directiveDue)
+        if (!dailyDue && !directiveDue && !dailyShopDue)
         {
             return false;
         }
@@ -3001,6 +3005,16 @@ public sealed class BotAutomationEngine(
         {
             Interlocked.Exchange(ref session.PendingVisualDeath, 1);
             return false;
+        }
+
+        if (dailyShopDue)
+        {
+            await PurchaseDailyShopAsync(session, pause, cancellationToken);
+            session.DailyShopCycle = cycle;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCycle", cycle);
+            WriteLog(session, "Compra diária da Loja concluída e registrada para este ciclo.");
+            if (!dailyDue && !directiveDue)
+                return true;
         }
 
         if (WantsAbbey(session) && session.AbbeyInside)
@@ -3081,6 +3095,68 @@ public sealed class BotAutomationEngine(
         }
 
         return true;
+    }
+
+    private async Task PurchaseDailyShopAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var resumeRest = session.SafeInRest || await FindRestStateAsync(cancellationToken) is not null;
+        await ActivateGameAsync(session, cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        if (await FindRestStateAsync(cancellationToken) is not null)
+            throw new TimeoutException($"{session.Options.Label}: o descanso permaneceu aberto; a Loja não será acionada sobre a tela L.");
+
+        var storeOpened = false;
+        try
+        {
+            await input.PressKeyAsync(KeyV, cancellationToken: cancellationToken);
+            await WaitForReferenceAsync("daily_shop_page", "página Loja", TimeSpan.FromSeconds(15), pause, cancellationToken);
+            storeOpened = true;
+            await input.MoveAndClickAsync(337, 142, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+            await WaitForReferenceAsync("daily_shop_coins", "aba Moedas", TimeSpan.FromSeconds(12), pause, cancellationToken);
+            await input.MoveAndClickAsync(120, 264, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+            await WaitForReferenceAsync("daily_shop_common", "categoria Comum", TimeSpan.FromSeconds(12), pause, cancellationToken);
+
+            await ConfirmDailyBulkPurchaseAsync(session, pause, cancellationToken, "Comum");
+            await Task.Delay(TimeSpan.FromSeconds(4), cancellationToken);
+            await input.MoveAndClickAsync(146, 328, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+            await Task.Delay(500, cancellationToken);
+            await ConfirmDailyBulkPurchaseAsync(session, pause, cancellationToken, "Invocação");
+        }
+        finally
+        {
+            if (storeOpened || (await recognition.FindAsync("daily_shop_page", cancellationToken)).Found)
+            {
+                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                await Task.Delay(250, cancellationToken);
+                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                await Task.Delay(350, cancellationToken);
+            }
+
+            if (resumeRest && await FindRestStateAsync(cancellationToken) is null)
+            {
+                var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
+                session.SafeInRest = rest is not null;
+                if (rest is null)
+                    WriteLog(session, "Compra encerrada; caça continua na tela normal porque o descanso não pôde ser reaberto.");
+            }
+        }
+    }
+
+    private async Task ConfirmDailyBulkPurchaseAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken,
+        string category)
+    {
+        await WaitForReferenceAsync("daily_shop_bulk", $"Compra em Lote de {category}", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        await input.MoveAndClickAsync(145, 1009, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+        await WaitForReferenceAsync("daily_shop_bulk_popup", $"confirmação do lote de {category}", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+        await WaitForReferenceToDisappearAsync("daily_shop_bulk_popup", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        WriteLog(session, $"Compra em Lote de {category} confirmada.");
     }
 
     private async Task<bool> RunDueDailyRoutinesSafelyAsync(
@@ -6389,6 +6465,7 @@ public sealed class BotAutomationEngine(
         public string? DailyCompletedCycle { get; set; }
         public string? DailyListToggleCycle { get; set; }
         public string? DirectiveCycle { get; set; }
+        public string? DailyShopCycle { get; set; }
         public string? Mail01Date { get; set; }
         public string? Mail07Date { get; set; }
         public DateTime NextMailAttemptAt { get; set; }

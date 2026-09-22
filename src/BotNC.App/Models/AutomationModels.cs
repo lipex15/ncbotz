@@ -33,7 +33,9 @@ public sealed record DailyRoutineOptions(
     TimeSpan DailyMissionsAt,
     bool EnableGuildDirective,
     TimeSpan GuildDirectiveAt,
-    GuildDirectiveArea GuildDirectiveArea);
+    GuildDirectiveArea GuildDirectiveArea,
+    bool EnableDailyShop,
+    TimeSpan DailyShopAt);
 
 public enum FarmScheduleDestination
 {
@@ -73,6 +75,7 @@ public sealed record AutomationClientOptions(
     bool EnableGuildDirective = true,
     bool EnableMail = true,
     bool EnableAntiOverkill = true,
+    bool EnableDailyShop = false,
     IReadOnlyDictionary<TaDestination, FarmCoordinate>? CustomFarmCoordinates = null);
 
 public sealed record BotRunOptions(

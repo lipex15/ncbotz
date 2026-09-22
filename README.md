@@ -6,7 +6,14 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Ciclo disponível — v0.10.0 (testes)
+## Ciclo disponível — v0.10.1 (testes)
+
+- Página unificada **Abadia / Masmorra Anônima**, com acesso direto à configuração do Estreito pela Agenda.
+- O nível 86/97/110 aparece somente para o Estreito de Tenerys; etapas da Abadia não exibem nível.
+- Nova compra diária da Loja, opcional por cliente e com horário configurável: sai do descanso, abre a Loja, compra os lotes predefinidos de Comum e Invocação e retorna ao estado anterior.
+- Compra em Lote somente é confirmada com `Y` depois do reconhecimento visual do popup correto; execução persistida até o reset diário das 04:00.
+
+## Ciclo anterior — v0.10.0 (testes)
 
 - Interface renovada em azul-marinho, com cards arredondados, navegação por emojis, estados interativos e hierarquia visual mais clara.
 - Agenda individual limitada à Abadia da Lembrança e ao Estreito de Tenerys; ao concluir, retorna à T.A configurada para o cliente.
