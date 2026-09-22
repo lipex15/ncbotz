@@ -6,7 +6,14 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Ciclo disponível — v0.10.3 (testes)
+## Ciclo disponível — v0.10.4 (testes)
+
+- A Diretiva passa a ser decidida primeiro pela lista lateral: **Disponível** em verde abre o atalho direto; nome verde com `/500`, `/50` ou `/55` significa que ela já está em andamento; nenhuma linha verde significa ciclo concluído.
+- O atalho verde é clicado diretamente em `(1628, 210)`, sem percorrer `= → Guilda → Diretiva`.
+- O painel da Guilda não é mais aberto para consultar se existe Diretiva. Uma leitura lateral incerta não gera clique nem abertura de painel e continua sujeita ao limite seguro de verificações.
+- O nome sorteado da Diretiva é ignorado; a detecção da execução usa cor e contador.
+
+## Ciclo anterior — v0.10.3 (testes)
 
 - Ao iniciar dentro de uma T.A em descanso, o bot preserva o farm atual. A chegada já reconhecida ou o botão **Entrar** apagado impedem nova entrada e novo gasto de gold.
 - A compra diária da Loja reconhece os contadores já completos (`3/3` em Comum e `1/1` em Invocação), registra cada categoria separadamente e não procura novamente o popup quando os itens estão esgotados.

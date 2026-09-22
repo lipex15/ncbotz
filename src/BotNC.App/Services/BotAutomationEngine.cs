@@ -31,6 +31,7 @@ public sealed class BotAutomationEngine(
     private readonly AbbeyTimeReader _abbeyTimeReader = new();
     private readonly TaEntryTextReader _taEntryTextReader = new();
     private readonly DailyShopStatusReader _dailyShopStatusReader = new();
+    private readonly GuildDirectiveSidebarReader _guildDirectiveSidebarReader = new();
 
     private static readonly IReadOnlyDictionary<TaDestination, (int X, int Y)> TaEntryPoints =
         new Dictionary<TaDestination, (int X, int Y)>
@@ -3852,7 +3853,7 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        SetStatus(BotRunState.Running, $"{session.Options.Label}: Diretiva de Guilda", "Abrindo a Guilda e aceitando o local configurado");
+        SetStatus(BotRunState.Running, $"{session.Options.Label}: Diretiva de Guilda", "Verificando o sinal verde na lista lateral");
         if (await CloseCompletedGuildDirectiveIfPresentAsync(session, pause, cancellationToken))
         {
             return true;
@@ -3862,11 +3863,39 @@ public sealed class BotAutomationEngine(
             return true;
         }
 
-        await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
-        await WaitForReferenceAsync("menu_guild", "ícone Guilda", TimeSpan.FromSeconds(10), pause, cancellationToken);
-        await input.MoveAndClickAsync(1603, 340, TimeSpan.FromMilliseconds(320), cancellationToken);
-        await WaitForReferenceAsync("guild_page", "página da Guilda", TimeSpan.FromSeconds(15), pause, cancellationToken);
-        await input.MoveAndClickAsync(523, 143, TimeSpan.FromMilliseconds(320), cancellationToken);
+        var sidebar = await ReadGuildDirectiveSidebarStableAsync(session, pause, cancellationToken);
+        switch (sidebar.State)
+        {
+            case GuildDirectiveSidebarState.Active:
+                WriteLog(session,
+                    "A lista lateral mostra uma Diretiva verde com contador /500, /50 ou /55. " +
+                    "Ela já está em andamento; a Guilda não será aberta.");
+                await MarkDirectiveHandledAsync(session, DailyCycleKey(DateTime.Now));
+                return true;
+            case GuildDirectiveSidebarState.NoGreenDirective:
+                WriteLog(session,
+                    "A lista lateral foi confirmada sem sinal verde de Diretiva. " +
+                    "O ciclo já foi concluído; a Guilda não será aberta.");
+                await MarkDirectiveHandledAsync(session, DailyCycleKey(DateTime.Now));
+                return true;
+            case GuildDirectiveSidebarState.Available:
+                WriteLog(session,
+                    "Diretiva da Guilda Disponível confirmada em verde na lista lateral; " +
+                    "o painel será aberto uma única vez para aceitar.");
+                break;
+            default:
+                return await RegisterDirectiveUncertainAsync(
+                    session, pause, cancellationToken,
+                    "a lista lateral não ficou legível; o painel da Guilda não será aberto sem o sinal verde de disponibilidade.");
+        }
+
+        var sidebarShortcut = gameWindows.MapReferencePoint(session.Options.Target, 1628, 210);
+        await input.MoveAndClickAsync(
+            sidebarShortcut.X,
+            sidebarShortcut.Y,
+            TimeSpan.FromMilliseconds(220),
+            cancellationToken,
+            cooldown: TimeSpan.FromMilliseconds(60));
         var directivePageDeadline = DateTime.UtcNow.AddSeconds(15);
         var directivePageVisible = false;
         while (DateTime.UtcNow < directivePageDeadline)
@@ -3983,6 +4012,35 @@ public sealed class BotAutomationEngine(
             ? $"Diretiva aceita em {DirectiveAreaName(area)}; o jogo executará as cinco automaticamente."
             : "Diretiva encerrada em estado protegido; nenhuma nova tentativa ocorrerá neste ciclo.");
         return true;
+    }
+
+    private async Task<GuildDirectiveSidebarResult> ReadGuildDirectiveSidebarStableAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        GuildDirectiveSidebarResult? last = null;
+        var consecutive = 0;
+        for (var sample = 0; sample < 4; sample++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var frame = await CaptureClientFrameAsync(session, cancellationToken);
+            var current = await _guildDirectiveSidebarReader.ReadAsync(frame, cancellationToken);
+            consecutive = last?.State == current.State ? consecutive + 1 : 1;
+            last = current;
+            if (current.State != GuildDirectiveSidebarState.Unknown && consecutive >= 2)
+                return current;
+
+            await Task.Delay(280, cancellationToken);
+        }
+
+        return last is { State: GuildDirectiveSidebarState.Unknown }
+            ? last
+            : new GuildDirectiveSidebarResult(
+                GuildDirectiveSidebarState.Unknown,
+                last?.Evidence ?? "sem leitura",
+                last?.GreenPixels ?? 0,
+                last?.GenericCounters ?? 0);
     }
 
     private async Task<bool> CloseCompletedGuildDirectiveIfPresentAsync(
@@ -4130,6 +4188,11 @@ public sealed class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        var guildVisible = (await recognition.FindAsync("guild_page", cancellationToken)).Found;
+        var directiveVisible = (await recognition.FindAsync("guild_directive_page", cancellationToken)).Found;
+        if (!guildVisible && !directiveVisible)
+            return;
+
         try
         {
             await CloseGuildScreenAsync(session, pause, cancellationToken);

@@ -196,6 +196,24 @@ public partial class App : Application
             return;
         }
 
+        var directiveSidebarProbeIndex = Array.IndexOf(e.Args, "--directive-sidebar-probe");
+        if (directiveSidebarProbeIndex >= 0 && directiveSidebarProbeIndex + 2 < e.Args.Length)
+        {
+            await using var stream = File.OpenRead(Path.GetFullPath(e.Args[directiveSidebarProbeIndex + 1]));
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            var converted = new FormatConvertedBitmap(decoder.Frames[0], PixelFormats.Bgra32, null, 0);
+            var stride = converted.PixelWidth * 4;
+            var pixels = new byte[stride * converted.PixelHeight];
+            converted.CopyPixels(pixels, stride, 0);
+            var frame = new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
+            var result = await new GuildDirectiveSidebarReader().ReadAsync(frame, CancellationToken.None);
+            await File.WriteAllTextAsync(
+                Path.GetFullPath(e.Args[directiveSidebarProbeIndex + 2]),
+                $"state={result.State};green={result.GreenPixels};counters={result.GenericCounters};evidence={result.Evidence}");
+            Shutdown();
+            return;
+        }
+
         var imageProbeIndex = Array.IndexOf(e.Args, "--image-probe");
         if (imageProbeIndex >= 0 && imageProbeIndex + 2 < e.Args.Length)
         {
