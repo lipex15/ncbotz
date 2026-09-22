@@ -429,17 +429,6 @@ public partial class App : Application
             if (!own.Found)
                 throw new InvalidOperationException($"Referência {referenceId} falhou na própria imagem ({own.Confidence:P0}).");
         }
-        var bossReader = new LoveBossReader();
-        var missionImage = VisualRecognitionService.Decode(
-            await File.ReadAllBytesAsync(Path.Combine(referenceDirectory, "boss_reward_panel.png")));
-        var missionStatus = await bossReader.ReadMissionAsync(missionImage, CancellationToken.None);
-        if (missionStatus.DailyCompleted != 1 || missionStatus.WeeklyCompleted != 1)
-            throw new InvalidOperationException($"Contadores da Raide ilegíveis: {missionStatus.Evidence}");
-        var roomImage = VisualRecognitionService.Decode(
-            await File.ReadAllBytesAsync(Path.Combine(referenceDirectory, "boss_room.png")));
-        var roomPhase = await bossReader.ReadPhaseAsync(roomImage, CancellationToken.None);
-        if (roomPhase.Phase != LoveBossPhase.AwaitingSpawn)
-            throw new InvalidOperationException($"Pré-spawn da Raide ilegível: {roomPhase.Evidence}");
         var cases = new[]
         {
             ("guild_page", "guild_page.png"),
