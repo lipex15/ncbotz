@@ -26,7 +26,8 @@ public sealed class WindowsInputService
     public async Task PressKeyAsync(
         int virtualKey,
         TimeSpan? hold = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        TimeSpan? cooldown = null)
     {
         KeyDown(virtualKey);
         try
@@ -38,7 +39,7 @@ public sealed class WindowsInputService
             KeyUp(virtualKey);
         }
 
-        await Task.Delay(CommandCooldown, cancellationToken);
+        await Task.Delay(cooldown ?? CommandCooldown, cancellationToken);
     }
 
     public async Task PressEmergencyKeyAsync(
@@ -101,7 +102,8 @@ public sealed class WindowsInputService
     public async Task ClickAsync(
         int screenX,
         int screenY,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? cooldown = null)
     {
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
@@ -118,14 +120,15 @@ public sealed class WindowsInputService
             normalizedX,
             normalizedY,
             MouseMove | MouseAbsolute | MouseLeftUp));
-        await Task.Delay(CommandCooldown, cancellationToken);
+        await Task.Delay(cooldown ?? CommandCooldown, cancellationToken);
     }
 
     public async Task MoveAndClickAsync(
         int screenX,
         int screenY,
         TimeSpan movementDuration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? cooldown = null)
     {
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
@@ -162,7 +165,7 @@ public sealed class WindowsInputService
             normalizedX,
             normalizedY,
             MouseMove | MouseAbsolute | MouseLeftUp));
-        await Task.Delay(CommandCooldown, cancellationToken);
+        await Task.Delay(cooldown ?? CommandCooldown, cancellationToken);
     }
 
     public async Task ScrollAsync(int wheelDelta, int repetitions, CancellationToken cancellationToken)

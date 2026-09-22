@@ -139,6 +139,23 @@ public partial class App : Application
             return;
         }
 
+        var taEntryTextProbeIndex = Array.IndexOf(e.Args, "--ta-entry-text-probe");
+        if (taEntryTextProbeIndex >= 0 && taEntryTextProbeIndex + 2 < e.Args.Length)
+        {
+            await using var stream = File.OpenRead(Path.GetFullPath(e.Args[taEntryTextProbeIndex + 1]));
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            var converted = new FormatConvertedBitmap(decoder.Frames[0], PixelFormats.Bgra32, null, 0);
+            var stride = converted.PixelWidth * 4;
+            var pixels = new byte[stride * converted.PixelHeight];
+            converted.CopyPixels(pixels, stride, 0);
+            var frame = new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
+            var found = await new TaEntryTextReader().HasFirstEntryAsync(frame, CancellationToken.None);
+            await File.WriteAllTextAsync(Path.GetFullPath(e.Args[taEntryTextProbeIndex + 2]),
+                $"firstEntry={found}");
+            Shutdown();
+            return;
+        }
+
         var directiveCounterProbeIndex = Array.IndexOf(e.Args, "--directive-counter-probe");
         if (directiveCounterProbeIndex >= 0 && directiveCounterProbeIndex + 2 < e.Args.Length)
         {
@@ -172,6 +189,8 @@ public partial class App : Application
             var ta2EntryReady = await recognition.FindInImageAsync("entrar_ta2_pronto", imagePath);
             var ta3EntryReady = await recognition.FindInImageAsync("entrar_ta3_pronto", imagePath);
             var taSelector = await recognition.FindInImageAsync("seletor_ta", imagePath);
+            var ta1EntryReady = await recognition.FindInImageAsync("entrar_ta1_pronto", imagePath);
+            var ta1FirstCard = await recognition.FindInImageAsync("ta1_primeiro_cartao", imagePath);
             var dailyTeleportResource = await recognition.FindInImageAsync("daily_teleport_resource", imagePath);
             var dailyTeleportOk = await recognition.FindInImageAsync("daily_teleport_ok", imagePath);
             var dailyPage = await recognition.FindInImageAsync("daily_page", imagePath);
@@ -201,6 +220,8 @@ public partial class App : Application
                     $"ta2EntryReady={ta2EntryReady.Found};confidence={ta2EntryReady.Confidence:F4}",
                     $"ta3EntryReady={ta3EntryReady.Found};confidence={ta3EntryReady.Confidence:F4}",
                     $"taSelector={taSelector.Found};confidence={taSelector.Confidence:F4}",
+                    $"ta1EntryReady={ta1EntryReady.Found};confidence={ta1EntryReady.Confidence:F4}",
+                    $"ta1FirstCard={ta1FirstCard.Found};confidence={ta1FirstCard.Confidence:F4}",
                     $"dailyTeleportResource={dailyTeleportResource.Found};confidence={dailyTeleportResource.Confidence:F4}",
                     $"dailyTeleportOk={dailyTeleportOk.Found};confidence={dailyTeleportOk.Confidence:F4}",
                     $"dailyPage={dailyPage.Found};confidence={dailyPage.Confidence:F4}",
@@ -504,6 +525,29 @@ public partial class App : Application
             throw new InvalidOperationException("A referência alternativa 5/5 confundiu uma Diretiva ativa com conclusão.");
         }
 
+        var taEntryText = new TaEntryTextReader();
+        var taSelectorText = await taEntryText.HasFirstEntryAsync(
+            LoadReferenceFrame(Path.Combine(referenceDirectory, "seletor_ta_tela.png")),
+            CancellationToken.None);
+        var taArrivalText = await taEntryText.HasFirstEntryAsync(
+            LoadReferenceFrame(Path.Combine(referenceDirectory, "ta1_arrival.png")),
+            CancellationToken.None);
+        lines.Add($"ta1_entry_text|selector={taSelectorText}|arrival={taArrivalText}");
+        if (!taSelectorText || taArrivalText)
+        {
+            throw new InvalidOperationException("A leitura do botão Entrar da T.A 1 confundiu o seletor com a chegada.");
+        }
+
+        var taFirstCardSelector = await recognition.FindInImageAsync(
+            "ta1_primeiro_cartao", Path.Combine(referenceDirectory, "seletor_ta_tela.png"));
+        var taFirstCardArrival = await recognition.FindInImageAsync(
+            "ta1_primeiro_cartao", Path.Combine(referenceDirectory, "ta1_arrival.png"));
+        lines.Add($"ta1_first_card|selector={taFirstCardSelector.Found}|arrival={taFirstCardArrival.Found}");
+        if (!taFirstCardSelector.Found || taFirstCardArrival.Found)
+        {
+            throw new InvalidOperationException("O primeiro cartão da T.A 1 confundiu o seletor com a chegada.");
+        }
+
         var acceptedThirty = await recognition.HasDailyThirtyCounterInImageAsync(
             Path.Combine(referenceDirectory, "daily_all_accepted.png"));
         var unacceptedThirty = await recognition.HasDailyThirtyCounterInImageAsync(
@@ -633,5 +677,16 @@ public partial class App : Application
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         await File.WriteAllLinesAsync(outputPath, lines);
+    }
+
+    private static PixelFrame LoadReferenceFrame(string imagePath)
+    {
+        using var stream = File.OpenRead(imagePath);
+        var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+        var converted = new FormatConvertedBitmap(decoder.Frames[0], PixelFormats.Bgra32, null, 0);
+        var stride = converted.PixelWidth * 4;
+        var pixels = new byte[stride * converted.PixelHeight];
+        converted.CopyPixels(pixels, stride, 0);
+        return new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
     }
 }

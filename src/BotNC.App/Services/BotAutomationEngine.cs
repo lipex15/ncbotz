@@ -28,6 +28,7 @@ public sealed class BotAutomationEngine(
     private readonly string _runtimeLogPath = CreateRuntimeLogPath();
     private readonly SpotLevelRecognitionService _spotLevelRecognition = new();
     private readonly AbbeyTimeReader _abbeyTimeReader = new();
+    private readonly TaEntryTextReader _taEntryTextReader = new();
 
     private static readonly IReadOnlyDictionary<TaDestination, (int X, int Y)> TaEntryPoints =
         new Dictionary<TaDestination, (int X, int Y)>
@@ -1356,7 +1357,8 @@ public sealed class BotAutomationEngine(
             }
 
             WriteLog(session, $"Sapheras prioritária: abrindo o menu lateral com = — tentativa {attempt}/3.");
-            await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
+            await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken,
+                cooldown: TimeSpan.FromMilliseconds(80));
             if (await WaitForReferenceToAppearAsync("menu_masmorra", TimeSpan.FromSeconds(8), pause, cancellationToken))
             {
                 return;
@@ -1479,9 +1481,11 @@ public sealed class BotAutomationEngine(
         await AbortWorkflowIfDeathDetectedAsync(session, "antes de entrar na Abadia", cancellationToken);
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
         await OpenDungeonMenuAsync(session, pause, cancellationToken);
-        await input.MoveAndClickAsync(1740, 271, TimeSpan.FromMilliseconds(360), cancellationToken);
+        await input.MoveAndClickAsync(1740, 271, TimeSpan.FromMilliseconds(360), cancellationToken,
+            cooldown: TimeSpan.FromMilliseconds(80));
         await WaitForReferenceAsync("tela_masmorras", "página Masmorra", TimeSpan.FromSeconds(15), pause, cancellationToken);
-        await input.MoveAndClickAsync(330, 150, TimeSpan.FromMilliseconds(360), cancellationToken);
+        await input.MoveAndClickAsync(330, 150, TimeSpan.FromMilliseconds(360), cancellationToken,
+            cooldown: TimeSpan.FromMilliseconds(80));
         await WaitForReferenceAsync("abadia_especial", "aba Especial da Masmorra", TimeSpan.FromSeconds(15), pause, cancellationToken);
         await WaitForReferenceAsync("abadia_cartao", "cartão Abadia da Lembrança", TimeSpan.FromSeconds(10), pause, cancellationToken);
         var firstRemaining = await _abbeyTimeReader.ReadMenuAsync(
@@ -1543,7 +1547,7 @@ public sealed class BotAutomationEngine(
                 }
             }
 
-            await Task.Delay(450, cancellationToken);
+            await Task.Delay(180, cancellationToken);
         }
 
         var diagnostic = await recognition.SaveDiagnosticAsync($"abadia_chegada_{session.Options.Priority}");
@@ -1638,7 +1642,7 @@ public sealed class BotAutomationEngine(
 
         session.AwaitingFavoriteSpotRecognition = false;
         var readyReference = EntryReadyReference(destination);
-        if (await IsTaSelectorContextVisibleAsync(readyReference, cancellationToken))
+        if (await IsTaSelectorContextVisibleAsync(session, readyReference, cancellationToken))
         {
             WriteLog(session, "O seletor da T.A já está aberto; retomando exatamente desta etapa.");
         }
@@ -1646,7 +1650,8 @@ public sealed class BotAutomationEngine(
         {
             await OpenTaMenuAsync(session, pause, cancellationToken);
             WriteLog(session, "Abrindo Terra Avassaladora em (1742, 431).");
-            await input.ClickAsync(1742, 431, cancellationToken);
+            await input.ClickAsync(1742, 431, cancellationToken,
+                cooldown: TimeSpan.FromMilliseconds(80));
         }
 
         await EnterTaFromSelectorAsync(session, pause, cancellationToken, isEmergency);
@@ -1666,7 +1671,8 @@ public sealed class BotAutomationEngine(
             }
 
             WriteLog(session, attempt == 1 ? "Abrindo menu lateral com =." : "Tentando abrir o menu lateral novamente.");
-            await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
+            await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken,
+                cooldown: TimeSpan.FromMilliseconds(80));
             if (await WaitForReferenceToAppearAsync("menu_ta", TimeSpan.FromSeconds(8), pause, cancellationToken))
             {
                 return;
@@ -1698,12 +1704,13 @@ public sealed class BotAutomationEngine(
         // era enviado para uma tela ainda carregando. O botão correto precisa
         // estar visualmente pronto; o bot apenas consulta a tela durante a
         // espera, sem impor uma pausa fixa aos computadores rápidos.
-        var entryVisuallyReady = await WaitForTaEntryReadyAsync(
-            session,
-            readyReference,
-            TimeSpan.FromSeconds(18),
-            pause,
-            cancellationToken);
+        var entryVisuallyReady = destination == TaDestination.Ta1Codex ||
+            await WaitForTaEntryReadyAsync(
+                session,
+                readyReference,
+                TimeSpan.FromSeconds(18),
+                pause,
+                cancellationToken);
         WriteLog(session, entryVisuallyReady
             ? $"Botão Entrar da {taName} reconhecido; preparando o clique."
             : $"O texto do botão variou neste PC; usando a posição proporcional da janela com confirmação posterior.");
@@ -1725,8 +1732,9 @@ public sealed class BotAutomationEngine(
             await input.MoveAndClickAsync(
                 mappedEntry.X,
                 mappedEntry.Y,
-                TimeSpan.FromMilliseconds(attempt == 1 ? 900 : 650),
-                cancellationToken);
+                TimeSpan.FromMilliseconds(attempt == 1 ? 220 : 250),
+                cancellationToken,
+                cooldown: TimeSpan.FromMilliseconds(100));
 
             var startedAt = DateTime.UtcNow;
             while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(75))
@@ -1751,7 +1759,7 @@ public sealed class BotAutomationEngine(
                 // foi aceito. Repetimos somente nesse caso; se o seletor sumiu,
                 // o carregamento está em andamento e continuamos aguardando.
                 if (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(10) &&
-                    await IsTaSelectorContextVisibleAsync(readyReference, cancellationToken))
+                    await IsTaSelectorContextVisibleAsync(session, readyReference, cancellationToken))
                 {
                     WriteLog(session, "A tela de entrada continuou aberta; o clique ainda não foi aceito.");
                     retryEntryClick = true;
@@ -1814,6 +1822,7 @@ public sealed class BotAutomationEngine(
         var deadline = DateTime.UtcNow + timeout;
         double bestSelector = 0;
         double bestButton = 0;
+        var ta1Confirmations = 0;
         while (DateTime.UtcNow < deadline)
         {
             await CheckpointAsync(pause, cancellationToken);
@@ -1821,6 +1830,24 @@ public sealed class BotAutomationEngine(
                 session,
                 "enquanto aguardava o seletor da T.A",
                 cancellationToken);
+            if (readyReference == "entrar_ta1_pronto")
+            {
+                var evidence = await ReadTa1SelectorEvidenceAsync(session, cancellationToken);
+                bestButton = Math.Max(bestButton, evidence.FirstCardConfidence);
+                bestSelector = Math.Max(bestSelector, evidence.CardConfidence);
+                ta1Confirmations = evidence.Confirmed ? ta1Confirmations + 1 : 0;
+                if (ta1Confirmations >= 2)
+                {
+                    WriteLog(session,
+                        $"T.A 1 confirmada pelo ícone do cartão, botão Entrar e leitura do texto " +
+                        $"({evidence.CardConfidence:P0}; {evidence.FirstCardConfidence:P0}).");
+                    return;
+                }
+
+                await Task.Delay(180, cancellationToken);
+                continue;
+            }
+
             var selector = await recognition.FindAsync("seletor_ta", cancellationToken);
             var button = await recognition.FindAsync(readyReference, cancellationToken);
             bestSelector = Math.Max(bestSelector, selector.Confidence);
@@ -1835,7 +1862,7 @@ public sealed class BotAutomationEngine(
                 return;
             }
 
-            await Task.Delay(450, cancellationToken);
+            await Task.Delay(180, cancellationToken);
         }
 
         var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
@@ -1867,16 +1894,43 @@ public sealed class BotAutomationEngine(
 
             // O seletor já aberto continua sendo uma prova suficiente para o
             // fallback proporcional; não há pausa fixa depois deste limite.
-            await Task.Delay(400, cancellationToken);
+            await Task.Delay(180, cancellationToken);
         }
 
         return false;
     }
 
+    private async Task<(bool Confirmed, double FirstCardConfidence, double CardConfidence)>
+        ReadTa1SelectorEvidenceAsync(ClientSession session, CancellationToken cancellationToken)
+    {
+        var frame = await CaptureClientFrameAsync(session, cancellationToken);
+        var firstTask = recognition.FindAsync("entrar_ta1_pronto", frame, cancellationToken);
+        var cardTask = recognition.FindAsync("ta1_primeiro_cartao", frame, cancellationToken);
+        await Task.WhenAll(firstTask, cardTask);
+        var first = await firstTask;
+        var card = await cardTask;
+        // A correlação isolada muda com luz/cenário. Só aceitar a T.A 1 se
+        // também houver seu ícone no lugar certo e o comando Entrar legível.
+        // Nomes de mapas e disponibilidade da T.A 2 não entram na decisão.
+        if (first.Confidence < 0.58 || !card.Found)
+        {
+            return (false, first.Confidence, card.Confidence);
+        }
+
+        var entryText = await _taEntryTextReader.HasFirstEntryAsync(frame, cancellationToken);
+        return (entryText, first.Confidence, card.Confidence);
+    }
+
     private async Task<bool> IsTaSelectorContextVisibleAsync(
+        ClientSession session,
         string readyReference,
         CancellationToken cancellationToken)
     {
+        if (readyReference == "entrar_ta1_pronto")
+        {
+            return (await ReadTa1SelectorEvidenceAsync(session, cancellationToken)).Confirmed;
+        }
+
         var selector = await recognition.FindAsync("seletor_ta", cancellationToken);
         var button = await recognition.FindAsync(readyReference, cancellationToken);
         return selector.Found || button.Found ||
@@ -5669,7 +5723,7 @@ public sealed class BotAutomationEngine(
                 return true;
             }
 
-            await Task.Delay(450, cancellationToken);
+            await Task.Delay(180, cancellationToken);
         }
 
         return false;
@@ -5763,18 +5817,24 @@ public sealed class BotAutomationEngine(
                 graceLogged = true;
                 WriteLog($"{description}: aguardando mais {grace.TotalSeconds:F0}s por carregamento lento; melhor confiança até agora {best.Confidence:P0}.");
             }
-            if (referenceId != "aviso_agenda")
+            // Mesmo quadro para alvo e aviso; as duas leituras são paralelas.
+            // Isso reage imediatamente quando o painel aparece, sem sacrificar
+            // a prioridade de fechar um aviso que esteja por cima dele.
+            var frame = capture.CapturePrimaryScreen();
+            var targetTask = recognition.FindAsync(referenceId, frame, cancellationToken);
+            var agendaTask = referenceId == "aviso_agenda"
+                ? targetTask
+                : recognition.FindAsync("aviso_agenda", frame, cancellationToken);
+            await Task.WhenAll(targetTask, agendaTask);
+            var agenda = await agendaTask;
+            if (referenceId != "aviso_agenda" && agenda.Found)
             {
-                var agenda = await recognition.FindAsync("aviso_agenda", cancellationToken);
-                if (agenda.Found)
-                {
-                    WriteLog($"Aviso de agenda reconhecido ({agenda.Confidence:P0}); fechando com Y e retomando a etapa.");
-                    await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
-                    continue;
-                }
+                WriteLog($"Aviso de agenda reconhecido ({agenda.Confidence:P0}); fechando com Y e retomando a etapa.");
+                await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+                continue;
             }
 
-            var current = await recognition.FindAsync(referenceId, cancellationToken);
+            var current = await targetTask;
             if (current.Confidence > best.Confidence)
             {
                 best = current;
@@ -5785,7 +5845,7 @@ public sealed class BotAutomationEngine(
                 return current;
             }
 
-            await Task.Delay(450, cancellationToken);
+            await Task.Delay(180, cancellationToken);
         }
 
         var diagnostic = await recognition.SaveDiagnosticAsync(referenceId);
