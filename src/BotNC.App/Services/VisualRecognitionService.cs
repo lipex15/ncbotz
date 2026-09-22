@@ -423,7 +423,7 @@ public sealed class VisualRecognitionService(
         return [.. samples];
     }
 
-    private static PixelFrame Decode(byte[] image)
+    internal static PixelFrame Decode(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
         var decoder = new PngBitmapDecoder(

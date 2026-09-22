@@ -411,8 +411,8 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <StackPanel>
-                <TextBlock Text="Rotinas diárias" FontSize="27" FontWeight="Bold" />
-                <TextBlock Text="Execução diária por cliente ativo, respeitando a prioridade máxima de Sapheras."
+                <TextBlock Text="Rotinas" FontSize="27" FontWeight="Bold" />
+                <TextBlock Text="Atividades programadas por cliente, respeitando a prioridade de Sapheras."
                            Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
             </StackPanel>
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
@@ -484,6 +484,22 @@
                                 <TextBox x:Name="DailyShopTimeTextBox" Text="13:05" Width="150" Height="40" Margin="0,7,0,0" />
                             </StackPanel>
                         </Grid>
+                    </Border>
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="22" Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Boss do Amor · Trashi" Foreground="#65CEFA"
+                                       FontSize="17" FontWeight="SemiBold" />
+                            <TextBlock Text="FAZER PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
+                            <ComboBox x:Name="LoveBossScopeComboBox" Width="180" Height="40"
+                                      HorizontalAlignment="Left" />
+                            <TextBlock Text="Entradas às 09:00, 12:00, 16:00, 20:00 e 00:00 (UTC−3). O bot tenta entrar cerca de 2 minutos antes, uma vez por dia e no máximo 5 vezes por semana para cada cliente."
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                                       Margin="0,12,0,0" />
+                            <TextBlock Text="Interrompe o farm na T.A ou masmorra, confirma a vitória, resgata a recompensa e retoma a rota. Sapheras mantém prioridade."
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                                       Margin="0,7,0,0" />
+                        </StackPanel>
                     </Border>
                 </StackPanel>
             </ScrollViewer>

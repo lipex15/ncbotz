@@ -3,6 +3,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -207,11 +208,9 @@ app.MapGet("/admin", async (HttpContext context, IAntiforgery antiforgery) =>
                   </div></section>
               </div>
               <aside class="side-column"><section class="surface section-card create-card" id="criar-acesso"><span class="section-kicker">NOVO ACESSO</span><h2>Adicionar usuário</h2><p>Crie um login individual para liberar o primeiro uso do bot.</p>
-                <form method="post" action="/admin/users" class="stack-form">{token}
-                  <label for="username">Login</label><input id="username" name="username" minlength="3" maxlength="80" pattern="[a-zA-Z0-9._-]+" placeholder="ex.: amigo01" autocomplete="off" required><small>Sem espaços. Pode usar letras, números, ponto, traço e _.</small>
-                  <label for="display-name">Nome para identificar</label><input id="display-name" name="displayName" maxlength="100" placeholder="ex.: João" autocomplete="off" required>
-                  <label for="new-password">Senha inicial</label><input id="new-password" name="password" type="password" minlength="12" maxlength="256" placeholder="Mínimo 12 caracteres" autocomplete="new-password" required><small>Envie o login e a senha diretamente para essa pessoa.</small>
-                  <button class="button button-primary button-wide">Criar acesso <span aria-hidden="true">→</span></button>
+                <form method="post" action="/admin/users/quick" class="stack-form">{token}
+                  <label for="nickname">Apelido da pessoa</label><input id="nickname" name="nickname" minlength="2" maxlength="100" placeholder="ex.: João" autocomplete="off" required><small>O login e uma senha forte serão gerados automaticamente.</small>
+                  <button class="button button-primary button-wide">Gerar acesso <span aria-hidden="true">→</span></button>
                 </form></section>
                 <section class="tip-card"><span class="tip-icon">i</span><h3>Como funciona</h3><ol><li>Você cria o acesso aqui.</li><li>A pessoa entra uma vez no app.</li><li>O login fica vinculado ao computador dela.</li></ol><p>Para trocar de máquina, use <strong>Liberar troca de PC</strong> no cartão do usuário.</p></section>
               </aside>
@@ -235,6 +234,27 @@ app.MapPost("/admin/users", async (HttpContext context, IAntiforgery antiforgery
         return Results.BadRequest("Dados inválidos.");
     if (!await store.CreateUserAsync(username, name, password)) return Results.Conflict("Esse login já existe.");
     return Results.Redirect("/admin");
+}).RequireAuthorization();
+
+app.MapPost("/admin/users/quick", async (HttpContext context, IAntiforgery antiforgery) =>
+{
+    if (!await antiforgery.IsRequestValidAsync(context)) return Results.BadRequest();
+    var form = await context.Request.ReadFormAsync();
+    var nickname = form["nickname"].ToString().Trim();
+    if (nickname.Length is < 2 or > 100) return Results.BadRequest("Apelido inválido.");
+    var slug = NicknameSlug(nickname);
+    if (slug.Length < 2) return Results.BadRequest("Use pelo menos duas letras ou números no apelido.");
+    var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18))
+        .Replace('+', 'A').Replace('/', 'B');
+    for (var attempt = 0; attempt < 12; attempt++)
+    {
+        var username = $"{slug}{RandomNumberGenerator.GetInt32(100, 10000):D4}";
+        if (!await store.CreateUserAsync(username, nickname, password)) continue;
+        var content = $"<main class='message-page surface'><span class='section-kicker'>ACESSO CRIADO</span><h1>Pronto, {H(nickname)}!</h1><p>Copie estes dados agora e envie à pessoa. A senha não será exibida novamente.</p><div class='credentials'><p>Login: <strong>{H(username)}</strong></p><p>Senha: <strong>{H(password)}</strong></p></div><a class='button button-primary' href='/admin'>Voltar ao painel</a></main>";
+        context.Response.Headers.CacheControl = "no-store";
+        return Results.Content(Page("Acesso criado", content), "text/html; charset=utf-8");
+    }
+    return Results.Problem("Não foi possível gerar um login exclusivo. Tente novamente.", statusCode: 503);
 }).RequireAuthorization();
 
 app.MapPost("/admin/users/{id:long}/device/reset", async (long id, HttpContext context, IAntiforgery antiforgery) =>
@@ -330,6 +350,20 @@ static void TryShowLocalAlert(string username, string existingMachine, string at
         Process.Start(start)?.Dispose();
     }
     catch { /* O alerta continua registrado no painel mesmo sem aviso local. */ }
+}
+
+static string NicknameSlug(string nickname)
+{
+    var normalized = nickname.Normalize(NormalizationForm.FormD);
+    var slug = new StringBuilder();
+    foreach (var character in normalized)
+    {
+        if (CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.NonSpacingMark)
+            continue;
+        if (char.IsAsciiLetterOrDigit(character))
+            slug.Append(char.ToLowerInvariant(character));
+    }
+    return slug.Length > 24 ? slug.ToString(0, 24) : slug.ToString();
 }
 
 internal sealed record ActivationRequest(string Username, string Password, string DeviceId, string Fingerprint, string MachineName);

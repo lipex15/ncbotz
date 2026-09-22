@@ -4,7 +4,7 @@ using BotNC.App.Models;
 
 namespace BotNC.App.Services;
 
-public sealed class BotAutomationEngine(
+public sealed partial class BotAutomationEngine(
     GameWindowService gameWindows,
     WindowsInputService input,
     VisualRecognitionService recognition,
@@ -31,6 +31,7 @@ public sealed class BotAutomationEngine(
     private readonly AbbeyTimeReader _abbeyTimeReader = new();
     private readonly TaEntryTextReader _taEntryTextReader = new();
     private readonly DailyShopStatusReader _dailyShopStatusReader = new();
+    private readonly LoveBossReader _loveBossReader = new();
     private readonly GuildDirectiveSidebarReader _guildDirectiveSidebarReader = new();
 
     private static readonly IReadOnlyDictionary<TaDestination, (int X, int Y)> TaEntryPoints =
@@ -131,6 +132,18 @@ public sealed class BotAutomationEngine(
                 await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopAttemptCount"),
                 out var dailyShopAttemptCount);
             session.DailyShopAttemptCount = Math.Max(0, dailyShopAttemptCount);
+            session.LoveBossCompletedCycle = await database.GetSettingAsync(
+                $"{SessionSettingPrefix(session)}.routines.loveBoss.completedCycle");
+            session.LoveBossRewardCycle = await database.GetSettingAsync(
+                $"{SessionSettingPrefix(session)}.routines.loveBoss.rewardCycle");
+            session.LoveBossLastSlot = await database.GetSettingAsync(
+                $"{SessionSettingPrefix(session)}.routines.loveBoss.lastSlot");
+            session.LoveBossWeek = await database.GetSettingAsync(
+                $"{SessionSettingPrefix(session)}.routines.loveBoss.week");
+            _ = int.TryParse(await database.GetSettingAsync(
+                $"{SessionSettingPrefix(session)}.routines.loveBoss.weeklyCount"),
+                out var loveBossWeeklyCount);
+            session.LoveBossWeeklyCount = Math.Clamp(loveBossWeeklyCount, 0, 5);
             await LoadFarmScheduleStateAsync(session, runOptions.FarmSchedule);
             await LoadAbbeyBudgetStateAsync(session);
 
@@ -674,6 +687,8 @@ public sealed class BotAutomationEngine(
                 {
                     continue;
                 }
+                if (await RunLoveBossSafelyAsync(session, dailyRoutines, pause, cancellationToken, null))
+                    continue;
                 await TryCollectDueMailSafelyAsync(session, pause, cancellationToken);
                 if (await TryStartVisibleDailyCampaignSafelyAsync(session, dailyRoutines, pause, cancellationToken))
                 {
@@ -713,6 +728,9 @@ public sealed class BotAutomationEngine(
                     {
                         continue;
                     }
+                    if (await RunLoveBossSafelyAsync(
+                            session, dailyRoutines, pause, sapherasPriority.Token, sapheras.ScheduledAt))
+                        continue;
                     await TryCollectDueMailSafelyAsync(session, pause, sapherasPriority.Token);
                     if (await TryStartVisibleDailyCampaignSafelyAsync(session, dailyRoutines, pause, sapherasPriority.Token))
                     {
@@ -2000,8 +2018,7 @@ public sealed class BotAutomationEngine(
         var taName = TaName(destination);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", isEmergency ? "Recuperação após alerta de HP" : "Selecionando a T.A");
         var readyReference = EntryReadyReference(destination);
-        if (await WaitForReferenceToAppearAsync("seletor_ta", TimeSpan.FromSeconds(15), pause, cancellationToken) &&
-            await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
+        if (await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
         {
             WriteLog(session, $"O botão Entrar da {taName} está apagado de forma estável; o personagem já está nessa área.");
             await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
@@ -2036,6 +2053,12 @@ public sealed class BotAutomationEngine(
         {
             var retryEntryClick = false;
             await EnsureGameForegroundAsync(session, cancellationToken);
+            if (await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
+            {
+                WriteLog(session, $"Farm detectado: {taName} já é a área atual. Retomando descanso sem novo clique em Entrar.");
+                await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
+                return;
+            }
             var mappedEntry = gameWindows.MapReferencePoint(
                 session.Options.Target,
                 entry.X,
@@ -2075,6 +2098,12 @@ public sealed class BotAutomationEngine(
                 if (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(10) &&
                     await IsTaSelectorContextVisibleAsync(session, readyReference, cancellationToken))
                 {
+                    if (await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
+                    {
+                        WriteLog(session, $"Farm detectado após abrir o seletor: {taName} já está ativa.");
+                        await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
+                        return;
+                    }
                     WriteLog(session, "A tela de entrada continuou aberta; o clique ainda não foi aceito.");
                     retryEntryClick = true;
                     break;
@@ -2146,6 +2175,27 @@ public sealed class BotAutomationEngine(
         {
             await CheckpointAsync(pause, cancellationToken);
             var frame = await CaptureClientFrameAsync(session, cancellationToken);
+            if (destination == TaDestination.Ta3)
+            {
+                var disabled = await recognition.FindAsync(
+                    "ta3_entry_disabled", frame, cancellationToken);
+                var buttonLuma = VisualRecognitionService.MeasureAverageLuma(
+                    frame, 1000, 735, 245, 75);
+                var otherLuma = Math.Max(
+                    VisualRecognitionService.MeasureAverageLuma(frame, 455, 735, 220, 75),
+                    VisualRecognitionService.MeasureAverageLuma(frame, 725, 735, 220, 75));
+                var selectorVisible = (await recognition.FindAsync(
+                    "seletor_ta", frame, cancellationToken)).Found;
+                // O cartão da T.A. 3 é evidência suficiente quando o botão
+                // específico está apagado; o título do seletor pode variar.
+                stableHits = disabled.Found || selectorVisible && buttonLuma + 11 <= otherLuma
+                    ? stableHits + 1 : 0;
+                if (stableHits >= 3)
+                    return true;
+                await Task.Delay(250, cancellationToken);
+                continue;
+            }
+
             var selector = await recognition.FindAsync("seletor_ta", frame, cancellationToken);
             if (!selector.Found)
                 return false;
@@ -3374,9 +3424,9 @@ public sealed class BotAutomationEngine(
             await input.PressKeyAsync(KeyV, cancellationToken: cancellationToken);
             await WaitForReferenceAsync("daily_shop_page", "página Loja", TimeSpan.FromSeconds(15), pause, cancellationToken);
             storeOpened = true;
-            await input.MoveAndClickAsync(337, 142, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+            await input.MoveAndClickAsync(337, 142, TimeSpan.FromMilliseconds(320), cancellationToken, cooldown: TimeSpan.FromMilliseconds(180));
             await WaitForReferenceAsync("daily_shop_coins", "aba Moedas", TimeSpan.FromSeconds(12), pause, cancellationToken);
-            await input.MoveAndClickAsync(120, 264, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+            await input.MoveAndClickAsync(120, 264, TimeSpan.FromMilliseconds(320), cancellationToken, cooldown: TimeSpan.FromMilliseconds(180));
             await WaitForReferenceAsync("daily_shop_common", "categoria Comum", TimeSpan.FromSeconds(12), pause, cancellationToken);
 
             if (session.DailyShopCommonCycle == shopCycle)
@@ -3394,9 +3444,9 @@ public sealed class BotAutomationEngine(
                 await MarkDailyShopCategoryHandledAsync(session, shopCycle, summon: false);
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(4), cancellationToken);
-            await input.MoveAndClickAsync(146, 328, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
-            await Task.Delay(500, cancellationToken);
+            await CloseDailyShopResultIfVisibleAsync(session, pause, cancellationToken);
+            await input.MoveAndClickAsync(146, 328, TimeSpan.FromMilliseconds(340), cancellationToken, cooldown: TimeSpan.FromMilliseconds(180));
+            await WaitForReferenceAsync("daily_shop_summon", "categoria Invocação", TimeSpan.FromSeconds(12), pause, cancellationToken);
             if (session.DailyShopSummonCycle == shopCycle)
             {
                 WriteLog(session, "Compra diária de Invocação já foi registrada neste ciclo.");
@@ -3414,12 +3464,15 @@ public sealed class BotAutomationEngine(
         }
         finally
         {
+            await CloseDailyShopResultIfVisibleAsync(session, pause, cancellationToken);
             if (storeOpened || (await recognition.FindAsync("daily_shop_page", cancellationToken)).Found)
             {
-                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-                await Task.Delay(250, cancellationToken);
-                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-                await Task.Delay(350, cancellationToken);
+                for (var closeAttempt = 0; closeAttempt < 2 &&
+                     (await recognition.FindAsync("daily_shop_page", cancellationToken)).Found; closeAttempt++)
+                {
+                    await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                    await Task.Delay(350, cancellationToken);
+                }
             }
 
             if (resumeRest && await FindRestStateAsync(cancellationToken) is null)
@@ -3450,7 +3503,7 @@ public sealed class BotAutomationEngine(
             throw new TimeoutException($"{session.Options.Label}: Compra em Lote de {category} não apareceu e o esgotamento diário não foi confirmado.");
         }
 
-        await input.MoveAndClickAsync(145, 1009, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
+        await input.MoveAndClickAsync(145, 1009, TimeSpan.FromMilliseconds(340), cancellationToken, cooldown: TimeSpan.FromMilliseconds(180));
         if (!await WaitForReferenceToAppearAsync("daily_shop_bulk_popup", TimeSpan.FromSeconds(10), pause, cancellationToken))
         {
             if (await IsDailyShopCategoryExhaustedStableAsync(session, summon, pause, cancellationToken))
@@ -3472,7 +3525,23 @@ public sealed class BotAutomationEngine(
             WritePersistentOnly(session, $"Popup da compra de {category} demorou a sumir após Y: {exception.Message}");
             await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
         }
+        await WaitForReferenceAsync("daily_shop_result", $"resultado da compra de {category}",
+            TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await CloseDailyShopResultIfVisibleAsync(session, pause, cancellationToken);
         WriteLog(session, $"Compra em Lote de {category} confirmada.");
+    }
+
+    private async Task CloseDailyShopResultIfVisibleAsync(
+        ClientSession session, PauseController pause, CancellationToken cancellationToken)
+    {
+        if (!(await recognition.FindAsync("daily_shop_result", cancellationToken)).Found)
+            return;
+        WriteLog(session, "Resultado da Compra reconhecido; fechando antes do próximo passo.");
+        await CheckpointAsync(pause, cancellationToken);
+        await input.MoveAndClickAsync(961, 441, TimeSpan.FromMilliseconds(300), cancellationToken,
+            cooldown: TimeSpan.FromMilliseconds(180));
+        await WaitForReferenceToDisappearAsync("daily_shop_result", TimeSpan.FromSeconds(8),
+            pause, cancellationToken);
     }
 
     private async Task MarkDailyShopCategoryHandledAsync(
@@ -4754,6 +4823,19 @@ public sealed class BotAutomationEngine(
                 {
                     return;
                 }
+
+                var handledLoveBoss = false;
+                foreach (var raidSession in sessions.OrderBy(item => item.Options.Priority))
+                {
+                    if (await RunLoveBossSafelyAsync(
+                            raidSession, dailyRoutines, pause, cancellationToken, stopAt))
+                    {
+                        handledLoveBoss = true;
+                        break;
+                    }
+                }
+                if (handledLoveBoss)
+                    continue;
 
                 var scheduleAdvanced = false;
                 foreach (var scheduledSession in sessions.OrderBy(item => item.Options.Priority))
@@ -7138,6 +7220,14 @@ public sealed class BotAutomationEngine(
         public string? DailyShopCommonCycle { get; set; }
         public string? DailyShopSummonCycle { get; set; }
         public string? DailyShopAttemptCycle { get; set; }
+        public string? LoveBossCompletedCycle { get; set; }
+        public string? LoveBossRewardCycle { get; set; }
+        public string? LoveBossLastSlot { get; set; }
+        public string? LoveBossWeek { get; set; }
+        public int LoveBossWeeklyCount { get; set; }
+        public bool LoveBossInside { get; set; }
+        public bool LoveBossStartupChecked { get; set; }
+        public DateTime NextLoveBossAttemptAt { get; set; }
         public int DailyShopAttemptCount { get; set; }
         public DateTime NextDailyShopAttemptAt { get; set; }
         public string? Mail01Date { get; set; }

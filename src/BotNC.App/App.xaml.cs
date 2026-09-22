@@ -408,10 +408,38 @@ public partial class App : Application
     private static async Task RunSelfTestAsync(string outputPath)
     {
         BotAutomationEngine.VerifySchedulePolicy();
+        LoveBossSchedule.VerifyPolicy();
         var database = new AppDatabase();
         await database.InitializeAsync();
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        foreach (var (referenceId, fileName) in new[]
+        {
+            ("ta3_entry_disabled", "ta3_entry_disabled.png"),
+            ("boss_auto_on", "boss_auto_on.png"),
+            ("boss_victory", "boss_victory.png"),
+            ("boss_exit_timer", "boss_exit_timer.png"),
+            ("boss_exit_popup", "boss_exit_popup.png"),
+            ("boss_exit_ok", "boss_exit_popup.png"),
+            ("boss_reward_button", "boss_reward_button.png")
+        })
+        {
+            var own = await recognition.FindInCroppedImageAsync(
+                referenceId, Path.Combine(referenceDirectory, fileName));
+            if (!own.Found)
+                throw new InvalidOperationException($"Referência {referenceId} falhou na própria imagem ({own.Confidence:P0}).");
+        }
+        var bossReader = new LoveBossReader();
+        var missionImage = VisualRecognitionService.Decode(
+            await File.ReadAllBytesAsync(Path.Combine(referenceDirectory, "boss_reward_panel.png")));
+        var missionStatus = await bossReader.ReadMissionAsync(missionImage, CancellationToken.None);
+        if (missionStatus.DailyCompleted != 1 || missionStatus.WeeklyCompleted != 1)
+            throw new InvalidOperationException($"Contadores da Raide ilegíveis: {missionStatus.Evidence}");
+        var roomImage = VisualRecognitionService.Decode(
+            await File.ReadAllBytesAsync(Path.Combine(referenceDirectory, "boss_room.png")));
+        var roomPhase = await bossReader.ReadPhaseAsync(roomImage, CancellationToken.None);
+        if (roomPhase.Phase != LoveBossPhase.AwaitingSpawn)
+            throw new InvalidOperationException($"Pré-spawn da Raide ilegível: {roomPhase.Evidence}");
         var cases = new[]
         {
             ("guild_page", "guild_page.png"),
@@ -447,6 +475,14 @@ public partial class App : Application
             ("daily_shop_common", "daily_shop_common.png"),
             ("daily_shop_bulk", "daily_shop_common.png"),
             ("daily_shop_bulk_popup", "daily_shop_bulk_popup_full.png"),
+            ("daily_shop_result", "daily_shop_result.png"),
+            ("daily_shop_summon", "daily_shop_summon.png"),
+            ("boss_entry_panel", "boss_entry_panel.png"),
+            ("boss_entry_button", "boss_entry_panel.png"),
+            ("boss_room", "boss_room.png"),
+            ("boss_alive", "boss_alive.png"),
+            ("boss_reward_panel", "boss_reward_panel.png"),
+            ("boss_reward_received", "boss_reward_received.png"),
             ("menu_masmorra", "menu_aberto.png"),
             ("tela_masmorras", "tela_masmorras.png"),
             ("confirmar_sepheras", "confirmar_sepheras.png"),

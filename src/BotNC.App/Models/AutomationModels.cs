@@ -35,7 +35,8 @@ public sealed record DailyRoutineOptions(
     TimeSpan GuildDirectiveAt,
     GuildDirectiveArea GuildDirectiveArea,
     bool EnableDailyShop,
-    TimeSpan DailyShopAt);
+    TimeSpan DailyShopAt,
+    bool EnableLoveBoss = false);
 
 public enum FarmScheduleDestination
 {
@@ -76,7 +77,8 @@ public sealed record AutomationClientOptions(
     bool EnableMail = true,
     bool EnableAntiOverkill = true,
     bool EnableDailyShop = false,
-    IReadOnlyDictionary<TaDestination, FarmCoordinate>? CustomFarmCoordinates = null);
+    IReadOnlyDictionary<TaDestination, FarmCoordinate>? CustomFarmCoordinates = null,
+    bool EnableLoveBoss = false);
 
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,
