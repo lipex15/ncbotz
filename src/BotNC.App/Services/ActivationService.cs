@@ -12,7 +12,7 @@ namespace BotNC.App.Services;
 internal sealed class ActivationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private static readonly HttpClient Client = CreateHttpClient();
     private readonly string _directory =
         string.Equals(Environment.GetEnvironmentVariable("PEXBOT_LICENSE_ALLOW_UNPINNED_DEV"), "1", StringComparison.Ordinal) &&
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PEXBOT_ACTIVATION_TEST_DIR"))
@@ -20,6 +20,15 @@ internal sealed class ActivationService
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PEXBOT", "Activation");
     private readonly Uri? _server;
     private readonly string? _publicKey;
+
+    private static HttpClient CreateHttpClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        // Evita a página informativa do túnel gratuito; o servidor ainda valida
+        // credenciais, HWID e assinatura normalmente.
+        client.DefaultRequestHeaders.TryAddWithoutValidation("ngrok-skip-browser-warning", "pexbot-client");
+        return client;
+    }
 
     public ActivationService()
     {
