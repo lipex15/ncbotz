@@ -1,5 +1,4 @@
 using System.IO;
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -16,11 +15,29 @@ public sealed class VisualRecognitionService(
     private const int ReferenceWindowHeight = 1040;
     private static readonly ConditionalWeakTable<PixelFrame, PixelFrame> NormalizedFrames = new();
     private static readonly ConditionalWeakTable<byte[], PixelFrame> DecodedReferences = new();
-    private readonly ConcurrentDictionary<string, Lazy<Task<VisualReference>>> _referenceCache = new();
+    // Imagens completas podem ocupar vários MB decodificadas. Preserve apenas
+    // as referências recentes; a weak table libera os quadros quando saem daqui.
+    private const int ReferenceCacheLimit = 16;
+    private readonly object _referenceCacheSync = new();
+    private readonly Dictionary<string, (Task<VisualReference> Value, long Access)> _referenceCache = new();
+    private long _referenceAccess;
 
-    private Task<VisualReference> GetReferenceAsync(string referenceId) =>
-        _referenceCache.GetOrAdd(referenceId,
-            id => new Lazy<Task<VisualReference>>(() => database.GetReferenceAsync(id))).Value;
+    private Task<VisualReference> GetReferenceAsync(string referenceId)
+    {
+        lock (_referenceCacheSync)
+        {
+            if (_referenceCache.TryGetValue(referenceId, out var cached))
+            {
+                _referenceCache[referenceId] = (cached.Value, ++_referenceAccess);
+                return cached.Value;
+            }
+            if (_referenceCache.Count >= ReferenceCacheLimit)
+                _referenceCache.Remove(_referenceCache.MinBy(item => item.Value.Access).Key);
+            var value = database.GetReferenceAsync(referenceId);
+            _referenceCache.Add(referenceId, (value, ++_referenceAccess));
+            return value;
+        }
+    }
     public async Task<RecognitionResult> FindAsync(
         string referenceId,
         CancellationToken cancellationToken = default)

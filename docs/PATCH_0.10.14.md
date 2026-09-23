@@ -1,4 +1,4 @@
-# PEXBOT 0.10.13 — correções de retomada e interface
+# PEXBOT 0.10.14 — correções de retomada e interface
 
 ## O que mudou
 
@@ -13,7 +13,7 @@
 - Leitura do brilho das letras de “Entrar”, sem o preço, com confirmação em dois quadros para T.A 1/2/3. Se o estado continuar incerto, não compra entrada e tenta fechar o seletor antes da recuperação.
 - Compra de Artigos verifica resultado ou indisponibilidade estável com a loja visível, e tenta liberar o painel também em falhas.
 - Boss mantém entrada pelo ícone ao lado do minimapa. Sapheras só bloqueia a tentativa de boss do cliente que a habilitou; restauração pendente tem precedência.
-- Cache das referências e refinamento de um pixel no reconhecimento para reduzir falsos negativos de alinhamento.
+- Cache limitado às 16 referências recentes, evitando acúmulo de imagens completas na memória. Refinamento de um pixel no reconhecimento para reduzir falsos negativos de alinhamento.
 - Atalho do painel administrativo testa o servidor e solicita a inicialização da tarefa local antes de abrir a página.
 
 ## Já existentes e preservados
