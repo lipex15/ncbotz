@@ -20,7 +20,7 @@ public static class TaEntryButtonAnalyzer
 {
     private static readonly int[] LabelX = [462, 733, 1007];
 
-    public static TaEntryButtonReading Read(PixelFrame frame, TaDestination destination)
+    public static TaEntryButtonReading Read(PixelFrame frame, TaDestination destination, RecognitionResult[]? locatedButtons = null)
     {
         var index = destination switch
         {
@@ -38,7 +38,9 @@ public static class TaEntryButtonAnalyzer
             : frame.Height;
         var scaleX = frame.Width / 1920d;
         var scaleY = referenceHeight / 1040d;
-        var values = LabelX.Select(x => MeasureLabelInk(
+        var values = LabelX.Select((x, buttonIndex) => locatedButtons is not null
+            ? MeasureLabelInk(frame, locatedButtons[buttonIndex].X - 37, locatedButtons[buttonIndex].Y - 12, 75, 25)
+            : MeasureLabelInk(
             frame,
             (int)Math.Round(x * scaleX),
             (int)Math.Round(757 * scaleY),

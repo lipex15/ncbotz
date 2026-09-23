@@ -484,7 +484,7 @@ public sealed class VisualRecognitionService(
         return new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
     }
 
-    private static PixelFrame NormalizeForReferenceMatching(PixelFrame frame)
+    internal static PixelFrame NormalizeForReferenceMatching(PixelFrame frame)
     {
         if (Math.Abs(frame.Width - ReferenceWidth) <= 2 &&
             (Math.Abs(frame.Height - ReferenceDesktopHeight) <= 2 ||

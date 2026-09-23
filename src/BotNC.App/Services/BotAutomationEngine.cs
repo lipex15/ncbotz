@@ -2271,15 +2271,17 @@ public sealed partial class BotAutomationEngine(
         for (var sample = 0; sample < 4; sample++)
         {
             await CheckpointAsync(pause, cancellationToken);
-            var frame = await CaptureClientFrameAsync(session, cancellationToken);
-            var ready = await recognition.FindAsync(
-                EntryReadyReference(destination), frame, cancellationToken);
-            var context = ready.Confidence >= TaContextConfidence ||
-                          (await recognition.FindAsync("seletor_ta", frame, cancellationToken)).Found ||
-                          destination == TaDestination.Ta1Codex &&
-                          (await recognition.FindAsync("ta1_primeiro_cartao", frame, cancellationToken)).Found;
+            var frame = VisualRecognitionService.NormalizeForReferenceMatching(
+                await CaptureClientFrameAsync(session, cancellationToken));
+            // Localize the letters on the same normalized frame used to classify
+            // brightness. Never mix desktop coordinates with window dimensions.
+            var buttons = new RecognitionResult[3];
+            for (var buttonIndex = 0; buttonIndex < buttons.Length; buttonIndex++)
+                buttons[buttonIndex] = await recognition.FindAsync(
+                    "entrar_ta2_pronto", frame, 435 + buttonIndex * 272, 730, 135, 80, cancellationToken);
+            var context = buttons.All(button => button.Found);
             var reading = context
-                ? TaEntryButtonAnalyzer.Read(frame, destination)
+                ? TaEntryButtonAnalyzer.Read(frame, destination, buttons)
                 : new TaEntryButtonReading(TaEntryButtonState.Unknown, 0, 0);
             stableHits = reading.State != TaEntryButtonState.Unknown && reading.State == lastState
                 ? stableHits + 1 : reading.State == TaEntryButtonState.Unknown ? 0 : 1;
@@ -2289,6 +2291,7 @@ public sealed partial class BotAutomationEngine(
                 return reading;
             await Task.Delay(250, cancellationToken);
         }
+        WritePersistentOnly(session, $"TA entry unknown: target={lastReading.TargetLuma:F0}; other={lastReading.BrightestOtherLuma:F0}; destination={destination}");
         return lastReading with { State = TaEntryButtonState.Unknown };
     }
 

@@ -1270,6 +1270,9 @@ public partial class MainWindow : Window
 
     private void OnClearLog(object sender, RoutedEventArgs e) => LogListBox.Items.Clear();
 
+    private void OnExpandLog(object sender, RoutedEventArgs e) => ExpandedLogOverlay.Visibility = Visibility.Visible;
+    private void OnCloseExpandedLog(object sender, RoutedEventArgs e) => ExpandedLogOverlay.Visibility = Visibility.Collapsed;
+
     private async void OnCopyLog(object sender, RoutedEventArgs e)
     {
         try
@@ -1381,7 +1384,14 @@ public partial class MainWindow : Window
                 activity = Client2ActivityText;
             }
             if (clientIndex >= 0)
-                activity.Text = $"{DateTime.Now:HH:mm:ss} · {message[(clientIndex + 10)..].Trim()}";
+                activity.Text = message.Contains("Falha", StringComparison.OrdinalIgnoreCase) || message.Contains("incerto", StringComparison.OrdinalIgnoreCase)
+                    ? "Aguardando recuperação"
+                    : message.Contains("restaura", StringComparison.OrdinalIgnoreCase) ? "Restaurando recursos"
+                    : message.Contains("descanso", StringComparison.OrdinalIgnoreCase) ? "Conferindo descanso"
+                    : message.Contains("Diária", StringComparison.OrdinalIgnoreCase) ? "Conferindo missões diárias"
+                    : message.Contains("Diretiva", StringComparison.OrdinalIgnoreCase) ? "Conferindo diretiva"
+                    : message.Contains("farm", StringComparison.OrdinalIgnoreCase) ? "Preparando farm"
+                    : "Em preparação";
         }
         LogListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
         while (LogListBox.Items.Count > 400)

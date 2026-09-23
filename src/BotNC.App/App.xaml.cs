@@ -476,6 +476,25 @@ public partial class App : Application
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
         var activeTaSelector = LoadReferenceFrame(
             Path.Combine(referenceDirectory, "seletor_ta_tela.png"));
+        var userSelector = LoadReferenceFrame(Path.Combine(referenceDirectory, "ta_selector_user_active.png"));
+        var borderedPixels = new byte[1936 * 1056 * 4];
+        for (var row = 0; row < 1040; row++)
+            Buffer.BlockCopy(userSelector.Pixels, row * userSelector.Stride,
+                borderedPixels, ((row + 8) * 1936 + 8) * 4, 1920 * 4);
+        var borderedSelector = new PixelFrame(1936, 1056, 1936 * 4, borderedPixels);
+        foreach (var selectorFrame in new[] { userSelector, activeTaSelector, borderedSelector })
+        {
+            var normalized = VisualRecognitionService.NormalizeForReferenceMatching(selectorFrame);
+            var located = new RecognitionResult[3];
+            for (var index = 0; index < 3; index++)
+                located[index] = await recognition.FindAsync("entrar_ta2_pronto", normalized,
+                    435 + index * 272, 730, 135, 80, CancellationToken.None);
+            if (located.Any(result => !result.Found))
+                throw new InvalidOperationException("Localização das letras Entrar falhou na captura completa.");
+            var actual = TaEntryButtonAnalyzer.Read(normalized, TaDestination.Ta3, located);
+            if (actual.State != TaEntryButtonState.Active)
+                throw new InvalidOperationException($"T.A 3 ativa não reconhecida: {actual}");
+        }
         var realButtons = LoadReferenceFrame(Path.Combine(referenceDirectory, "ta_entry_states_real.png"));
         if (TaEntryButtonAnalyzer.MeasureLabelInk(realButtons, 28, 24, 75, 25) >= 155 ||
             TaEntryButtonAnalyzer.MeasureLabelInk(realButtons, 300, 24, 75, 25) < 180)
