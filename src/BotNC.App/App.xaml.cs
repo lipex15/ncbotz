@@ -429,6 +429,11 @@ public partial class App : Application
             if (!own.Found)
                 throw new InvalidOperationException($"Referência {referenceId} falhou na própria imagem ({own.Confidence:P0}).");
         }
+        var disabledOnReadySelector = await recognition.FindInImageAsync(
+            "ta3_entry_disabled", Path.Combine(referenceDirectory, "seletor_ta_tela.png"));
+        if (disabledOnReadySelector.Found)
+            throw new InvalidOperationException(
+                "O botão apagado da T.A 3 foi confundido com o botão ativo do seletor.");
         var cases = new[]
         {
             ("guild_page", "guild_page.png"),
@@ -557,6 +562,13 @@ public partial class App : Application
             ("oferta_wemade", "agenda_tela.png")
         };
         var lines = new List<string>();
+        var tombstonePresent = TombstoneIconAnalyzer.HasRedIcon(
+            LoadReferenceFrame(Path.Combine(referenceDirectory, "perda_exp.png")));
+        var tombstoneAbsent = TombstoneIconAnalyzer.HasRedIcon(
+            LoadReferenceFrame(Path.Combine(referenceDirectory, "agenda_tela.png")));
+        lines.Add($"tombstone_color|present={tombstonePresent}|absent={tombstoneAbsent}");
+        if (!tombstonePresent || tombstoneAbsent)
+            throw new InvalidOperationException("A checagem de cor da lápide não distinguiu perda real de tela normal.");
         var bulkTitleOnSummonPage = await recognition.FindInImageAsync(
             "daily_shop_bulk_title", Path.Combine(referenceDirectory, "daily_shop_summon.png"));
         if (bulkTitleOnSummonPage.Found)

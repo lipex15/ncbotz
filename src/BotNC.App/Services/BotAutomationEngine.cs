@@ -766,11 +766,19 @@ public sealed partial class BotAutomationEngine(
         else
         {
             WriteLog($"Sapheras está próxima ({FormatDuration(untilSapheras)}). Entrada direta programada.");
+            foreach (var session in sessions)
+                await RunStartupRestorationSafelyAsync(
+                    session, sapheras, antiOverkill, pause, cancellationToken);
             await WaitForScheduleAsync(sapheras.ScheduledAt, pause, cancellationToken);
         }
 
         foreach (var session in sapherasSessions)
         {
+            if (session.NeedsDeathRestoration)
+            {
+                WriteLog(session, "Entrada em Sapheras adiada: a restauração iniciada na partida ainda está pendente.");
+                continue;
+            }
             var entered = await RunSessionActionSafelyAsync(
                 session,
                 "entrada prioritária em Sapheras",
@@ -864,50 +872,67 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        if (session.StartupRestorationChecked)
+            return false;
+
         try
         {
             // A restauração precede Correio, Diretivas e Diárias: essas rotinas
             // podem assumir o controle do cliente e pular a preparação do farm.
+            await ActivateGameForEmergencyAsync(session, cancellationToken);
             var death = await FindDeathOnClientAsync(session, cancellationToken);
             if (death.Found)
             {
                 WriteLog(session, $"Morte presente na inicialização ({death.Confidence:P0}); restaurando antes das rotinas.");
                 await HandleDeathAsync(session, sapheras, antiOverkill, pause, cancellationToken);
+                session.StartupRestorationChecked = true;
                 return true;
             }
 
             var panel = await WaitForRestorationCounterAsync(
                 session, TimeSpan.FromSeconds(2), pause, cancellationToken);
-            var iconConfirmed = false;
-            if (panel.State == RestorationCountState.Unknown)
-            {
-                for (var sample = 0; sample < 2; sample++)
-                {
-                    var frame = await CaptureClientFrameAsync(session, cancellationToken);
-                    var icon = await recognition.FindAsync("icone_perda_exp", frame, cancellationToken);
-                    if (!icon.Found || icon.Confidence < 0.59 || !TombstoneIconAnalyzer.HasRedIcon(frame))
-                    {
-                        iconConfirmed = false;
-                        break;
-                    }
+            var panelVisible = panel.State != RestorationCountState.Unknown ||
+                (await FindReferenceOnClientAsync(
+                    session, "painel_restauracao", cancellationToken, requireObservable: true)).Found;
+            var iconConfirmed = panel.State == RestorationCountState.Unknown &&
+                                await IsTombstoneIconStableAsync(session, pause, cancellationToken);
 
-                    iconConfirmed = true;
-                    if (sample == 0)
-                    {
-                        await Task.Delay(400, cancellationToken);
-                    }
-                }
+            // O descanso pode cobrir o indicador. Na partida, feche-o uma vez
+            // para conferir a tela de jogo antes de liberar qualquer rotina.
+            var hadRest = !panelVisible && !iconConfirmed &&
+                          await FindRestStateAsync(cancellationToken) is not null;
+            if (hadRest)
+            {
+                await ExitRestIfNeededAsync(session, pause, cancellationToken);
+                panel = await WaitForRestorationCounterAsync(
+                    session, TimeSpan.FromSeconds(2), pause, cancellationToken);
+                panelVisible = panel.State != RestorationCountState.Unknown ||
+                    (await FindReferenceOnClientAsync(
+                        session, "painel_restauracao", cancellationToken, requireObservable: true)).Found;
+                iconConfirmed = !panelVisible &&
+                                await IsTombstoneIconStableAsync(session, pause, cancellationToken);
             }
 
-            if (panel.State != RestorationCountState.Unknown || iconConfirmed)
+            if (panelVisible || iconConfirmed)
             {
-                WriteLog(session, panel.State != RestorationCountState.Unknown
+                WriteLog(session, panelVisible
                     ? "Painel de restauração já aberto ao iniciar; resolvendo antes das rotinas."
                     : "Lápide antiga confirmada ao iniciar; resolvendo antes das rotinas.");
-                await ActivateGameForEmergencyAsync(session, cancellationToken);
+                hadRest |= await FindRestStateAsync(cancellationToken) is not null;
+                if (hadRest)
+                    await ExitRestIfNeededAsync(session, pause, cancellationToken);
                 await RestoreDeathResourcesAsync(session, pause, cancellationToken);
             }
+            else
+                WriteLog(session, "Checagem inicial concluída: nenhuma lápide ou painel de restauração visível.");
 
+            if (hadRest)
+            {
+                var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
+                session.SafeInRest = rest is not null;
+            }
+
+            session.StartupRestorationChecked = true;
             return false;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -916,7 +941,7 @@ public sealed partial class BotAutomationEngine(
         }
         catch (Exception exception)
         {
-            WriteLog(session, $"Falha na recuperação inicial; o monitoramento tentará novamente: {exception.GetBaseException().Message}");
+            WriteLog(session, $"Falha na checagem inicial da lápide; farm bloqueado até a recuperação: {exception.GetBaseException().Message}");
             WritePersistentOnly(session, exception.ToString());
             session.NeedsDeathRestoration = true;
             session.NextRecoveryAttemptAt = DateTime.UtcNow.AddSeconds(10);
@@ -2045,6 +2070,19 @@ public sealed partial class BotAutomationEngine(
                 TimeSpan.FromSeconds(18),
                 pause,
                 cancellationToken);
+        if (destination == TaDestination.Ta3 && !entryVisuallyReady)
+        {
+            if (await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
+            {
+                WriteLog(session, "Farm detectado: Entrar da T.A 3 apagado; não comprando outra entrada.");
+                await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: o botão Entrar da T.A 3 não foi confirmado como ativo; " +
+                "não clicarei para evitar cobrança de outra entrada.");
+        }
         WriteLog(session, entryVisuallyReady
             ? $"Botão Entrar da {taName} reconhecido; preparando o clique."
             : $"O texto do botão variou neste PC; usando a posição proporcional da janela com confirmação posterior.");
@@ -2182,11 +2220,13 @@ public sealed partial class BotAutomationEngine(
             {
                 var disabled = await recognition.FindAsync(
                     "ta3_entry_disabled", frame, cancellationToken);
+                // Compare apenas a palavra Entrar. O valor em ouro varia e
+                // nunca pode influenciar a detecção do botão apagado.
                 var buttonLuma = VisualRecognitionService.MeasureAverageLuma(
-                    frame, 1000, 735, 245, 75);
+                    frame, 1035, 749, 90, 42);
                 var otherLuma = Math.Max(
-                    VisualRecognitionService.MeasureAverageLuma(frame, 455, 735, 220, 75),
-                    VisualRecognitionService.MeasureAverageLuma(frame, 725, 735, 220, 75));
+                    VisualRecognitionService.MeasureAverageLuma(frame, 485, 749, 90, 42),
+                    VisualRecognitionService.MeasureAverageLuma(frame, 755, 749, 90, 42));
                 var selectorVisible = (await recognition.FindAsync(
                     "seletor_ta", frame, cancellationToken)).Found;
                 // O cartão da T.A. 3 é evidência suficiente quando o botão
@@ -3511,6 +3551,22 @@ public sealed partial class BotAutomationEngine(
             TimeSpan.FromSeconds(15), pause, cancellationToken);
         await CloseDailyShopResultIfVisibleAsync(session, pause, cancellationToken);
         WriteLog(session, $"Compra em Lote de {category} confirmada.");
+    }
+
+    private async Task<bool> IsTombstoneIconStableAsync(
+        ClientSession session, PauseController pause, CancellationToken cancellationToken)
+    {
+        for (var sample = 0; sample < 2; sample++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var frame = await CaptureClientFrameAsync(session, cancellationToken);
+            var icon = await recognition.FindAsync("icone_perda_exp", frame, cancellationToken);
+            if (!icon.Found || !TombstoneIconAnalyzer.HasRedIcon(frame))
+                return false;
+            if (sample == 0)
+                await Task.Delay(400, cancellationToken);
+        }
+        return true;
     }
 
     private async Task CloseDailyShopResultIfVisibleAsync(
@@ -6103,10 +6159,9 @@ public sealed partial class BotAutomationEngine(
                     session, "painel_restauracao", cancellationToken, requireObservable: true)).Found)
             {
                 var diagnostic = await recognition.SaveDiagnosticAsync($"restauracao_contador_{session.Options.Priority}");
-                WriteLog(session, $"Painel de restauração aberto, mas contador ilegível; fechando sem clicar em itens e retomando o fluxo. Diagnóstico: {diagnostic}");
-                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-                session.NeedsDeathRestoration = false;
-                return;
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: painel de restauração aberto, mas contador ilegível; " +
+                    $"não vou tratar a perda como concluída. Diagnóstico: {diagnostic}");
             }
 
             WriteLog(session, "Verificando se esta morte gerou lápide de restauração.");
@@ -6143,9 +6198,8 @@ public sealed partial class BotAutomationEngine(
             {
                 WriteLog(
                     session,
-                    "Lápide ausente após verificação limitada; não há EXP ou equipamento para restaurar. Retomando o fluxo sem repetir a busca.");
+                    "Lápide não confirmada após a morte; nenhuma restauração visível nesta tentativa.");
                 session.NeedsDeathRestoration = false;
-                await RememberRestorationIconAbsenceAsync(session);
                 return;
             }
 
@@ -6168,27 +6222,24 @@ public sealed partial class BotAutomationEngine(
                 {
                     WriteLog(session, "Lápide não está presente após os cliques; não há restauração desta morte. Seguindo para o farm.");
                     session.NeedsDeathRestoration = false;
-                    await RememberRestorationIconAbsenceAsync(session);
                     return;
                 }
 
                 if (!(await FindReferenceOnClientAsync(
                         session, "painel_restauracao", cancellationToken, requireObservable: true)).Found)
                 {
-                    WriteLog(session, "A lápide não abriu um painel após três tentativas; deixando de procurar nesta ocorrência e retomando o farm.");
-                    session.NeedsDeathRestoration = false;
-                    await RememberRestorationIconAbsenceAsync(session);
-                    return;
+                    throw new TimeoutException(
+                        $"{session.Options.Label}: ícone da lápide detectado, mas o painel não abriu após três tentativas; " +
+                        "a restauração permanece pendente.");
                 }
 
                 var diagnosticFrame = await CaptureClientFrameAsync(session, cancellationToken);
                 var diagnostic = await recognition.SaveDiagnosticAsync(
                     $"painel_restauracao_{session.Options.Priority}",
                     diagnosticFrame);
-                WriteLog(session, $"Painel da lápide não pôde ser lido após três tentativas. Fechando e retomando sem clicar às cegas. Diagnóstico: {diagnostic}");
-                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-                session.NeedsDeathRestoration = false;
-                return;
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: painel da lápide ilegível após três tentativas; " +
+                    $"a restauração permanece pendente. Diagnóstico: {diagnostic}");
             }
         }
 
@@ -6300,7 +6351,9 @@ public sealed partial class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         var tabName = expectedTab == RestorationTab.Experience ? "EXP" : "equipamento";
-        for (var attempt = 1; attempt <= 3; attempt++)
+        int? previousCount = null;
+        var unchangedClicks = 0;
+        for (var attempt = 1; attempt <= 50; attempt++)
         {
             await CheckpointAsync(pause, cancellationToken);
             await EnsureGameForegroundAsync(session, cancellationToken);
@@ -6318,25 +6371,36 @@ public sealed partial class BotAutomationEngine(
                 return;
             }
 
-            WriteLog(session, $"Restaurando aba de {tabName} em ({clickX}, {clickY}) — tentativa {attempt}/3.");
+            if (previousCount is { } prior && current.Count >= prior)
+            {
+                if (++unchangedClicks >= 2)
+                    throw new InvalidOperationException(
+                        $"{session.Options.Label}: contador de {tabName} não diminuiu após dois cliques " +
+                        $"({current.Count}); evitando cliques repetidos sem progresso.");
+            }
+            else
+                unchangedClicks = 0;
+
+            previousCount = current.Count;
+            WriteLog(session, $"Restaurando {tabName} {current.Count}/{current.Capacity?.ToString() ?? "?"} " +
+                $"em ({clickX}, {clickY}) — clique {attempt}.");
             await input.ClickAsync(clickX, clickY, cancellationToken);
             var afterClick = await WaitForRestorationCounterAsync(
-                session, TimeSpan.FromSeconds(8), pause, cancellationToken,
-                expectedTab, RestorationCountState.Empty);
+                session, TimeSpan.FromSeconds(8), pause, cancellationToken, expectedTab);
             if (afterClick.Tab == expectedTab && afterClick.State == RestorationCountState.Empty)
             {
                 WriteLog(session, $"Lista de {tabName} vazia confirmada pelo contador.");
                 return;
             }
-
-            if (attempt < 3)
-            {
-                WriteLog(session, $"A lista de {tabName} ainda não zerou; repetindo somente este clique.");
-            }
+            if (afterClick.Tab != expectedTab || afterClick.State == RestorationCountState.Unknown)
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: leitura de {tabName} ficou incerta após o clique; " +
+                    "a restauração permanece pendente.");
+            WriteLog(session, $"Lista de {tabName} ainda em {afterClick.Count}; verificando progresso antes do próximo clique.");
         }
 
         throw new InvalidOperationException(
-            $"{session.Options.Label}: a lista de {tabName} não ficou vazia após três tentativas; " +
+            $"{session.Options.Label}: a lista de {tabName} não ficou vazia após 50 cliques com leitura; " +
             "não vou retornar ao farm com restauração pendente.");
     }
 
@@ -7226,6 +7290,7 @@ public sealed partial class BotAutomationEngine(
         public bool InAgenda { get; set; }
         public bool HandlingDeath { get; set; }
         public bool NeedsDeathRestoration { get; set; }
+        public bool StartupRestorationChecked { get; set; }
         public string? RestorationAbsentCycle { get; set; }
         public bool AudioFailureLogged { get; set; }
         public bool PendingAgendaAfterSapheras { get; set; }

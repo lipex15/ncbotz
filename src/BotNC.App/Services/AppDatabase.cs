@@ -326,7 +326,7 @@ public sealed class AppDatabase
             new("entrar_ta1_pronto", "Entrar na T.A 1", "ta1_entry.png", 42, 495, 240, 65, 435, 730, 290, 90, 0.66),
             new("ta1_primeiro_cartao", "Ícone do primeiro cartão da T.A", "ta1_entry.png", 100, 30, 115, 120, 485, 245, 155, 155, 0.70),
             new("ta3_entry_disabled", "Entrar na T.A 3 indisponível", "ta3_entry_disabled.png",
-                43, 489, 215, 62, 1005, 735, 240, 90, 0.70),
+                43, 489, 100, 62, 1005, 735, 240, 90, 0.70),
             new("ta1_chegada", "Serviços de Kildebat", "ta1_arrival.png", 10, 90, 315, 165, 0, 70, 410, 230, 0.60),
             new("mapa_ta1", "Mapa de Kildebat", "ta1_map.png", 22, 26, 180, 68, 0, 10, 290, 120, 0.64),
             new("mapa_ta1_zoom_max", "Mapa de Kildebat no zoom mínimo", "ta1_map_zoom_max.png", 805, 50, 390, 85, 735, 25, 540, 145, 0.62),
