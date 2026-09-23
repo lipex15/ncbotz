@@ -126,6 +126,7 @@ public sealed partial class BotAutomationEngine(
             session.Mail01Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.01Date");
             session.Mail07Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.07Date");
             session.DailyShopCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCycle");
+            session.GuildCheckinCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.guildCheckinCycle");
             session.DailyShopCommonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCommonCycle");
             session.DailyShopSummonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopSummonCycle");
             session.DailyShopAttemptCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopAttemptCycle");
@@ -3302,8 +3303,13 @@ public sealed partial class BotAutomationEngine(
         var dailyShopDue = options.EnableDailyShop && session.Options.EnableDailyShop && session.DailyShopCycle != shopCycle &&
                            DateTime.UtcNow >= session.NextDailyShopAttemptAt &&
                            now >= ScheduledInDailyShopCycle(now, options.DailyShopAt);
+        var guildCheckinCycle = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var guildCheckinDue = options.EnableGuildCheckin && session.Options.EnableGuildCheckin &&
+                              session.GuildCheckinCycle != guildCheckinCycle &&
+                              DateTime.UtcNow >= session.NextGuildCheckinAttemptAt &&
+                              now.TimeOfDay >= options.GuildCheckinAt;
 
-        if (!dailyDue && !directiveDue && !dailyShopDue)
+        if (!dailyDue && !directiveDue && !dailyShopDue && !guildCheckinDue)
         {
             return false;
         }
@@ -3334,8 +3340,32 @@ public sealed partial class BotAutomationEngine(
                 await RegisterDailyShopUncertainAsync(session, shopCycle, exception.GetBaseException().Message);
             }
 
-            if (!dailyDue && !directiveDue)
+            if (!dailyDue && !directiveDue && !guildCheckinDue)
                 return true;
+        }
+
+        if (guildCheckinDue)
+        {
+            try
+            {
+                await CompleteGuildCheckinAsync(session, pause, cancellationToken);
+                session.GuildCheckinCycle = guildCheckinCycle;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.guildCheckinCycle", guildCheckinCycle);
+                WriteLog(session, "Check-in e doações em ouro da Guilda concluídos ou já realizados neste ciclo.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                session.NextGuildCheckinAttemptAt = DateTime.UtcNow.AddMinutes(10);
+                WritePersistentOnly(session, exception.ToString());
+                var diagnostic = await recognition.SaveDiagnosticAsync($"guild_checkin_{session.Options.Priority}");
+                WriteLog(session, $"Guilda adiada por 10 minutos: {exception.GetBaseException().Message} Diagnóstico: {diagnostic}");
+            }
+
+            if (!dailyDue && !directiveDue) return true;
         }
 
         if (WantsAbbey(session) && session.AbbeyInside)
@@ -3437,6 +3467,141 @@ public sealed partial class BotAutomationEngine(
         }
 
         return true;
+    }
+
+    private async Task CompleteGuildCheckinAsync(
+        ClientSession session,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        var resumeRest = session.SafeInRest || await FindRestStateAsync(cancellationToken) is not null;
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        if (await FindRestStateAsync(cancellationToken) is not null)
+            throw new TimeoutException("Descanso ainda aberto; Guilda não será acionada sobre a tela L.");
+
+        try
+        {
+            if (!(await recognition.FindAsync("guild_page", cancellationToken)).Found)
+            {
+                if (!(await recognition.FindAsync("menu_guild", cancellationToken)).Found)
+                {
+                    await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
+                    await WaitForReferenceAsync("menu_guild", "menu lateral", TimeSpan.FromSeconds(8), pause, cancellationToken);
+                }
+
+                await input.MoveAndClickAsync(1600, 340, TimeSpan.FromMilliseconds(320), cancellationToken,
+                    cooldown: TimeSpan.FromMilliseconds(180));
+                await WaitForReferenceAsync("guild_page", "página Guilda", TimeSpan.FromSeconds(15), pause, cancellationToken);
+            }
+
+            var rewardAlreadyOpen = (await recognition.FindAsync("guild_checkin_reward", cancellationToken)).Found;
+            if (rewardAlreadyOpen)
+            {
+                await input.MoveAndClickAsync(965, 301, TimeSpan.FromMilliseconds(340), cancellationToken,
+                    cooldown: TimeSpan.FromMilliseconds(200));
+                await WaitForReferenceToDisappearAsync("guild_checkin_reward", TimeSpan.FromSeconds(9), pause, cancellationToken);
+            }
+            else if ((await recognition.FindAsync("guild_checkin_available", cancellationToken)).Found &&
+                     HasGuildCheckinNotification(await CaptureClientFrameAsync(session, cancellationToken)))
+            {
+                await input.MoveAndClickAsync(878, 910, TimeSpan.FromMilliseconds(340), cancellationToken,
+                    cooldown: TimeSpan.FromMilliseconds(200));
+                await WaitForReferenceAsync("guild_checkin_reward", "recompensa do check-in", TimeSpan.FromSeconds(12), pause, cancellationToken);
+                await input.MoveAndClickAsync(965, 301, TimeSpan.FromMilliseconds(340), cancellationToken,
+                    cooldown: TimeSpan.FromMilliseconds(200));
+                await WaitForReferenceToDisappearAsync("guild_checkin_reward", TimeSpan.FromSeconds(9), pause, cancellationToken);
+                WriteLog(session, "Check-in da Guilda confirmado; recompensa fechada.");
+            }
+            else
+            {
+                WriteLog(session, "Check-in sem notificação visível; seguindo para verificar as doações de ouro.");
+            }
+
+            await input.MoveAndClickAsync(1083, 910, TimeSpan.FromMilliseconds(340), cancellationToken,
+                cooldown: TimeSpan.FromMilliseconds(200));
+            await WaitForReferenceAsync("guild_donation_panel", "painel de Doação", TimeSpan.FromSeconds(12), pause, cancellationToken);
+
+            var reader = new GuildDonationCounterReader();
+            var remaining = await ReadGuildGoldDonationsStableAsync(session, reader, pause, cancellationToken);
+            if (remaining is null)
+                throw new TimeoutException("Contador de doações em ouro ilegível; nenhum clique de doação será feito.");
+
+            while (remaining > 0)
+            {
+                await CheckpointAsync(pause, cancellationToken);
+                var previous = remaining.Value;
+                await input.MoveAndClickAsync(661, 724, TimeSpan.FromMilliseconds(360), cancellationToken,
+                    cooldown: TimeSpan.FromMilliseconds(250));
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                int? current = null;
+                while (DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(350, cancellationToken);
+                    current = await ReadGuildGoldDonationsStableAsync(session, reader, pause, cancellationToken);
+                    if (current == previous - 1) break;
+                    if (current is not null && current != previous)
+                        throw new InvalidOperationException($"Contador de ouro mudou de {previous} para {current}; não repetirei o clique.");
+                }
+
+                if (current != previous - 1)
+                    throw new TimeoutException($"A doação de ouro não foi confirmada após o clique ({previous} restantes); não repetirei o clique.");
+                remaining = current;
+                WriteLog(session, $"Doação em ouro confirmada; {remaining} restantes.");
+            }
+
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            await WaitForReferenceToDisappearAsync("guild_donation_panel", TimeSpan.FromSeconds(8), pause, cancellationToken);
+            await Task.Delay(250, cancellationToken);
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            await WaitForReferenceToDisappearAsync("guild_page", TimeSpan.FromSeconds(8), pause, cancellationToken);
+        }
+        finally
+        {
+            await CloseGuildScreenBestEffortAsync(session, pause, cancellationToken);
+            if (resumeRest && await FindRestStateAsync(cancellationToken) is null)
+            {
+                var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
+                session.SafeInRest = rest is not null;
+            }
+        }
+    }
+
+    private async Task<int?> ReadGuildGoldDonationsStableAsync(
+        ClientSession session,
+        GuildDonationCounterReader reader,
+        PauseController pause,
+        CancellationToken cancellationToken)
+    {
+        int? previous = null;
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            var frame = await CaptureClientFrameAsync(session, cancellationToken);
+            var count = await reader.ReadAsync(frame, cancellationToken);
+            if (count is not null && count == previous) return count;
+            previous = count;
+            await Task.Delay(250, cancellationToken);
+        }
+        return null;
+    }
+
+    private static bool HasGuildCheckinNotification(PixelFrame frame)
+    {
+        var x0 = (int)Math.Round(936d * frame.Width / 1920);
+        var x1 = (int)Math.Round(967d * frame.Width / 1920);
+        var y0 = (int)Math.Round(853d * frame.Height / 1040);
+        var y1 = (int)Math.Round(888d * frame.Height / 1040);
+        var redPixels = 0;
+        for (var y = y0; y < Math.Min(y1, frame.Height); y++)
+        for (var x = x0; x < Math.Min(x1, frame.Width); x++)
+        {
+            var offset = y * frame.Stride + x * 4;
+            var blue = frame.Pixels[offset];
+            var green = frame.Pixels[offset + 1];
+            var red = frame.Pixels[offset + 2];
+            if (red > 115 && red > green * 1.6 && red > blue * 1.4) redPixels++;
+        }
+        return redPixels >= 12;
     }
 
     private async Task PurchaseDailyShopAsync(
@@ -7270,6 +7435,8 @@ public sealed partial class BotAutomationEngine(
         public int DirectiveAttemptCount { get; set; }
         public DateTime NextDirectiveAttemptAt { get; set; }
         public string? DailyShopCycle { get; set; }
+        public string? GuildCheckinCycle { get; set; }
+        public DateTime NextGuildCheckinAttemptAt { get; set; }
         public string? DailyShopCommonCycle { get; set; }
         public string? DailyShopSummonCycle { get; set; }
         public string? DailyShopAttemptCycle { get; set; }

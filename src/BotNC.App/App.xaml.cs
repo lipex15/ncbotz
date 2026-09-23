@@ -177,6 +177,50 @@ public partial class App : Application
         }
 
         var shopStatusProbeIndex = Array.IndexOf(e.Args, "--shop-status-probe");
+        var guildDonationProbeIndex = Array.IndexOf(e.Args, "--guild-donation-probe");
+        if (guildDonationProbeIndex >= 0 && guildDonationProbeIndex + 2 < e.Args.Length)
+        {
+            await using var stream = File.OpenRead(Path.GetFullPath(e.Args[guildDonationProbeIndex + 1]));
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            var converted = new FormatConvertedBitmap(decoder.Frames[0], PixelFormats.Bgra32, null, 0);
+            var stride = converted.PixelWidth * 4;
+            var pixels = new byte[stride * converted.PixelHeight];
+            converted.CopyPixels(pixels, stride, 0);
+            var frame = new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
+            var remaining = await new GuildDonationCounterReader().ReadAsync(frame, CancellationToken.None);
+            await File.WriteAllTextAsync(Path.GetFullPath(e.Args[guildDonationProbeIndex + 2]),
+                $"remaining={remaining?.ToString() ?? "unknown"}");
+            Shutdown();
+            return;
+        }
+        var guildReferenceProbeIndex = Array.IndexOf(e.Args, "--guild-reference-probe");
+        if (guildReferenceProbeIndex >= 0 && guildReferenceProbeIndex + 1 < e.Args.Length)
+        {
+            var database = new AppDatabase();
+            await database.InitializeAsync();
+            var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
+            var directory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+            var lines = new List<string>();
+            foreach (var (reference, file) in new[]
+            {
+                ("guild_checkin_available", "guild_checkin_page.png"),
+                ("guild_checkin_reward", "guild_checkin_reward.png"),
+                ("guild_donation_panel", "guild_donation_panel.png")
+            })
+            {
+                var result = await recognition.FindInImageAsync(reference, Path.Combine(directory, file));
+                lines.Add($"{reference}={result.Found};confidence={result.Confidence:F3}");
+            }
+            var rewardOnPage = await recognition.FindInImageAsync(
+                "guild_checkin_reward", Path.Combine(directory, "guild_checkin_page.png"));
+            var checkinOnReward = await recognition.FindInImageAsync(
+                "guild_checkin_available", Path.Combine(directory, "guild_checkin_reward.png"));
+            lines.Add($"rewardOnPage={rewardOnPage.Found};confidence={rewardOnPage.Confidence:F3}");
+            lines.Add($"checkinOnReward={checkinOnReward.Found};confidence={checkinOnReward.Confidence:F3}");
+            await File.WriteAllLinesAsync(Path.GetFullPath(e.Args[guildReferenceProbeIndex + 1]), lines);
+            Shutdown();
+            return;
+        }
         if (shopStatusProbeIndex >= 0 && shopStatusProbeIndex + 3 < e.Args.Length)
         {
             await using var stream = File.OpenRead(Path.GetFullPath(e.Args[shopStatusProbeIndex + 1]));
@@ -330,6 +374,7 @@ public partial class App : Application
                 ShutdownMode = ShutdownMode.OnLastWindowClose;
             }
         }
+
         catch (Exception exception)
         {
             MessageBox.Show($"Não foi possível verificar a ativação: {exception.Message}",
@@ -467,6 +512,9 @@ public partial class App : Application
                 "O botão apagado da T.A 3 foi confundido com o botão ativo do seletor.");
         var cases = new[]
         {
+            ("guild_checkin_available", "guild_checkin_page.png"),
+            ("guild_checkin_reward", "guild_checkin_reward.png"),
+            ("guild_donation_panel", "guild_donation_panel.png"),
             ("guild_page", "guild_page.png"),
             ("guild_directive_page", "guild_directive_page.png"),
             ("guild_directive_accepted", "guild_directive_accepted.png"),
@@ -606,6 +654,7 @@ public partial class App : Application
             throw new InvalidOperationException("Popup da compra em lote confundido com a página de Invocação.");
         var requiredNewReferences = new HashSet<string>(StringComparer.Ordinal)
         {
+            "guild_checkin_available", "guild_checkin_reward", "guild_donation_panel",
             "guild_page", "guild_directive_page", "guild_directive_accepted", "guild_directive_in_progress",
             "campaign_page", "daily_page", "daily_all_accepted", "daily_30_accepted",
             "daily_automatic",

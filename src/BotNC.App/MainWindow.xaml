@@ -416,9 +416,11 @@
                            Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
             </StackPanel>
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                <StackPanel>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="22" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="0,0,7,14">
                         <StackPanel>
                             <TextBlock Text="Missões Diárias" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                             <TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
@@ -431,8 +433,8 @@
                                        Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
                         </StackPanel>
                     </Border>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="22">
+                    <Border Grid.Row="0" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="7,0,0,14">
                         <StackPanel>
                             <TextBlock Text="Diretivas de Guilda" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                             <TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
@@ -440,9 +442,9 @@
                                       HorizontalAlignment="Left" Margin="0,0,0,12" />
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="180" />
-                                    <ColumnDefinition Width="18" />
-                                    <ColumnDefinition Width="230" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Text="HORÁRIO DE EXECUÇÃO" Style="{StaticResource FieldLabel}" />
@@ -457,8 +459,8 @@
                                        Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
                         </StackPanel>
                     </Border>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="22" Margin="0,14,0,0">
+                    <Border Grid.Row="2" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="7,0,0,0">
                         <StackPanel>
                             <TextBlock Text="Correio de recursos" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                             <TextBlock Text="Resgatar as entregas das 01:00 e 07:00 para os clientes escolhidos."
@@ -466,27 +468,23 @@
                             <ComboBox x:Name="MailScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" />
                         </StackPanel>
                     </Border>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="22" Margin="0,14,0,0">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
+                    <Border Grid.Row="1" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="7,0,0,14">
+                        <StackPanel>
                             <StackPanel>
                                 <TextBlock Text="Compra diária na Loja" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
-                                <TextBlock Text="Sai do descanso, compra os lotes predefinidos de Comum e Invocação e retorna ao farm. O novo ciclo começa às 13:01."
-                                           Foreground="{StaticResource MutedBrush}" Margin="0,7,24,12" TextWrapping="Wrap" />
+                                <TextBlock Text="Compra Comum e Invocação; o novo ciclo começa às 13:01."
+                                           Foreground="{StaticResource MutedBrush}" Margin="0,7,0,12" TextWrapping="Wrap" />
                                 <ComboBox x:Name="DailyShopScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" />
                             </StackPanel>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Bottom">
+                            <StackPanel Margin="0,12,0,0">
                                 <TextBlock Text="HORÁRIO" Style="{StaticResource FieldLabel}" />
-                                <TextBox x:Name="DailyShopTimeTextBox" Text="13:05" Width="150" Height="40" Margin="0,7,0,0" />
+                                <TextBox x:Name="DailyShopTimeTextBox" Text="13:05" Width="150" Height="40" HorizontalAlignment="Left" Margin="0,7,0,0" />
                             </StackPanel>
-                        </Grid>
+                        </StackPanel>
                     </Border>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="22" Margin="0,14,0,0">
+                    <Border Grid.Row="2" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="0,0,7,0">
                         <StackPanel>
                             <TextBlock Text="Boss do Amor · Trashi" Foreground="#65CEFA"
                                        FontSize="17" FontWeight="SemiBold" />
@@ -501,7 +499,19 @@
                                        Margin="0,7,0,0" />
                         </StackPanel>
                     </Border>
-                </StackPanel>
+                    <Border Grid.Row="1" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="0,0,7,14">
+                        <StackPanel>
+                            <TextBlock Text="Check-in e doações da Guilda" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                            <TextBlock Text="Check-in e até 3 doações de 10.000 ouro. Nunca usa Morion ou diamantes. Reinicia à 00:00 (UTC−3)."
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,12" />
+                            <TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}" />
+                            <ComboBox x:Name="GuildCheckinScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" Margin="0,7,0,12" />
+                            <TextBlock Text="HORÁRIO DE EXECUÇÃO" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="GuildCheckinTimeTextBox" Text="00:05" Width="150" Height="40" HorizontalAlignment="Left" Margin="0,7,0,0" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </ScrollViewer>
         </Grid>
 

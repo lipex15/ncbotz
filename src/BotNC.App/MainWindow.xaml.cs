@@ -72,6 +72,7 @@ public partial class MainWindow : Window
         var clientScopes = new[] { "Ambos", "Cliente 1", "Cliente 2", "Nenhum" };
         DailyMissionsScopeComboBox.ItemsSource = clientScopes;
         GuildDirectiveScopeComboBox.ItemsSource = clientScopes;
+        GuildCheckinScopeComboBox.ItemsSource = clientScopes;
         MailScopeComboBox.ItemsSource = clientScopes;
         DailyShopScopeComboBox.ItemsSource = clientScopes;
         LoveBossScopeComboBox.ItemsSource = clientScopes;
@@ -79,6 +80,7 @@ public partial class MainWindow : Window
         FarmScheduleScopeComboBox.ItemsSource = clientScopes;
         DailyMissionsScopeComboBox.SelectedItem = "Nenhum";
         GuildDirectiveScopeComboBox.SelectedItem = "Nenhum";
+        GuildCheckinScopeComboBox.SelectedItem = "Nenhum";
         MailScopeComboBox.SelectedItem = "Ambos";
         DailyShopScopeComboBox.SelectedItem = "Nenhum";
         LoveBossScopeComboBox.SelectedItem = "Nenhum";
@@ -933,7 +935,8 @@ public partial class MainWindow : Window
 
         if (!TryParseClock(DailyMissionsTimeTextBox.Text, out var dailyMissionsAt) ||
             !TryParseClock(GuildDirectiveTimeTextBox.Text, out var guildDirectiveAt) ||
-            !TryParseClock(DailyShopTimeTextBox.Text, out var dailyShopAt))
+            !TryParseClock(DailyShopTimeTextBox.Text, out var dailyShopAt) ||
+            !TryParseClock(GuildCheckinTimeTextBox.Text, out var guildCheckinAt))
         {
             ShowValidation("Informe os horários das rotinas no formato HH:mm.");
             return;
@@ -991,7 +994,8 @@ public partial class MainWindow : Window
                 ScopeIncludesClient(DailyShopScopeComboBox.SelectedItem, 1),
                 _client1TaCoordinates.Where(pair => _client1TaCoordinatesEnabled.Contains(pair.Key))
                     .ToDictionary(pair => pair.Key, pair => pair.Value),
-                ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 1)));
+                ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 1),
+                ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 1)));
         }
 
         if (client2 is not null)
@@ -1017,7 +1021,8 @@ public partial class MainWindow : Window
                     ScopeIncludesClient(DailyShopScopeComboBox.SelectedItem, 2),
                     _client2TaCoordinates.Where(pair => _client2TaCoordinatesEnabled.Contains(pair.Key))
                         .ToDictionary(pair => pair.Key, pair => pair.Value),
-                    ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 2)));
+                    ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 2),
+                    ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 2)));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -1029,7 +1034,9 @@ public partial class MainWindow : Window
             ParseGuildDirectiveArea(GuildDirectiveAreaComboBox.SelectedItem),
             clients.Any(client => client.EnableDailyShop),
             dailyShopAt,
-            clients.Any(client => client.EnableLoveBoss));
+            clients.Any(client => client.EnableLoveBoss),
+            clients.Any(client => client.EnableGuildCheckin),
+            guildCheckinAt);
         var farmSchedule = new FarmScheduleOptions(
             clients.Any(client => client.UseFarmSchedule),
             Client1ScheduleSteps.Select(item => item.ToModel()).ToArray(),
@@ -1353,6 +1360,8 @@ public partial class MainWindow : Window
         DailyMissionsScopeComboBox.IsEnabled = !isRunning;
         DailyMissionsTimeTextBox.IsEnabled = !isRunning;
         GuildDirectiveScopeComboBox.IsEnabled = !isRunning;
+        GuildCheckinScopeComboBox.IsEnabled = !isRunning;
+        GuildCheckinTimeTextBox.IsEnabled = !isRunning;
         MailScopeComboBox.IsEnabled = !isRunning;
         DailyShopScopeComboBox.IsEnabled = !isRunning;
         LoveBossScopeComboBox.IsEnabled = !isRunning;
@@ -1431,6 +1440,8 @@ public partial class MainWindow : Window
         var dailyTime = await _database.GetSettingAsync("routines.daily.time");
         var directiveEnabled = await _database.GetSettingAsync("routines.directive.enabled");
         var directiveScope = await _database.GetSettingAsync("routines.directive.scope");
+        var guildCheckinScope = await _database.GetSettingAsync("routines.guildCheckin.scope");
+        var guildCheckinTime = await _database.GetSettingAsync("routines.guildCheckin.time");
         var mailScope = await _database.GetSettingAsync("routines.mail.scope");
         var dailyShopScope = await _database.GetSettingAsync("routines.dailyShop.scope");
         var loveBossScope = await _database.GetSettingAsync("routines.loveBoss.scope");
@@ -1507,6 +1518,8 @@ public partial class MainWindow : Window
             string.Equals(abbey2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
         DailyMissionsScopeComboBox.SelectedItem = dailyScope ?? (string.Equals(dailyEnabled, "true", StringComparison.OrdinalIgnoreCase) ? "Ambos" : "Nenhum");
         GuildDirectiveScopeComboBox.SelectedItem = directiveScope ?? (string.Equals(directiveEnabled, "true", StringComparison.OrdinalIgnoreCase) ? "Ambos" : "Nenhum");
+        GuildCheckinScopeComboBox.SelectedItem = guildCheckinScope ?? "Nenhum";
+        GuildCheckinTimeTextBox.Text = string.IsNullOrWhiteSpace(guildCheckinTime) ? "00:05" : guildCheckinTime;
         MailScopeComboBox.SelectedItem = mailScope ?? "Ambos";
         DailyShopScopeComboBox.SelectedItem = dailyShopScope ?? "Nenhum";
         LoveBossScopeComboBox.SelectedItem = loveBossScope ?? "Nenhum";
@@ -1575,6 +1588,8 @@ public partial class MainWindow : Window
         await _database.SaveSettingAsync("routines.daily.time", runOptions.DailyRoutines.DailyMissionsAt.ToString(@"hh\:mm", CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync("routines.directive.enabled", runOptions.DailyRoutines.EnableGuildDirective.ToString().ToLowerInvariant());
         await _database.SaveSettingAsync("routines.directive.scope", GuildDirectiveScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
+        await _database.SaveSettingAsync("routines.guildCheckin.scope", GuildCheckinScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
+        await _database.SaveSettingAsync("routines.guildCheckin.time", runOptions.DailyRoutines.GuildCheckinAt.ToString(@"hh\:mm", CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync("routines.mail.scope", MailScopeComboBox.SelectedItem?.ToString() ?? "Ambos");
         await _database.SaveSettingAsync("routines.dailyShop.enabled", runOptions.DailyRoutines.EnableDailyShop.ToString().ToLowerInvariant());
         await _database.SaveSettingAsync("routines.dailyShop.scope", DailyShopScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");

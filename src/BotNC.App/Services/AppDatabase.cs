@@ -236,6 +236,10 @@ public sealed class AppDatabase
         [
             new("menu_guild", "Ícone Guilda", "menu_guild.png", 0, 0, 87, 99, 1535, 275, 155, 150, 0.68),
             new("guild_page", "Página da Guilda", "guild_page.png", 24, 30, 280, 80, 0, 15, 390, 130, 0.68),
+            new("guild_checkin_available", "Check-in disponível", "guild_checkin_page.png", 803, 880, 155, 50, 755, 830, 250, 125, 0.72),
+            new("guild_checkin_done", "Check-in realizado", "guild_checkin_reward.png", 803, 880, 155, 50, 755, 830, 250, 125, 0.72),
+            new("guild_checkin_reward", "Recompensa do check-in", "guild_checkin_reward.png", 810, 270, 310, 82, 730, 220, 500, 180, 0.66),
+            new("guild_donation_panel", "Painel de doações", "guild_donation_panel.png", 905, 206, 155, 55, 800, 170, 350, 115, 0.68),
             new("guild_directive_page", "Página de Diretivas", "guild_directive_page.png", 430, 105, 190, 70, 390, 85, 280, 115, 0.68),
             new("guild_directive_accepted", "Campanha Aceita", "guild_directive_accepted.png", 805, 105, 315, 165, 730, 70, 470, 245, 0.66),
             new("guild_directive_in_progress", "Diretiva em andamento", "guild_directive_in_progress.png", 720, 475, 235, 75, 650, 430, 350, 150, 0.64),
