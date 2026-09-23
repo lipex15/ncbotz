@@ -690,7 +690,7 @@ public sealed partial class BotAutomationEngine(
                 {
                     continue;
                 }
-                if (await RunLoveBossSafelyAsync(session, dailyRoutines, pause, cancellationToken, null))
+                if (await RunLoveBossSafelyAsync(session, sessions, dailyRoutines, pause, cancellationToken, null))
                     continue;
                 await TryCollectDueMailSafelyAsync(session, pause, cancellationToken);
                 if (await TryStartVisibleDailyCampaignSafelyAsync(session, dailyRoutines, pause, cancellationToken))
@@ -732,7 +732,7 @@ public sealed partial class BotAutomationEngine(
                         continue;
                     }
                     if (await RunLoveBossSafelyAsync(
-                            session, dailyRoutines, pause, sapherasPriority.Token, sapheras.ScheduledAt))
+                            session, sessions, dailyRoutines, pause, sapherasPriority.Token, sapheras.ScheduledAt))
                         continue;
                     await TryCollectDueMailSafelyAsync(session, pause, sapherasPriority.Token);
                     if (await TryStartVisibleDailyCampaignSafelyAsync(session, dailyRoutines, pause, sapherasPriority.Token))
@@ -2046,10 +2046,13 @@ public sealed partial class BotAutomationEngine(
         var taName = TaName(destination);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", isEmergency ? "Recuperação após alerta de HP" : "Selecionando a T.A");
         var readyReference = EntryReadyReference(destination);
-        if (await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
+        var entryState = await ReadDesiredTaEntryStateStableAsync(
+            session, destination, pause, cancellationToken);
+        if (entryState.State == TaEntryButtonState.Disabled)
         {
-            WriteLog(session, $"O botão Entrar da {taName} está apagado de forma estável; o personagem já está nessa área.");
-            await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
+            WriteLog(session, $"Farm detectado: Entrar da {taName} apagado " +
+                $"(brilho {entryState.TargetLuma:F0} contra {entryState.BrightestOtherLuma:F0}); sem nova entrada.");
+            await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken, selectorOpen: true);
             return;
         }
         await WaitForTaSelectorContextAsync(
@@ -2063,29 +2066,20 @@ public sealed partial class BotAutomationEngine(
         // era enviado para uma tela ainda carregando. O botão correto precisa
         // estar visualmente pronto; o bot apenas consulta a tela durante a
         // espera, sem impor uma pausa fixa aos computadores rápidos.
-        var entryVisuallyReady = destination == TaDestination.Ta1Codex ||
-            await WaitForTaEntryReadyAsync(
-                session,
-                readyReference,
-                TimeSpan.FromSeconds(18),
-                pause,
-                cancellationToken);
-        if (destination == TaDestination.Ta3 && !entryVisuallyReady)
+        entryState = await WaitForDesiredTaEntryStateAsync(
+            session, destination, pause, cancellationToken, TimeSpan.FromSeconds(18));
+        if (entryState.State == TaEntryButtonState.Disabled)
         {
-            if (await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
-            {
-                WriteLog(session, "Farm detectado: Entrar da T.A 3 apagado; não comprando outra entrada.");
-                await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
-                return;
-            }
-
-            throw new InvalidOperationException(
-                $"{session.Options.Label}: o botão Entrar da T.A 3 não foi confirmado como ativo; " +
-                "não clicarei para evitar cobrança de outra entrada.");
+            WriteLog(session, $"Farm detectado: Entrar da {taName} apagado; retomando sem pagar novamente.");
+            await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken, selectorOpen: true);
+            return;
         }
-        WriteLog(session, entryVisuallyReady
-            ? $"Botão Entrar da {taName} reconhecido; preparando o clique."
-            : $"O texto do botão variou neste PC; usando a posição proporcional da janela com confirmação posterior.");
+        if (entryState.State != TaEntryButtonState.Active)
+            throw new InvalidOperationException(
+                $"{session.Options.Label}: estado visual de Entrar da {taName} incerto; " +
+                "não clicarei nem repetirei uma compra às cegas.");
+        WriteLog(session, $"Entrar da {taName} ativo confirmado pelo brilho " +
+            $"({entryState.TargetLuma:F0}); preparando o clique.");
 
         var entry = TaEntryPoints[destination];
         var arrivalReference = ArrivalReference(destination);
@@ -2094,12 +2088,17 @@ public sealed partial class BotAutomationEngine(
         {
             var retryEntryClick = false;
             await EnsureGameForegroundAsync(session, cancellationToken);
-            if (await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
+            entryState = await ReadDesiredTaEntryStateStableAsync(
+                session, destination, pause, cancellationToken);
+            if (entryState.State == TaEntryButtonState.Disabled)
             {
                 WriteLog(session, $"Farm detectado: {taName} já é a área atual. Retomando descanso sem novo clique em Entrar.");
-                await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
+                await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken, selectorOpen: true);
                 return;
             }
+            if (entryState.State != TaEntryButtonState.Active)
+                throw new InvalidOperationException(
+                    $"{session.Options.Label}: Entrar da {taName} deixou de estar ativo; sem novo clique.");
             var mappedEntry = gameWindows.MapReferencePoint(
                 session.Options.Target,
                 entry.X,
@@ -2139,12 +2138,18 @@ public sealed partial class BotAutomationEngine(
                 if (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(10) &&
                     await IsTaSelectorContextVisibleAsync(session, readyReference, cancellationToken))
                 {
-                    if (await IsDesiredTaEntryDisabledStableAsync(session, destination, pause, cancellationToken))
+                    entryState = await ReadDesiredTaEntryStateStableAsync(
+                        session, destination, pause, cancellationToken);
+                    if (entryState.State == TaEntryButtonState.Disabled)
                     {
                         WriteLog(session, $"Farm detectado após abrir o seletor: {taName} já está ativa.");
-                        await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
+                        await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken, selectorOpen: true);
                         return;
                     }
+                    if (entryState.State != TaEntryButtonState.Active)
+                        throw new InvalidOperationException(
+                            $"{session.Options.Label}: Entrar da {taName} ficou ilegível após o clique; " +
+                            "não repetirei a tentativa às cegas.");
                     WriteLog(session, "A tela de entrada continuou aberta; o clique ainda não foi aceito.");
                     retryEntryClick = true;
                     break;
@@ -2192,81 +2197,80 @@ public sealed partial class BotAutomationEngine(
             requireObservable: true)).Found;
     }
 
-    private async Task<bool> IsDesiredTaEntryDisabledStableAsync(
+    private async Task<TaEntryButtonReading> WaitForDesiredTaEntryStateAsync(
+        ClientSession session,
+        TaDestination destination,
+        PauseController pause,
+        CancellationToken cancellationToken,
+        TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            var state = await ReadDesiredTaEntryStateStableAsync(
+                session, destination, pause, cancellationToken);
+            if (state.State != TaEntryButtonState.Unknown)
+                return state;
+            await Task.Delay(350, cancellationToken);
+        }
+        return new(TaEntryButtonState.Unknown, 0, 0);
+    }
+
+    private async Task<TaEntryButtonReading> ReadDesiredTaEntryStateStableAsync(
         ClientSession session,
         TaDestination destination,
         PauseController pause,
         CancellationToken cancellationToken)
     {
         var stableHits = 0;
-        var desiredIndex = destination switch
-        {
-            TaDestination.Ta1Codex => 0,
-            TaDestination.Ta2 => 1,
-            _ => 2
-        };
-        var buttonRegions = new[]
-        {
-            (455, 735, 220, 75),
-            (725, 735, 220, 75),
-            (1000, 735, 245, 75)
-        };
-
+        var lastState = TaEntryButtonState.Unknown;
+        var lastReading = new TaEntryButtonReading(TaEntryButtonState.Unknown, 0, 0);
         for (var sample = 0; sample < 4; sample++)
         {
             await CheckpointAsync(pause, cancellationToken);
             var frame = await CaptureClientFrameAsync(session, cancellationToken);
-            if (destination == TaDestination.Ta3)
-            {
-                var disabled = await recognition.FindAsync(
-                    "ta3_entry_disabled", frame, cancellationToken);
-                // Compare apenas a palavra Entrar. O valor em ouro varia e
-                // nunca pode influenciar a detecção do botão apagado.
-                var buttonLuma = VisualRecognitionService.MeasureAverageLuma(
-                    frame, 1035, 749, 90, 42);
-                var otherLuma = Math.Max(
-                    VisualRecognitionService.MeasureAverageLuma(frame, 485, 749, 90, 42),
-                    VisualRecognitionService.MeasureAverageLuma(frame, 755, 749, 90, 42));
-                var selectorVisible = (await recognition.FindAsync(
-                    "seletor_ta", frame, cancellationToken)).Found;
-                // O cartão da T.A. 3 é evidência suficiente quando o botão
-                // específico está apagado; o título do seletor pode variar.
-                stableHits = disabled.Found || selectorVisible && buttonLuma + 11 <= otherLuma
-                    ? stableHits + 1 : 0;
-                if (stableHits >= 3)
-                    return true;
-                await Task.Delay(250, cancellationToken);
-                continue;
-            }
-
-            var selector = await recognition.FindAsync("seletor_ta", frame, cancellationToken);
-            if (!selector.Found)
-                return false;
-
-            var lumas = buttonRegions
-                .Select(region => VisualRecognitionService.MeasureAverageLuma(
-                    frame, region.Item1, region.Item2, region.Item3, region.Item4))
-                .ToArray();
-            var brightestOther = lumas.Where((_, index) => index != desiredIndex).Max();
-            stableHits = lumas[desiredIndex] + 11 <= brightestOther ? stableHits + 1 : 0;
+            var ready = await recognition.FindAsync(
+                EntryReadyReference(destination), frame, cancellationToken);
+            var context = ready.Confidence >= TaContextConfidence ||
+                          (await recognition.FindAsync("seletor_ta", frame, cancellationToken)).Found ||
+                          destination == TaDestination.Ta1Codex &&
+                          (await recognition.FindAsync("ta1_primeiro_cartao", frame, cancellationToken)).Found;
+            var reading = context
+                ? TaEntryButtonAnalyzer.Read(frame, destination)
+                : new TaEntryButtonReading(TaEntryButtonState.Unknown, 0, 0);
+            stableHits = reading.State != TaEntryButtonState.Unknown && reading.State == lastState
+                ? stableHits + 1 : reading.State == TaEntryButtonState.Unknown ? 0 : 1;
+            lastState = reading.State;
+            lastReading = reading;
             if (stableHits >= 3)
-                return true;
-
-            await Task.Delay(300, cancellationToken);
+                return reading;
+            await Task.Delay(250, cancellationToken);
         }
-
-        return false;
+        return lastReading with { State = TaEntryButtonState.Unknown };
     }
 
     private async Task ResumeCurrentTaWithoutReentryAsync(
         ClientSession session,
         PauseController pause,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool selectorOpen = false)
     {
-        if ((await recognition.FindAsync("seletor_ta", cancellationToken)).Found)
+        if (selectorOpen || await IsTaSelectorContextVisibleAsync(
+                session, EntryReadyReference(EffectiveTaDestination(session)), cancellationToken))
         {
-            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-            await WaitForReferenceToDisappearAsync("seletor_ta", TimeSpan.FromSeconds(8), pause, cancellationToken);
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+                await Task.Delay(400, cancellationToken);
+                var state = await ReadDesiredTaEntryStateStableAsync(
+                    session, EffectiveTaDestination(session), pause, cancellationToken);
+                if (state.State == TaEntryButtonState.Unknown)
+                    break;
+                if (attempt == 1)
+                    throw new InvalidOperationException(
+                        $"{session.Options.Label}: seletor da T.A permaneceu aberto após Esc; " +
+                        "não acionarei a caça sobre essa tela.");
+            }
         }
 
         // Abrir o descanso primeiro permite observar se a caça já estava ativa.
@@ -4863,17 +4867,19 @@ public sealed partial class BotAutomationEngine(
                 }
 
                 var handledLoveBoss = false;
-                foreach (var raidSession in sessions.OrderBy(item => item.Options.Priority))
+                foreach (var raidSession in sessions
+                             .OrderBy(item => item.LoveBossInside)
+                             .ThenBy(item => item.Options.Priority))
                 {
                     if (await RunLoveBossSafelyAsync(
-                            raidSession, dailyRoutines, pause, cancellationToken, stopAt))
-                    {
+                            raidSession, sessions, dailyRoutines, pause, cancellationToken, stopAt))
                         handledLoveBoss = true;
-                        break;
-                    }
                 }
                 if (handledLoveBoss)
+                {
+                    await Task.Delay(500, cancellationToken);
                     continue;
+                }
 
                 var scheduleAdvanced = false;
                 foreach (var scheduledSession in sessions.OrderBy(item => item.Options.Priority))
@@ -7273,6 +7279,12 @@ public sealed partial class BotAutomationEngine(
         public string? LoveBossWeek { get; set; }
         public int LoveBossWeeklyCount { get; set; }
         public bool LoveBossInside { get; set; }
+        public bool LoveBossReturnToFarmPending { get; set; }
+        public bool LoveBossAutoConfirmed { get; set; }
+        public int LoveBossVictoryHits { get; set; }
+        public int LoveBossRoomMissingHits { get; set; }
+        public DateTime LoveBossRoomDeadline { get; set; }
+        public DateTime NextLoveBossRoomScanAt { get; set; }
         public bool LoveBossStartupChecked { get; set; }
         public DateTime NextLoveBossAttemptAt { get; set; }
         public int DailyShopAttemptCount { get; set; }

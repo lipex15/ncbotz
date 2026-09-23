@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using BotNC.App.Models;
 using BotNC.App.Services;
 
 namespace BotNC.App;
@@ -413,6 +414,36 @@ public partial class App : Application
         await database.InitializeAsync();
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        var activeTaSelector = LoadReferenceFrame(
+            Path.Combine(referenceDirectory, "seletor_ta_tela.png"));
+        foreach (var destination in new[]
+                 { TaDestination.Ta1Codex, TaDestination.Ta2, TaDestination.Ta3 })
+        {
+            var button = TaEntryButtonAnalyzer.Read(activeTaSelector, destination);
+            if (button.State != TaEntryButtonState.Active)
+                throw new InvalidOperationException(
+                    $"Entrar da {destination} ativo não reconhecido ({button.TargetLuma:F0}).");
+
+            var dimmedPixels = (byte[])activeTaSelector.Pixels.Clone();
+            var buttonX = destination switch
+            {
+                TaDestination.Ta1Codex => 462,
+                TaDestination.Ta2 => 733,
+                _ => 1007
+            };
+            for (var y = 757; y < 789; y++)
+            for (var x = buttonX; x < buttonX + 75; x++)
+            {
+                var offset = y * activeTaSelector.Stride + x * 4;
+                for (var channel = 0; channel < 3; channel++)
+                    dimmedPixels[offset + channel] = (byte)(dimmedPixels[offset + channel] * 0.45);
+            }
+            var dimmed = new PixelFrame(
+                activeTaSelector.Width, activeTaSelector.Height,
+                activeTaSelector.Stride, dimmedPixels);
+            if (TaEntryButtonAnalyzer.Read(dimmed, destination).State != TaEntryButtonState.Disabled)
+                throw new InvalidOperationException($"Entrar apagado da {destination} não reconhecido.");
+        }
         foreach (var (referenceId, fileName) in new[]
         {
             ("ta3_entry_disabled", "ta3_entry_disabled.png"),
