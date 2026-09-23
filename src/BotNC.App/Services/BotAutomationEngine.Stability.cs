@@ -35,6 +35,7 @@ public sealed partial class BotAutomationEngine
             await ResumeAfterLoveBossAsync(session, pause, token);
             return;
         }
+        await ReconcileVisiblePendingDailyAsync(session, routines, token);
         if (await TryAdoptRunningDailyAsync(session, routines, token)) return;
         if (await RecoverOpenRoutinePanelsSafelyAsync(session, routines, pause, token)) return;
         if (await TryStartVisibleDailyCampaignSafelyAsync(session, routines, pause, token)) return;
@@ -67,6 +68,40 @@ public sealed partial class BotAutomationEngine
         return true;
     }
 
+    private async Task ReconcileVisiblePendingDailyAsync(ClientSession session, DailyRoutineOptions options, CancellationToken token)
+    {
+        if (session.StartupDailyReconciled || !options.EnableDailyMissions || !session.Options.EnableDailyMissions) return;
+        for (var sample = 0; sample < 2; sample++)
+        {
+            var frame = await CaptureDailyMissionFrameAsync(session, token);
+            if (FindPurpleDailyMissionY(frame) is null) { session.StartupDailyReconciled = true; return; }
+            await Task.Delay(250, token);
+        }
+        var cycle = DailyCycleKey(DateTime.Now);
+        session.DailyCycle = cycle;
+        session.DailyCompletedCycle = null;
+        session.NextVisibleDailyScanAt = default;
+        session.NextDailyRoutineAttemptAt = default;
+        await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCycle", cycle);
+        await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle", "");
+        session.StartupDailyReconciled = true;
+        WriteLog(session, "Diárias pela metade confirmadas em duas leituras da lista; retomando o progresso antes do farm, sem aceitar novamente.");
+    }
+
+    private static bool HasQuestIconNear(PixelFrame frame, int rowY)
+    {
+        var hits = 0;
+        for (var y = Math.Max(0, rowY - 18); y < Math.Min(frame.Height, rowY + 19); y++)
+        for (var x = 1514; x < Math.Min(frame.Width, 1544); x++)
+        {
+            var offset = y * frame.Stride + x * 4;
+            var b = frame.Pixels[offset]; var g = frame.Pixels[offset + 1]; var r = frame.Pixels[offset + 2];
+            if (r >= 115 && g >= 95 && b >= 65 && r >= g && g > b && r - b >= 20 && ++hits >= 18) return true;
+            if (r >= 115 && b >= 125 && g <= 180 && b >= g + 25 && b >= r + 8 && ++hits >= 18) return true;
+        }
+        return false;
+    }
+
     private async Task ResumeStableFarmAsync(ClientSession session, PauseController pause, CancellationToken token)
     {
         if (session.NeedsDeathRestoration || !session.StartupRestorationChecked)
@@ -89,8 +124,7 @@ public sealed partial class BotAutomationEngine
     {
         1 => TimeSpan.FromSeconds(5),
         2 => TimeSpan.FromSeconds(10),
-        3 => TimeSpan.FromSeconds(20),
-        _ => TimeSpan.FromMinutes(5)
+        _ => TimeSpan.FromSeconds(15)
     };
 
     internal static void VerifyWorkflowStabilityPolicy()
@@ -102,8 +136,8 @@ public sealed partial class BotAutomationEngine
         second.DirectiveCycle = "2026-09-23";
         if (second.InDailyCampaign || first.DailyCompletedCycle is not null || SessionSettingPrefix(first) == SessionSettingPrefix(second))
             throw new InvalidOperationException("Estados dos clientes não estão isolados.");
-        if (RecoveryBackoff(4) < TimeSpan.FromMinutes(5) || RecoveryBackoff(50) < RecoveryBackoff(4))
-            throw new InvalidOperationException("Falhas persistentes não podem repetir a cada 30 segundos.");
+        if (RecoveryBackoff(4) > TimeSpan.FromSeconds(15) || RecoveryBackoff(50) > TimeSpan.FromSeconds(15))
+            throw new InvalidOperationException("Recuperação não pode deixar o personagem bloqueado por minutos.");
         if (new DailyMissionListReading(false, null).ListVisible)
             throw new InvalidOperationException("Leitura desconhecida não pode confirmar conclusão.");
         if (UserActivityLog.Describe("Cliente 2: telemetria_audio healthy=True") is not null ||
@@ -136,8 +170,21 @@ public sealed partial class BotAutomationEngine
         if (FindPurpleDailyMissionY(sample) is not null)
             throw new InvalidOperationException("Cor roxa fora da lista não pode reabrir Diárias concluídas.");
         PaintPurple(180);
+        void PaintIcon(int row)
+        {
+            for (var y = row; y < row + 7; y++)
+            for (var x = 1527; x < 1534; x++)
+            {
+                var offset = y * frame.Stride + x * 4;
+                pixels[offset] = 100; pixels[offset + 1] = 160; pixels[offset + 2] = 185;
+            }
+        }
+        PaintIcon(180);
         if (FindPurpleDailyMissionY(sample) is not >= 180 or > 186 || FindPurpleDailyMissionY(sample, 4) is not null)
             throw new InvalidOperationException("Missão roxa no topo da lista não reconhecida ou contada várias vezes.");
+        PaintIcon(800);
+        if (FindPurpleDailyMissionY(sample, 2) is null)
+            throw new InvalidOperationException("Missão abaixo de y=650 foi ignorada.");
         var blank = new PixelFrame(frame.Width, frame.Height, frame.Stride, new byte[pixels.Length]);
         if (HasVisibleQuestRows(blank) || FindPurpleDailyMissionY(blank) is not null)
             throw new InvalidOperationException("Quadro vazio não pode confirmar lista de missões.");

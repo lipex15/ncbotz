@@ -463,6 +463,7 @@ public partial class App : Application
     {
         BotAutomationEngine.VerifySchedulePolicy();
         BotAutomationEngine.VerifyDeathRestorationPolicy();
+        BotAutomationEngine.VerifyStartupObservationPolicy();
         BotAutomationEngine.VerifyWorkflowStabilityPolicy();
         LoveBossSchedule.VerifyPolicy();
         var database = new AppDatabase(outputPath + ".data");
@@ -475,6 +476,16 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        foreach (var file in new[] { "boss_room.png", "daily_automatic.png", "ta1_arrival.png", "agenda_tela.png", "daily_page.png" })
+        {
+            var negativePanel = await recognition.FindInImageAsync("painel_restauracao", Path.Combine(referenceDirectory, file));
+            if (negativePanel.Found)
+                throw new InvalidOperationException($"Painel de restauração falsamente reconhecido em {file}: {negativePanel.Confidence}");
+        }
+        var restorationFixture = LoadReferenceFrame(Path.Combine(referenceDirectory, "perda_exp.png"));
+        var restorationIcon = await recognition.FindAsync("icone_perda_exp", restorationFixture);
+        if (!restorationIcon.Found || !TombstoneIconAnalyzer.HasRedIcon(restorationFixture))
+            throw new InvalidOperationException("Lápide real deixou de ser reconhecida.");
         BotAutomationEngine.VerifyDailyListFixture(LoadReferenceFrame(Path.Combine(referenceDirectory, "daily_automatic.png")));
         var bossRewards = LoadReferenceFrame(Path.Combine(referenceDirectory, "boss_reward_panel.png"));
         var bossWindowPixels = new byte[bossRewards.Stride * 1040];
@@ -924,6 +935,8 @@ public partial class App : Application
                 counter.Count != expectedCount ||
                 counter.State != expectedState)
             {
+                Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+                await File.WriteAllLinesAsync(outputPath, lines);
                 throw new InvalidOperationException(
                     $"Falha no teste de restauração '{fileName}': esperado " +
                     $"{expectedTab}/{expectedCount}/{expectedState}, recebido " +

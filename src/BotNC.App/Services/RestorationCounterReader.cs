@@ -45,6 +45,12 @@ public sealed record RestorationCounterResult(
 /// </summary>
 public sealed partial class RestorationCounterReader
 {
+    internal static bool HasRestorationHeading(string text)
+    {
+        var normalized = Normalize(text);
+        return normalized.Contains("PERDA DE EXP", StringComparison.Ordinal) ||
+               normalized.Contains("EQUIPAMENTO DANIFICADO", StringComparison.Ordinal);
+    }
     private const int ReferenceWidth = 1920;
     private const int ReferenceHeight = 1040;
 
@@ -81,8 +87,8 @@ public sealed partial class RestorationCounterReader
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var engine = OcrEngine.TryCreateFromUserProfileLanguages() ??
-                     OcrEngine.TryCreateFromLanguage(new Language("pt-BR")) ??
+        var engine = OcrEngine.TryCreateFromLanguage(new Language("pt-BR")) ??
+                     OcrEngine.TryCreateFromUserProfileLanguages() ??
                      OcrEngine.TryCreateFromLanguage(new Language("en-US")) ??
                      throw new InvalidOperationException("O reconhecimento de texto do Windows não está disponível.");
 
@@ -99,9 +105,13 @@ public sealed partial class RestorationCounterReader
             .Where(observation => observation.State != RestorationCountState.Unknown)
             .ToArray();
         var rawText = string.Join(" | ", observations.Select(observation => observation.RawText));
+        // Contrast variants are complementary, not independent observations.
+        // The caller confirms across fresh frames and visual evidence. Reject
+        // disagreement here, including the experience counter denominator.
         if (recognized.Length == 0 ||
             recognized.Any(observation => observation.Tab != recognized[0].Tab ||
-                                          observation.Count != recognized[0].Count))
+                                          observation.Count != recognized[0].Count ||
+                                          observation.Capacity != recognized[0].Capacity))
         {
             return new RestorationCounterResult(RestorationTab.Unknown, null, null, rawText);
         }

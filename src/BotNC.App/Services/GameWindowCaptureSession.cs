@@ -58,6 +58,20 @@ public sealed class GameWindowCaptureSession : IAsyncDisposable
 
     public async Task<PixelFrame> CaptureAsync(CancellationToken cancellationToken)
     {
+        // Keep the resized pool. Reconnecting here would recreate it at the old
+        // item size and repeat the same resize forever on some Windows builds.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try { return await CaptureCurrentSizeAsync(cancellationToken); }
+            catch (CaptureResizedException) when (attempt < 2) { }
+        }
+        throw new InvalidOperationException("Captura não estabilizou após redimensionamento.");
+    }
+
+    private sealed class CaptureResizedException : Exception;
+
+    private async Task<PixelFrame> CaptureCurrentSizeAsync(CancellationToken cancellationToken)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!await _frameAvailable.WaitAsync(TimeSpan.FromSeconds(3), cancellationToken))
         {
@@ -93,7 +107,7 @@ public sealed class GameWindowCaptureSession : IAsyncDisposable
                 throw new InvalidOperationException("Janela minimizada ou pequena demais para reconhecimento confiável.");
             _framePool.Recreate(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, size);
             _captureSize = size;
-            throw new InvalidOperationException("Dimensões da janela mudaram; captura recriada, aguardando quadro atualizado.");
+            throw new CaptureResizedException();
         }
 
         using (latest)

@@ -110,7 +110,7 @@ public sealed partial class BotAutomationEngine(
             .Select(client => new ClientSession(client))
             .ToArray();
 
-        WritePersistentOnly($"session_start version={typeof(BotAutomationEngine).Assembly.GetName().Version}; os={Environment.OSVersion}; scale={GameWindowService.GetSystemScalePercent()}; screen={capture.GetPrimaryScreenSize()}; timezone={TimeZoneInfo.Local.Id}; clients={sessions.Length}; capture=WGC; recoveryPolicy=v16");
+        WritePersistentOnly($"session_start version={typeof(BotAutomationEngine).Assembly.GetName().Version}; os={Environment.OSVersion}; scale={GameWindowService.GetSystemScalePercent()}; screen={capture.GetPrimaryScreenSize()}; timezone={TimeZoneInfo.Local.Id}; clients={sessions.Length}; capture=WGC; recoveryPolicy=v17");
 
         await database.MigrateRuntimeProfileAsync(ActivationService.ProfileKey);
         foreach (var session in sessions)
@@ -861,61 +861,30 @@ public sealed partial class BotAutomationEngine(
                 return true;
             }
 
-            if (session.NeedsDeathRestoration)
-            {
-                WriteLog(session, "Restauração interrompida na execução anterior; retomando antes de qualquer rotina.");
-                await ExitRestIfNeededAsync(session, pause, cancellationToken);
-                await RestoreDeathResourcesAsync(session, pause, cancellationToken);
-                session.StartupRestorationChecked = true;
-                return false;
-            }
-
-            var panel = await WaitForRestorationCounterAsync(
-                session, TimeSpan.FromSeconds(2), pause, cancellationToken);
-            var panelVisible = panel.State != RestorationCountState.Unknown ||
-                (await FindReferenceOnClientAsync(
-                    session, "painel_restauracao", cancellationToken, requireObservable: true)).Found;
-            var iconConfirmed = panel.State == RestorationCountState.Unknown &&
-                                await IsTombstoneIconStableAsync(session, pause, cancellationToken);
-
-            // O descanso pode cobrir o indicador. Na partida, feche-o uma vez
-            // para conferir a tela de jogo antes de liberar qualquer rotina.
-            var hadRest = !panelVisible && !iconConfirmed &&
-                          await FindRestStateAsync(session, cancellationToken) is not null;
+            // Inspect, never probe by clicking an absent icon. A generic ornament
+            // template is not proof of a restoration panel (false positives in v16).
+            var hadRest = await FindRestStateAsync(session, cancellationToken) is not null;
             if (hadRest)
-            {
                 await ExitRestIfNeededAsync(session, pause, cancellationToken);
-                panel = await WaitForRestorationCounterAsync(
-                    session, TimeSpan.FromSeconds(2), pause, cancellationToken);
-                panelVisible = panel.State != RestorationCountState.Unknown ||
-                    (await FindReferenceOnClientAsync(
-                        session, "painel_restauracao", cancellationToken, requireObservable: true)).Found;
-                iconConfirmed = !panelVisible &&
-                                await IsTombstoneIconStableAsync(session, pause, cancellationToken);
-            }
-
-            if (!panelVisible && !iconConfirmed)
+            var observation = await ReadStartupRestorationAsync(session, pause, cancellationToken);
+            if (observation == StartupRestorationObservation.Present)
             {
-                // Um único teste no local conhecido da lápide cobre ícones que
-                // ficaram ilegíveis na captura, sem percorrer a interface.
-                panel = await ProbeRestorationPanelFromHudAsync(session, pause, cancellationToken);
-                panelVisible = panel.State != RestorationCountState.Unknown;
-            }
-
-            if (panelVisible || iconConfirmed)
-            {
-                WriteLog(session, panelVisible
-                    ? "Painel de restauração já aberto ao iniciar; resolvendo antes das rotinas."
-                    : "Lápide antiga confirmada ao iniciar; resolvendo antes das rotinas.");
-                hadRest |= await FindRestStateAsync(session, cancellationToken) is not null;
-                if (hadRest)
-                    await ExitRestIfNeededAsync(session, pause, cancellationToken);
+                WriteLog(session, "Perda confirmada por ícone vermelho estável ou contador da restauração; restaurando antes das rotinas.");
                 await RestoreDeathResourcesAsync(session, pause, cancellationToken);
             }
-            else if (await ConfirmRestorationIconAbsentAsync(session, pause, cancellationToken))
-                WriteLog(session, "Checagem inicial concluída: HUD confirmado e lápide ausente em três capturas da janela.");
+            else if (observation == StartupRestorationObservation.Absent)
+            {
+                // Includes stale pending flags created by v16's false panel match.
+                // Clear only with current positive HUD evidence, never a blank frame.
+                if (session.NeedsDeathRestoration)
+                    await SetRestorationPendingAsync(session, false);
+                WriteLog(session, "Checagem inicial concluída: tela de jogo válida sem lápide nem contador de perda; nenhum clique de restauração enviado.");
+            }
             else
-                throw new InvalidOperationException("A ausência da lápide não foi confirmada com HUD válido; captura precisa ser recuperada.");
+            {
+                await ReconnectWindowCaptureAsync(session, cancellationToken);
+                throw new InvalidOperationException("Captura inicial inconclusiva; captura reconectada, sem clicar na lápide nem registrar perda.");
+            }
 
             if (hadRest)
             {
@@ -924,6 +893,8 @@ public sealed partial class BotAutomationEngine(
             }
 
             session.StartupRestorationChecked = true;
+            session.ConsecutiveRecoveryFailures = 0;
+            session.NextRecoveryAttemptAt = default;
             return false;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1263,7 +1234,7 @@ public sealed partial class BotAutomationEngine(
                             {
                                 if (!session.StartupRestorationChecked &&
                                     await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, actionToken))
-                                    throw new InvalidOperationException("Checagem inicial ainda não confirmada; aguardando uma captura válida.");
+                                    return;
                                 if (session.NeedsDeathRestoration)
                                 {
                                     WriteLog(session, "Restauração pendente: concluindo a lápide antes de reiniciar a rota.");
@@ -3365,7 +3336,7 @@ public sealed partial class BotAutomationEngine(
             }
         }
         var dailyDue = options.EnableDailyMissions && session.Options.EnableDailyMissions && session.DailyCompletedCycle != cycle &&
-                       now >= ScheduledInCycle(now, options.DailyMissionsAt);
+                       (session.DailyCycle == cycle || now >= ScheduledInCycle(now, options.DailyMissionsAt));
         var directiveDue = options.EnableGuildDirective && session.Options.EnableGuildDirective &&
                            session.DirectiveCycle != cycle &&
                            DateTime.UtcNow >= session.NextDirectiveAttemptAt &&
@@ -4932,12 +4903,14 @@ public sealed partial class BotAutomationEngine(
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
         var visibleConfirmations = 0;
+        var restRechecked = false;
         while (DateTime.UtcNow < deadline)
         {
             await CheckpointAsync(pause, cancellationToken);
             var frame = await CaptureDailyMissionFrameAsync(session, cancellationToken);
             var rowsVisible = HasVisibleQuestRows(frame);
             var missionY = FindPurpleDailyMissionY(frame);
+            WritePersistentOnly(session, $"daily_list rows={rowsVisible}; purpleY={missionY}; frame={frame.Width}x{frame.Height}; sample={visibleConfirmations + 1}");
             if (missionY is not null)
             {
                 // Uma missão realmente visível habilita uma futura abertura
@@ -4950,8 +4923,16 @@ public sealed partial class BotAutomationEngine(
             if (visibleConfirmations >= 3)
             {
                 var hud = (await recognition.FindAsync("game_hud_menu", frame, cancellationToken)).Found;
-                var rest = !hud && await FindRestStateAsync(session, cancellationToken) is not null;
-                if (hud || rest) return new DailyMissionListReading(true, null);
+                if (hud) return new DailyMissionListReading(true, null);
+                if (!restRechecked && await FindRestStateAsync(session, cancellationToken) is not null)
+                {
+                    // Rest may show a shortened quest list, not proof of completion.
+                    restRechecked = true;
+                    await ActivateGameAsync(session, cancellationToken);
+                    await ExitRestIfNeededAsync(session, pause, cancellationToken);
+                    deadline = DateTime.UtcNow.AddSeconds(4);
+                    visibleConfirmations = 0;
+                }
             }
 
             await Task.Delay(300, cancellationToken);
@@ -4965,8 +4946,7 @@ public sealed partial class BotAutomationEngine(
         // A missão principal pode não ter contador numérico. Exigir um aqui
         // prende para sempre uma lista concluída. Confirme HUD + ícones da lista.
         var hudVisible = (await recognition.FindAsync("game_hud_menu", finalFrame, cancellationToken)).Found;
-        var restVisible = !hudVisible && await FindRestStateAsync(session, cancellationToken) is not null;
-        return new DailyMissionListReading((hudVisible || restVisible) && HasVisibleQuestRows(finalFrame), null);
+        return new DailyMissionListReading(hudVisible && HasVisibleQuestRows(finalFrame), null);
     }
 
     private async Task<PixelFrame> CaptureDailyMissionFrameAsync(
@@ -5045,17 +5025,17 @@ public sealed partial class BotAutomationEngine(
     private static int? FindPurpleDailyMissionY(PixelFrame frame, int minimumMissionClusters = 1)
     {
         var rows = new List<(int Y, int Count)>();
-        for (var y = 115; y < Math.Min(650, frame.Height); y++)
+        for (var y = 115; y < Math.Min(920, frame.Height); y++)
         {
             var count = 0;
-            for (var x = 1560; x < Math.Min(1825, frame.Width); x++)
+            for (var x = 1545; x < Math.Min(1840, frame.Width); x++)
             {
                 var offset = (y * frame.Stride) + (x * 4);
                 var blue = frame.Pixels[offset];
                 var green = frame.Pixels[offset + 1];
                 var red = frame.Pixels[offset + 2];
-                if (red >= 115 && blue >= 125 && green <= 180 &&
-                    red >= green + 10 && blue >= green + 25 && blue >= red + 8)
+                if (red >= 105 && blue >= 115 && green <= 185 &&
+                    red >= green + 5 && blue >= green + 18 && blue >= red + 5)
                 {
                     count++;
                 }
@@ -5084,6 +5064,7 @@ public sealed partial class BotAutomationEngine(
 
         var validMissions = clusters
             .Where(cluster => cluster.Sum(item => item.Count) >= 80)
+            .Where(cluster => HasQuestIconNear(frame, (int)cluster.Average(item => item.Y)))
             .OrderBy(cluster => cluster[0].Y)
             .ToArray();
         var firstMission = validMissions.Length >= minimumMissionClusters
@@ -5419,7 +5400,7 @@ public sealed partial class BotAutomationEngine(
                                 {
                                     if (!session.StartupRestorationChecked &&
                                         await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, actionToken))
-                                        throw new InvalidOperationException("Checagem inicial ainda não confirmada; aguardando uma captura válida.");
+                                        return;
                                     if (session.NeedsDeathRestoration)
                                     {
                                         WriteLog(session, "Restauração pendente: concluindo a lápide antes de voltar ao farm.");
@@ -6014,7 +5995,7 @@ public sealed partial class BotAutomationEngine(
         session.RequiresHardFlowReset = session.ConsecutiveRecoveryFailures >= 2;
         var retryDelaySeconds = (int)RecoveryBackoff(session.ConsecutiveRecoveryFailures).TotalSeconds;
         if (session.ConsecutiveRecoveryFailures >= 4)
-            WriteLog(session, "Atenção necessária: recuperação sem progresso. Suspendendo novas ações por 5 minutos; proteção continua e o outro cliente fica livre.");
+            WriteLog(session, "Recuperação ainda sem progresso; nova leitura em até 15 segundos, sem repetir compras ou cliques sem evidência.");
         session.NextRecoveryAttemptAt = DateTime.UtcNow + TimeSpan.FromSeconds(retryDelaySeconds);
         WriteLog(
             session,
@@ -6631,7 +6612,8 @@ public sealed partial class BotAutomationEngine(
             for (var attempt = 1; attempt <= 3; attempt++)
             {
                 await EnsureGameForegroundAsync(session, cancellationToken);
-                await input.ClickAsync(47, 275, cancellationToken);
+                var equipmentTab = gameWindows.MapReferencePoint(session.Options.Target, 47, 275);
+                await input.ClickAsync(equipmentTab.X, equipmentTab.Y, cancellationToken);
                 panelCounter = await WaitForRestorationCounterAsync(
                     session, TimeSpan.FromSeconds(5), pause, cancellationToken,
                     RestorationTab.Equipment);
@@ -6658,7 +6640,8 @@ public sealed partial class BotAutomationEngine(
             for (var attempt = 1; attempt <= 3; attempt++)
             {
                 await EnsureGameForegroundAsync(session, cancellationToken);
-                await input.ClickAsync(47, 190, cancellationToken);
+                var experienceTab = gameWindows.MapReferencePoint(session.Options.Target, 47, 190);
+                await input.ClickAsync(experienceTab.X, experienceTab.Y, cancellationToken);
                 panelCounter = await WaitForRestorationCounterAsync(
                     session, TimeSpan.FromSeconds(5), pause, cancellationToken,
                     RestorationTab.Experience);
@@ -6736,22 +6719,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        for (var index = 0; index < 3; index++)
-        {
-            await CheckpointAsync(pause, cancellationToken);
-            var frame = await CaptureClientFrameAsync(session, cancellationToken);
-            var icon = await recognition.FindAsync("icone_perda_exp", frame, cancellationToken);
-            var hud = await recognition.FindAsync("game_hud_menu", frame, cancellationToken);
-            var panel = await recognition.FindAsync("painel_restauracao", frame, cancellationToken);
-            if (icon.Found || !hud.Found || panel.Found)
-            {
-                return false;
-            }
-
-            await Task.Delay(350, cancellationToken);
-        }
-
-        return true;
+        return await ReadStartupRestorationAsync(session, pause, cancellationToken) == StartupRestorationObservation.Absent;
     }
 
     private async Task RestoreVisibleResourceTabAsync(
@@ -7737,6 +7705,7 @@ public sealed partial class BotAutomationEngine(
         public bool NeedsDeathRestoration { get; set; }
         public bool DirectiveCheckedOnStartup { get; set; }
         public bool StartupRestorationChecked { get; set; }
+        public bool StartupDailyReconciled { get; set; }
         public string? RestorationAbsentCycle { get; set; }
         public bool AudioFailureLogged { get; set; }
         public bool PendingAgendaAfterSapheras { get; set; }
