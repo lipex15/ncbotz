@@ -370,6 +370,7 @@
                                            FontWeight="SemiBold" />
                             </Grid>
                             <TextBlock x:Name="Client1ActivityText" Text="Aguardando início" FontSize="11" Foreground="#B7C9DE" TextWrapping="Wrap" MaxHeight="48" Margin="0,6,0,8" />
+                            <TextBlock x:Name="Client1AgendaLiveText" Foreground="#65CEFA" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10" />
                             <Grid Margin="0,9,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="72" />
@@ -381,6 +382,7 @@
                                            FontWeight="SemiBold" />
                             </Grid>
                             <TextBlock x:Name="Client2ActivityText" Text="Aguardando início" FontSize="11" Foreground="#B7C9DE" TextWrapping="Wrap" MaxHeight="48" Margin="0,6,0,0" />
+                            <TextBlock x:Name="Client2AgendaLiveText" Foreground="#65CEFA" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,0" />
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="4" Background="#101A2C"
@@ -551,13 +553,17 @@
             </StackPanel>
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
+                    <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,0,14">
+                            BorderThickness="1" CornerRadius="28" Padding="20">
                         <StackPanel>
+                            <TextBlock Text="Abadia da Lembrança" FontSize="21" FontWeight="Bold" />
+                            <TextBlock Text="Farm individual com ponto opcional" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,16" />
                             <TextBlock Text="Cliente 1" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
-                            <CheckBox x:Name="Client1AbbeyCheckBox" Content="Farmar na Abadia (T.A selecionada é o plano B)"
+                            <CheckBox x:Name="Client1AbbeyCheckBox" Content="Farm individual na Abadia"
                                       Margin="0,13,0,10" />
-                            <TextBlock Text="ENTRADAS PAGAS SEMANAIS PELA AGENDA" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Text="LIMITE SEMANAL DE ENTRADAS · SOMENTE INDIVIDUAL" Style="{StaticResource FieldLabel}" />
                             <TextBox x:Name="Client1AbbeyLimitTextBox" Text="1" Width="110" Height="38"
                                      HorizontalAlignment="Left" Margin="0,6,0,12" />
                             <CheckBox x:Name="Client1AbbeyCustomCheckBox" Content="Usar ponto personalizado na Abadia" />
@@ -567,15 +573,11 @@
                                 <TextBlock x:Name="Client1AbbeyCoordinateText" Text="Não definida"
                                            Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="12,0,0,0" />
                             </StackPanel>
-                        </StackPanel>
-                    </Border>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20">
-                        <StackPanel>
+                            <Border Height="1" Background="#30445B" Margin="0,22,0,22" />
                             <TextBlock Text="Cliente 2" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
-                            <CheckBox x:Name="Client2AbbeyCheckBox" Content="Farmar na Abadia (T.A selecionada é o plano B)"
+                            <CheckBox x:Name="Client2AbbeyCheckBox" Content="Farm individual na Abadia"
                                       Margin="0,13,0,10" />
-                            <TextBlock Text="ENTRADAS PAGAS SEMANAIS PELA AGENDA" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Text="LIMITE SEMANAL DE ENTRADAS · SOMENTE INDIVIDUAL" Style="{StaticResource FieldLabel}" />
                             <TextBox x:Name="Client2AbbeyLimitTextBox" Text="1" Width="110" Height="38"
                                      HorizontalAlignment="Left" Margin="0,6,0,12" />
                             <CheckBox x:Name="Client2AbbeyCustomCheckBox" Content="Usar ponto personalizado na Abadia" />
@@ -587,22 +589,33 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <TextBlock Text="O limite é compartilhado entre Abadia e Estreito de Tenerys e só conta entradas pagas confirmadas pela Agenda. Reinicia segunda-feira às 04:00."
-                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="3,14,0,0" />
-                    <Border Style="{StaticResource CardContainer}" Margin="0,16,0,0">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Masmorra Anônima · Estreito de Tenerys" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
-                                <TextBlock Text="Disponível pela Agenda para cada cliente nos níveis 86, 97 e 110. Somente esta masmorra possui seleção de nível; a Abadia não possui."
-                                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,24,0" />
-                            </StackPanel>
-                            <Button Grid.Column="1" Content="Configurar na Agenda" VerticalAlignment="Center" Click="OnShowFarmSchedule" />
-                        </Grid>
+                    <Border Grid.Column="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="28" Padding="20">
+                        <StackPanel>
+                            <TextBlock Text="Masmorra Anônima" FontSize="21" FontWeight="Bold" />
+                            <TextBlock Text="Estreito de Tenerys" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,16" />
+                            <TextBlock Text="Cliente 1" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
+                            <CheckBox x:Name="Client1AnonymousCheckBox" Content="Farm individual na Anônima" Margin="0,13,0,10" />
+                            <TextBlock Text="NÍVEL DA MASMORRA" Style="{StaticResource FieldLabel}" />
+                            <ComboBox x:Name="Client1IndividualDungeonComboBox" SelectedIndex="1" Height="40" Margin="0,6,0,12">
+                                <ComboBoxItem Content="Nível 86" /><ComboBoxItem Content="Nível 97" /><ComboBoxItem Content="Nível 110" />
+                            </ComboBox>
+                            <TextBlock Text="LIMITE SEMANAL DE ENTRADAS · SOMENTE INDIVIDUAL" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="Client1AnonymousLimitTextBox" Text="1" Width="110" Height="38" HorizontalAlignment="Left" Margin="0,6,0,12" />
+                            <Border Height="1" Background="#30445B" Margin="0,22,0,22" />
+                            <TextBlock Text="Cliente 2" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
+                            <CheckBox x:Name="Client2AnonymousCheckBox" Content="Farm individual na Anônima" Margin="0,13,0,10" />
+                            <TextBlock Text="NÍVEL DA MASMORRA" Style="{StaticResource FieldLabel}" />
+                            <ComboBox x:Name="Client2IndividualDungeonComboBox" SelectedIndex="1" Height="40" Margin="0,6,0,12">
+                                <ComboBoxItem Content="Nível 86" /><ComboBoxItem Content="Nível 97" /><ComboBoxItem Content="Nível 110" />
+                            </ComboBox>
+                            <TextBlock Text="LIMITE SEMANAL DE ENTRADAS · SOMENTE INDIVIDUAL" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="Client2AnonymousLimitTextBox" Text="1" Width="110" Height="38" HorizontalAlignment="Left" Margin="0,6,0,12" />
+                        </StackPanel>
                     </Border>
+                    </Grid>
+                    <TextBlock Text="Escolha uma masmorra individual por cliente. Para fazer as duas em sequência, use a Agenda. Os limites individuais são separados e reiniciam segunda às 04:00; a Agenda não tem limite de entradas. A Agenda habilitada tem prioridade sobre o modo individual."
+                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="3,18,0,14" />
+                    <Button Content="Organizar sequência na Agenda" HorizontalAlignment="Right" Click="OnShowFarmSchedule" />
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -712,6 +725,7 @@
                                          ItemsSource="{Binding Client1ScheduleSteps}" DisplayMemberPath="DisplayText"
                                          Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
                                 <TextBlock x:Name="Client1ScheduleTotalText" Text="Tempo total: 0 min" Margin="0,9,0,0" Foreground="#AFC2D9" />
+                                <TextBlock x:Name="Client1ScheduleLiveText" TextWrapping="Wrap" Foreground="#65CEFA" Margin="0,8,0,0" />
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
                                     <Button Content="Subir" Padding="12,7" Click="OnMoveClient1ScheduleUp" />
                                     <Button Content="Descer" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient1ScheduleDown" />
@@ -742,6 +756,7 @@
                                          ItemsSource="{Binding Client2ScheduleSteps}" DisplayMemberPath="DisplayText"
                                          Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
                                 <TextBlock x:Name="Client2ScheduleTotalText" Text="Tempo total: 0 min" Margin="0,9,0,0" Foreground="#AFC2D9" />
+                                <TextBlock x:Name="Client2ScheduleLiveText" TextWrapping="Wrap" Foreground="#65CEFA" Margin="0,8,0,0" />
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
                                     <Button Content="Subir" Padding="12,7" Click="OnMoveClient2ScheduleUp" />
                                     <Button Content="Descer" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient2ScheduleDown" />
@@ -752,7 +767,7 @@
                     </Grid>
                     <Border Style="{StaticResource CardContainer}" Background="#102035">
                         <StackPanel>
-                            <TextBlock Text="Abadia respeita o orçamento semanal e o limite de entradas. O Estreito de Tenerys usa o nível escolhido e testa os cinco spots seguros. Ao acabar a Agenda ou o tempo da masmorra, a T.A configurada é o destino seguro."
+                            <TextBlock Text="A Agenda não limita entradas. O tempo só é consumido durante o farm na masmorra da etapa. Fora dela, a contagem pausa. Ao acabar a Agenda ou o tempo disponível da masmorra, segue para a T.A configurada."
                                        Foreground="#AFC2D9" TextWrapping="Wrap" />
                             <Button Content="Salvar agenda" Width="150" HorizontalAlignment="Right" Margin="0,12,0,0" Click="OnSaveFarmSchedule" />
                         </StackPanel>

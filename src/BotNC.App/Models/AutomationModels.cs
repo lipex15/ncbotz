@@ -81,7 +81,10 @@ public sealed record AutomationClientOptions(
     bool EnableDailyShop = false,
     IReadOnlyDictionary<TaDestination, FarmCoordinate>? CustomFarmCoordinates = null,
     bool EnableLoveBoss = false,
-    bool EnableGuildCheckin = false);
+    bool EnableGuildCheckin = false,
+    bool UseAnonymousDungeon = false,
+    int IndividualAnonymousDungeonLevel = 97,
+    int WeeklyAnonymousEntryLimit = 1);
 
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,

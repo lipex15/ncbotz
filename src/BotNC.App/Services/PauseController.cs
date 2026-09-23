@@ -6,6 +6,8 @@ public sealed class PauseController
     private TaskCompletionSource _resumeSignal = CompletedSignal();
 
     public bool IsPaused { get; private set; }
+    private long _pauseVersion;
+    public long PauseVersion => Interlocked.Read(ref _pauseVersion);
 
     public void Pause()
     {
@@ -17,6 +19,7 @@ public sealed class PauseController
             }
 
             IsPaused = true;
+            Interlocked.Increment(ref _pauseVersion);
             _resumeSignal = new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously);
         }

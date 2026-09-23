@@ -71,6 +71,13 @@ public partial class MainWindow : Window
         _engine.Log += OnEngineLog;
         _engine.StatusChanged += OnEngineStatusChanged;
         _engine.AudioStatusChanged += OnEngineAudioStatusChanged;
+        _engine.FarmScheduleProgressChanged += (label, text) => Dispatcher.InvokeAsync(() =>
+        {
+            if (label.EndsWith("2", StringComparison.Ordinal))
+                Client2AgendaLiveText.Text = Client2ScheduleLiveText.Text = text;
+            else
+                Client1AgendaLiveText.Text = Client1ScheduleLiveText.Text = text;
+        });
 
         Ta1ComboBox.ItemsSource = new[] { "T.A 1 (Codex)", "T.A 2", "T.A 3" };
         Ta2ComboBox.ItemsSource = new[] { "T.A 1 (Codex)", "T.A 2", "T.A 3" };
@@ -961,12 +968,32 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!int.TryParse(Client1AbbeyLimitTextBox.Text, out var abbeyLimit1) || abbeyLimit1 is < 1 or > 100 ||
-            !int.TryParse(Client2AbbeyLimitTextBox.Text, out var abbeyLimit2) || abbeyLimit2 is < 1 or > 100)
+        if (Client1AbbeyCheckBox.IsChecked == true && Client1AnonymousCheckBox.IsChecked == true ||
+            Client2AbbeyCheckBox.IsChecked == true && Client2AnonymousCheckBox.IsChecked == true)
         {
-            ShowValidation("Informe de 1 a 100 entradas pagas semanais pela Agenda para cada cliente.");
+            ShowValidation("Escolha uma masmorra individual por cliente. Para fazer Abadia e Anônima em sequência, configure a Agenda.");
             return;
         }
+        var anonymousLimit1Valid = int.TryParse(Client1AnonymousLimitTextBox.Text, out var anonymousLimit1) && anonymousLimit1 is >= 1 and <= 100;
+        var anonymousLimit2Valid = int.TryParse(Client2AnonymousLimitTextBox.Text, out var anonymousLimit2) && anonymousLimit2 is >= 1 and <= 100;
+        if (client1 is not null && Client1AnonymousCheckBox.IsChecked == true && !ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 1) && !anonymousLimit1Valid ||
+            client2 is not null && Client2AnonymousCheckBox.IsChecked == true && !ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 2) && !anonymousLimit2Valid)
+        {
+            ShowValidation("Informe de 1 a 100 entradas semanais no card da Anônima para o cliente em modo individual.");
+            return;
+        }
+        if (!anonymousLimit1Valid) anonymousLimit1 = 1;
+        if (!anonymousLimit2Valid) anonymousLimit2 = 1;
+        var limit1Valid = int.TryParse(Client1AbbeyLimitTextBox.Text, out var abbeyLimit1) && abbeyLimit1 is >= 1 and <= 100;
+        var limit2Valid = int.TryParse(Client2AbbeyLimitTextBox.Text, out var abbeyLimit2) && abbeyLimit2 is >= 1 and <= 100;
+        if (client1 is not null && Client1AbbeyCheckBox.IsChecked == true && !ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 1) && !limit1Valid ||
+            client2 is not null && Client2AbbeyCheckBox.IsChecked == true && !ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 2) && !limit2Valid)
+        {
+            ShowValidation("Em Abadia / Anônima, informe de 1 a 100 entradas semanais para o cliente em modo individual. Esse limite não se aplica à Agenda.");
+            return;
+        }
+        if (!limit1Valid) abbeyLimit1 = 1;
+        if (!limit2Valid) abbeyLimit2 = 1;
 
         foreach (var selectedClient in new[] { client1, client2 }.Where(client => client is not null))
         {
@@ -1076,7 +1103,9 @@ public partial class MainWindow : Window
                 _client1TaCoordinates.Where(pair => _client1TaCoordinatesEnabled.Contains(pair.Key))
                     .ToDictionary(pair => pair.Key, pair => pair.Value),
                 ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 1),
-                ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 1)));
+                ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 1),
+                Client1AnonymousCheckBox.IsChecked == true,
+                IndividualDungeonLevel(Client1IndividualDungeonComboBox.SelectedIndex), anonymousLimit1));
         }
 
         if (client2 is not null)
@@ -1103,7 +1132,9 @@ public partial class MainWindow : Window
                     _client2TaCoordinates.Where(pair => _client2TaCoordinatesEnabled.Contains(pair.Key))
                         .ToDictionary(pair => pair.Key, pair => pair.Value),
                     ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 2),
-                    ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 2)));
+                    ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 2),
+                    Client2AnonymousCheckBox.IsChecked == true,
+                    IndividualDungeonLevel(Client2IndividualDungeonComboBox.SelectedIndex), anonymousLimit2));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -1126,6 +1157,8 @@ public partial class MainWindow : Window
         await SaveSettingsAsync(runOptions);
 
         _runCancellation = new CancellationTokenSource();
+        Client1AgendaLiveText.Text = Client1ScheduleLiveText.Text = string.Empty;
+        Client2AgendaLiveText.Text = Client2ScheduleLiveText.Text = string.Empty;
         _runFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pause.Resume();
         SetRunControls(isRunning: true);
@@ -1411,6 +1444,16 @@ public partial class MainWindow : Window
 
     private void SetStatus(BotRunState state, string title, string detail)
     {
+        if (state is BotRunState.Stopped or BotRunState.Paused)
+        {
+            var suffix = state == BotRunState.Paused ? "Pausado pelo usuário" : "Execução parada";
+            foreach (var pair in new[] { (Client1AgendaLiveText, Client1ScheduleLiveText), (Client2AgendaLiveText, Client2ScheduleLiveText) })
+            {
+                var text = pair.Item1.Text;
+                var lastSeparator = text.LastIndexOf(" · ", StringComparison.Ordinal);
+                if (lastSeparator >= 0) pair.Item1.Text = pair.Item2.Text = text[..(lastSeparator + 3)] + suffix;
+            }
+        }
         CurrentStateText.Text = title;
         CurrentDetailText.Text = detail;
         SetBadge(state);
@@ -1501,6 +1544,10 @@ public partial class MainWindow : Window
         FarmScheduleScopeComboBox.IsEnabled = !isRunning;
         FarmScheduleEditorGrid.IsEnabled = !isRunning;
         Client1AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient1CheckBox.IsChecked == true;
+        Client1IndividualDungeonComboBox.IsEnabled = !isRunning;
+        Client2IndividualDungeonComboBox.IsEnabled = !isRunning;
+        Client1AnonymousCheckBox.IsEnabled = Client2AnonymousCheckBox.IsEnabled = !isRunning;
+        Client1AnonymousLimitTextBox.IsEnabled = Client2AnonymousLimitTextBox.IsEnabled = !isRunning;
         Client2AbbeyLimitTextBox.IsEnabled = !isRunning && EnableClient2CheckBox.IsChecked == true;
         ScheduleStartButton.IsEnabled = !isRunning;
         StartDelayMinutesTextBox.IsEnabled = !isRunning && _scheduledStartCancellation is null;
@@ -1637,6 +1684,12 @@ public partial class MainWindow : Window
             _client2CustomCoordinate is not null &&
             (_client2TaCoordinatesEnabled.Contains(selectedTa2) ||
              string.Equals(client2CustomEnabled, "true", StringComparison.OrdinalIgnoreCase));
+        Client1IndividualDungeonComboBox.SelectedIndex = int.TryParse(await _database.GetSettingAsync("client1.anonymous.levelIndex"), out var selection1) ? Math.Clamp(selection1, 0, 2) : 1;
+        Client2IndividualDungeonComboBox.SelectedIndex = int.TryParse(await _database.GetSettingAsync("client2.anonymous.levelIndex"), out var selection2) ? Math.Clamp(selection2, 0, 2) : 1;
+        Client1AnonymousCheckBox.IsChecked = await _database.GetSettingAsync("client1.anonymous.enabled") == "true";
+        Client2AnonymousCheckBox.IsChecked = await _database.GetSettingAsync("client2.anonymous.enabled") == "true";
+        Client1AnonymousLimitTextBox.Text = await _database.GetSettingAsync("client1.anonymous.entryLimit") ?? "1";
+        Client2AnonymousLimitTextBox.Text = await _database.GetSettingAsync("client2.anonymous.entryLimit") ?? "1";
         Client1AbbeyCheckBox.IsChecked = string.Equals(abbey1Enabled, "true", StringComparison.OrdinalIgnoreCase);
         Client2AbbeyCheckBox.IsChecked = string.Equals(abbey2Enabled, "true", StringComparison.OrdinalIgnoreCase);
         Client1AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey1Limit) ? "1" : abbey1Limit;
@@ -1816,6 +1869,10 @@ public partial class MainWindow : Window
     {
         var prefix = $"client{clientNumber}.abbey";
         await _database.SaveSettingAsync($"{prefix}.enabled", client.UseAbbey.ToString().ToLowerInvariant());
+        await _database.SaveSettingAsync($"client{clientNumber}.anonymous.enabled", client.UseAnonymousDungeon.ToString().ToLowerInvariant());
+        var selection = client.IndividualAnonymousDungeonLevel switch { 86 => 0, 110 => 2, _ => 1 };
+        await _database.SaveSettingAsync($"client{clientNumber}.anonymous.levelIndex", selection.ToString(CultureInfo.InvariantCulture));
+        await _database.SaveSettingAsync($"client{clientNumber}.anonymous.entryLimit", client.WeeklyAnonymousEntryLimit.ToString(CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync(
             $"client{clientNumber}.farmSchedule.weeklyEntryLimit",
             client.WeeklyAgendaEntryLimit.ToString(CultureInfo.InvariantCulture));
@@ -1827,6 +1884,8 @@ public partial class MainWindow : Window
             await _database.SaveSettingAsync($"{prefix}.customFarm.y", custom.Y.ToString(CultureInfo.InvariantCulture));
         }
     }
+
+    private static int IndividualDungeonLevel(int selection) => selection switch { 0 => 86, 2 => 110, _ => 97 };
 
     private static FarmCoordinate? ParseFarmCoordinate(string? xText, string? yText)
     {

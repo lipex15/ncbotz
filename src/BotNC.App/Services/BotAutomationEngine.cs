@@ -87,6 +87,7 @@ public sealed partial class BotAutomationEngine(
     public event Action<string>? Log;
     public event Action<BotRunState, string, string>? StatusChanged;
     public event Action<AudioClientStatus>? AudioStatusChanged;
+    public event Action<string, string>? FarmScheduleProgressChanged;
 
     public string RuntimeLogPath => _runtimeLogPath;
 
@@ -366,6 +367,14 @@ public sealed partial class BotAutomationEngine(
             string.Equals(savedCompleted, "true", StringComparison.OrdinalIgnoreCase);
         session.FarmScheduleWaitingForWeeklyReset = samePlan &&
             string.Equals(savedWaitingForWeeklyReset, "true", StringComparison.OrdinalIgnoreCase);
+        // Old releases stopped the entire schedule on an entry budget. Revisit
+        // its destinations under the new time-only policy, preserving true completion.
+        if (session.FarmScheduleWaitingForWeeklyReset)
+        {
+            session.FarmScheduleCompleted = false;
+            session.FarmScheduleWaitingForWeeklyReset = false;
+            samePlan = false;
+        }
         session.FarmScheduleIndex = samePlan ? Math.Clamp(index, 0, configured.Count - 1) : 0;
         var savedSeconds = 0d;
         var hasSavedTime = samePlan &&
@@ -393,6 +402,7 @@ public sealed partial class BotAutomationEngine(
 
     private async Task SaveFarmScheduleStateAsync(ClientSession session)
     {
+        PublishFarmScheduleProgress(session);
         if (session.FarmScheduleSteps.Count == 0)
         {
             return;
@@ -427,6 +437,12 @@ public sealed partial class BotAutomationEngine(
             ? TimeSpan.Zero
             : now - session.FarmScheduleLastTickUtc;
         session.FarmScheduleLastTickUtc = now;
+        if (session.FarmSchedulePauseVersion != pause.PauseVersion)
+        {
+            elapsed = TimeSpan.Zero;
+            session.FarmSchedulePauseVersion = pause.PauseVersion;
+        }
+        PublishFarmScheduleProgress(session);
         if (session.InAgenda || session.HandlingDeath || session.InDailyCampaign || session.LoveBossInside ||
             session.NextRecoveryAttemptAt != default)
         {
@@ -472,7 +488,8 @@ public sealed partial class BotAutomationEngine(
             return false;
         }
 
-        if (session.SafeInRest && elapsed > TimeSpan.Zero && elapsed < TimeSpan.FromSeconds(30))
+        PublishFarmScheduleProgress(session);
+        if (IsScheduleFarmActive(session) && elapsed > TimeSpan.Zero && elapsed < TimeSpan.FromSeconds(30))
         {
             session.FarmScheduleRemaining -= elapsed;
             if (now - session.FarmScheduleLastSaveUtc >= TimeSpan.FromMinutes(1))
@@ -536,7 +553,7 @@ public sealed partial class BotAutomationEngine(
         {
             await SaveFarmScheduleStateAsync(session);
             WriteLog(session, session.FarmScheduleCompleted
-                ? "Todas as etapas restantes da Agenda estão sem tempo ou sem entradas semanais; usando a T.A até segunda-feira às 04:00."
+                ? "Todas as etapas restantes da Agenda estão sem tempo de masmorra; usando a T.A até segunda-feira às 04:00."
                 : $"Etapa sem tempo semanal ignorada; avançando para {ScheduleDestinationName(session.FarmScheduleSteps[session.FarmScheduleIndex].Destination)}.");
         }
 
@@ -545,13 +562,12 @@ public sealed partial class BotAutomationEngine(
 
     private static bool IsFarmScheduleDestinationAvailable(ClientSession session, FarmScheduleDestination destination)
     {
-        var canPayNewEntry = session.AgendaEntries < session.Options.WeeklyAgendaEntryLimit;
         return destination switch
         {
             FarmScheduleDestination.Abbey =>
-                !session.AbbeyTimeExhausted && (session.AbbeyInside || canPayNewEntry),
+                !session.AbbeyTimeExhausted,
             FarmScheduleDestination.AnonymousDungeon =>
-                !session.AnonymousDungeonExhausted && (session.AnonymousDungeonInside || canPayNewEntry),
+                !session.AnonymousDungeonExhausted,
             _ => false
         };
     }
@@ -570,6 +586,8 @@ public sealed partial class BotAutomationEngine(
 
         session.AbbeyUsed = CurrentAbbeyUsage(session);
         session.AbbeyInside = false;
+        session.FarmScheduleLastTickUtc = DateTime.UtcNow;
+        PublishFarmScheduleProgress(session);
         session.AbbeyActiveSinceUtc = default;
         session.AbbeySupplyPurchasePending = true;
         session.SupplyCityTeleportAttempted = false;
@@ -585,6 +603,8 @@ public sealed partial class BotAutomationEngine(
 
         session.AnonymousDungeonInside = false;
         session.AbbeySupplyPurchasePending = true;
+        session.FarmScheduleLastTickUtc = DateTime.UtcNow;
+        PublishFarmScheduleProgress(session);
         session.SupplyCityTeleportAttempted = false;
         await SaveAbbeyBudgetStateAsync(session);
     }
@@ -603,8 +623,7 @@ public sealed partial class BotAutomationEngine(
             CultureInfo.InvariantCulture,
             out var usedMinutes);
         _ = int.TryParse(
-            await database.GetSettingAsync($"{prefix}.agendaEntries") ??
-            await database.GetSettingAsync($"{prefix}.entries"),
+            await database.GetSettingAsync($"{prefix}.individualEntries"),
             out var entries);
         session.AbbeyUsed = string.Equals(storedWeek, currentWeek, StringComparison.Ordinal)
             ? TimeSpan.FromMinutes(Math.Max(0, usedMinutes))
@@ -612,6 +631,8 @@ public sealed partial class BotAutomationEngine(
         session.AgendaEntries = !isNewWeek
             ? Math.Max(0, entries)
             : 0;
+        _ = int.TryParse(await database.GetSettingAsync($"{prefix}.individualAnonymousEntries"), out var anonymousEntries);
+        session.IndividualAnonymousEntries = isNewWeek ? 0 : Math.Max(0, anonymousEntries);
         session.AbbeySupplyPurchasePending = bool.TryParse(
             await database.GetSettingAsync($"{prefix}.supplyPurchasePending"),
             out var supplyPurchasePending) && supplyPurchasePending;
@@ -639,6 +660,7 @@ public sealed partial class BotAutomationEngine(
         session.AbbeyUsed = TimeSpan.Zero;
         session.AbbeyTimeExhausted = false;
         session.AgendaEntries = 0;
+        session.IndividualAnonymousEntries = 0;
         session.AbbeyActiveSinceUtc = session.AbbeyInside ? DateTime.UtcNow : default;
         session.AbbeyTimeLowHits = 0;
         session.AnonymousDungeonExhausted = false;
@@ -669,7 +691,8 @@ public sealed partial class BotAutomationEngine(
         var prefix = $"{SessionSettingPrefix(session)}.abbey.runtime";
         await database.SaveSettingAsync($"{prefix}.week", session.AbbeyWeek ?? AbbeyWeekKey(DateTime.Now));
         await database.SaveSettingAsync($"{prefix}.usedMinutes", session.AbbeyUsed.TotalMinutes.ToString("F3", CultureInfo.InvariantCulture));
-        await database.SaveSettingAsync($"{prefix}.agendaEntries", session.AgendaEntries.ToString(CultureInfo.InvariantCulture));
+        await database.SaveSettingAsync($"{prefix}.individualEntries", session.AgendaEntries.ToString(CultureInfo.InvariantCulture));
+        await database.SaveSettingAsync($"{prefix}.individualAnonymousEntries", session.IndividualAnonymousEntries.ToString(CultureInfo.InvariantCulture));
         await database.SaveSettingAsync($"{prefix}.timeExhausted", session.AbbeyTimeExhausted.ToString());
         await database.SaveSettingAsync(
             $"{prefix}.supplyPurchasePending",
@@ -943,6 +966,17 @@ public sealed partial class BotAutomationEngine(
         var currentRest = await FindRestStateAsync(session, cancellationToken);
         if (currentRest is not null && currentRest.Value.ReferenceId == "caca_automatica")
         {
+            if (WantsAbbey(session) || WantsAnonymousDungeon(session))
+            {
+                await ExitRestIfNeededAsync(session, pause, cancellationToken);
+                if (WantsAbbey(session))
+                    session.AbbeyInside = await IsAbbeyLocationVisibleAsync(cancellationToken);
+                if (WantsAnonymousDungeon(session))
+                    session.AnonymousDungeonInside = await IsAnonymousDungeonLocationVisibleAsync(cancellationToken);
+                // EnterConfiguredFarm checks the actual destination before paying.
+                await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+                return;
+            }
             session.SafeInRest = true;
             session.IsFarmingTa = true;
             if (WantsAbbey(session) && await IsAbbeyLocationVisibleAsync(cancellationToken))
@@ -961,7 +995,8 @@ public sealed partial class BotAutomationEngine(
             return;
         }
 
-        if (await IsConfiguredTaLocationVisibleAsync(session, cancellationToken))
+        if (!WantsAbbey(session) && !WantsAnonymousDungeon(session) &&
+            await IsConfiguredTaLocationVisibleAsync(session, cancellationToken))
         {
             WriteLog(session, $"O personagem já está na {TaName(EffectiveTaDestination(session))}; mantendo a área atual sem abrir uma nova entrada.");
             await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
@@ -1629,7 +1664,7 @@ public sealed partial class BotAutomationEngine(
         {
             WriteLog(session, session.AbbeyEntryMayHaveBeenCharged
                 ? "Entrada da Abadia não pôde ser comprovada após Y; evitando nova cobrança e usando a T.A configurada."
-                : $"Limite semanal da Agenda atingido ({session.AgendaEntries}/{session.Options.WeeklyAgendaEntryLimit}); usando a T.A configurada.");
+                : $"Modo individual indisponível: tempo esgotado ou limite de entradas atingido ({session.AgendaEntries}/{session.Options.WeeklyAgendaEntryLimit}); usando a T.A configurada.");
         }
 
 
@@ -1652,13 +1687,16 @@ public sealed partial class BotAutomationEngine(
             }
 
             await RecordAnonymousDungeonExitAsync(session);
-            if (!session.AnonymousDungeonEntryMayHaveBeenCharged && CanPayAgendaEntry(session))
+            if (!session.AnonymousDungeonExhausted && !session.AnonymousDungeonEntryMayHaveBeenCharged && CanPayAgendaEntry(session))
             {
                 await EnterAnonymousDungeonAndStartFarmAsync(session, pause, cancellationToken);
                 return;
             }
 
-            WriteLog(session, "A entrada do Estreito de Tenerys pode ter sido cobrada; evitando nova cobrança e usando a T.A configurada.");
+            WriteLog(session, session.AnonymousDungeonEntryMayHaveBeenCharged
+                ? "A entrada do Estreito de Tenerys pode ter sido cobrada; evitando nova cobrança e usando a T.A configurada."
+                : session.AnonymousDungeonExhausted ? "Tempo do Estreito de Tenerys esgotado; usando a T.A configurada."
+                : $"Limite individual da Anônima atingido ({session.IndividualAnonymousEntries}/{session.Options.WeeklyAnonymousEntryLimit}); usando a T.A configurada.");
         }
 
         await SkipUnavailableFarmScheduleStepsAsync(session);
@@ -1678,7 +1716,8 @@ public sealed partial class BotAutomationEngine(
             await SaveAbbeyBudgetStateAsync(session);
         }
 
-        var step = CurrentFarmScheduleStep(session) ?? throw new InvalidOperationException("Etapa do Estreito de Tenerys ausente.");
+        var step = CurrentFarmScheduleStep(session) ?? new FarmScheduleStep(
+            FarmScheduleDestination.AnonymousDungeon, TimeSpan.Zero, session.Options.IndividualAnonymousDungeonLevel);
         session.Audio.Armed = false;
         session.SafeInRest = false;
         session.IsFarmingTa = false;
@@ -1770,6 +1809,8 @@ public sealed partial class BotAutomationEngine(
             session.SafeInRest = true;
             session.Audio.Armed = true;
             WriteLog(session, $"Farm iniciado no Estreito de Tenerys pelo ponto ({point.X}, {point.Y}).");
+            session.FarmScheduleLastTickUtc = DateTime.UtcNow;
+            PublishFarmScheduleProgress(session);
             return;
         }
 
@@ -1930,6 +1971,8 @@ public sealed partial class BotAutomationEngine(
         session.ConsecutiveRecoveryFailures = 0;
         session.RequiresHardFlowReset = false;
         WriteLog(session, "Farm da Abadia iniciado e confirmado.");
+        session.FarmScheduleLastTickUtc = DateTime.UtcNow;
+        PublishFarmScheduleProgress(session);
     }
 
     private async Task EnterTaAndStartFarmAsync(
@@ -5103,14 +5146,31 @@ public sealed partial class BotAutomationEngine(
         session.AbbeyUsed = TimeSpan.FromHours(20);
         Check(IsFarmScheduleDestinationAvailable(session, FarmScheduleDestination.Abbey), "Estimativa local bloqueou saldo real.");
         session.AgendaEntries = 2;
-        Check(!IsFarmScheduleDestinationAvailable(session, FarmScheduleDestination.Abbey) &&
-              !IsFarmScheduleDestinationAvailable(session, FarmScheduleDestination.AnonymousDungeon), "Limite compartilhado falhou.");
+        Check(IsFarmScheduleDestinationAvailable(session, FarmScheduleDestination.Abbey) &&
+              IsFarmScheduleDestinationAvailable(session, FarmScheduleDestination.AnonymousDungeon) && CanPayAgendaEntry(session), "Limite individual bloqueou a Agenda.");
+        session.FarmScheduleSteps = [];
+        Check(!CanPayAgendaEntry(session), "Modo individual ignorou limite.");
+        session.FarmScheduleSteps = [new(FarmScheduleDestination.Abbey, TimeSpan.FromHours(1))];
         session.AbbeyInside = true;
         Check(IsFarmScheduleDestinationAvailable(session, FarmScheduleDestination.Abbey), "Limite interrompeu farm já pago.");
         session.AgendaEntries = 0;
         session.AbbeyTimeExhausted = true;
         Check(!IsFarmScheduleDestinationAvailable(session, FarmScheduleDestination.Abbey) &&
               IsFarmScheduleDestinationAvailable(session, FarmScheduleDestination.AnonymousDungeon), "Saldo de uma masmorra bloqueou a outra.");
+        session.AbbeyTimeExhausted = false;
+        session.SafeInRest = true;
+        session.IsFarmingTa = true;
+        Check(IsScheduleFarmActive(session), "Farm ativo não conta tempo.");
+        session.AbbeyInside = false;
+        Check(!IsScheduleFarmActive(session), "Tempo contado fora da masmorra.");
+        session.AbbeyInside = true;
+        session.InDailyCampaign = true;
+        Check(!IsScheduleFarmActive(session), "Tempo contado durante Diárias.");
+        var individual = new ClientSession(session.Options with { UseAnonymousDungeon = true, WeeklyAnonymousEntryLimit = 3 });
+        individual.AgendaEntries = 100;
+        Check(WantsAnonymousDungeon(individual) && CanPayAgendaEntry(individual), "Anônima individual usa contador da Abadia.");
+        individual.IndividualAnonymousEntries = 3;
+        Check(!CanPayAgendaEntry(individual), "Anônima individual ignorou seu limite.");
     }
 
     private static DateTime ScheduledInDailyShopCycle(DateTime now, TimeSpan selectedTime)
@@ -7468,26 +7528,32 @@ public sealed partial class BotAutomationEngine(
                 : session.Options.UseAbbey;
 
     private static bool WantsAnonymousDungeon(ClientSession session) =>
-        CurrentFarmScheduleStep(session)?.Destination == FarmScheduleDestination.AnonymousDungeon;
+        CurrentFarmScheduleStep(session) is { } step
+            ? step.Destination == FarmScheduleDestination.AnonymousDungeon
+            : session.FarmScheduleSteps.Count == 0 && session.Options.UseAnonymousDungeon;
 
     private static bool AbbeyIsAvailable(ClientSession session) =>
         !session.AbbeyTimeExhausted;
 
     private static bool CanPayAgendaEntry(ClientSession session) =>
-        session.FarmScheduleSteps.Count == 0 ||
-        session.AgendaEntries < session.Options.WeeklyAgendaEntryLimit;
+        session.FarmScheduleSteps.Count > 0 ||
+        (WantsAnonymousDungeon(session)
+            ? session.IndividualAnonymousEntries < session.Options.WeeklyAnonymousEntryLimit
+            : session.AgendaEntries < session.Options.WeeklyAgendaEntryLimit);
 
     private async Task RecordAgendaPaidEntryAsync(ClientSession session, string destination)
     {
-        if (session.FarmScheduleSteps.Count == 0)
+        if (session.FarmScheduleSteps.Count > 0)
             return;
 
-        session.AgendaEntries++;
+        var anonymous = WantsAnonymousDungeon(session);
+        if (anonymous) session.IndividualAnonymousEntries++;
+        else session.AgendaEntries++;
         await SaveAbbeyBudgetStateAsync(session);
         WriteLog(
             session,
-            $"Entrada paga da Agenda confirmada em {destination} " +
-            $"({session.AgendaEntries}/{session.Options.WeeklyAgendaEntryLimit} nesta semana).");
+            $"Entrada paga do modo individual confirmada em {destination} " +
+            $"({(anonymous ? session.IndividualAnonymousEntries : session.AgendaEntries)}/{(anonymous ? session.Options.WeeklyAnonymousEntryLimit : session.Options.WeeklyAgendaEntryLimit)} nesta semana).");
     }
 
     private static string ScheduleDestinationName(FarmScheduleDestination destination) => destination switch
@@ -7632,6 +7698,7 @@ public sealed partial class BotAutomationEngine(
         public bool SafeInRest { get; set; }
         public bool IsFarmingTa { get; set; }
         public int AgendaEntries { get; set; }
+        public int IndividualAnonymousEntries { get; set; }
         public bool AbbeyEntryMayHaveBeenCharged { get; set; }
         public bool AbbeyInside { get; set; }
         public bool AbbeyTimeExhausted { get; set; }
@@ -7656,6 +7723,7 @@ public sealed partial class BotAutomationEngine(
         public int FarmScheduleIndex { get; set; }
         public TimeSpan FarmScheduleRemaining { get; set; }
         public DateTime FarmScheduleLastTickUtc { get; set; }
+        public long FarmSchedulePauseVersion { get; set; }
         public DateTime FarmScheduleLastSaveUtc { get; set; }
         public bool InDailyCampaign { get; set; }
         public bool DailyNeedsTeleport { get; set; }
