@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     private AvailableUpdate? _availableUpdate;
     private bool _updateBusy;
     private bool _databaseReady;
+    private bool _skipStartPreview;
+    private static string StartPreviewPreferenceKey => $"users.{ActivationService.ProfileKey}.ui.skipStartPreview";
     private bool _environmentReady;
     private BotRunState _stateBeforePause = BotRunState.Waiting;
     private string? _savedClient1Title;
@@ -43,6 +45,8 @@ public partial class MainWindow : Window
     private FarmCoordinate? _client2AbbeyCoordinate;
     private bool _capturingCustomCoordinate;
     private string? _lastSeenUpdateVersion;
+    private DateTime? _runStartedAt;
+    private readonly DispatcherTimer _executionClock = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _updateCheckTimer = new()
     {
         Interval = TimeSpan.FromMinutes(15)
@@ -51,6 +55,11 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _executionClock.Tick += (_, _) =>
+        {
+            if (_runStartedAt is { } started)
+                RunElapsedText.Text = $"Sessão há {(DateTime.Now - started):hh\\:mm\\:ss}";
+        };
         DataContext = this;
         var recognition = new VisualRecognitionService(_database, _capture);
         _engine = new BotAutomationEngine(
@@ -780,6 +789,75 @@ public partial class MainWindow : Window
         ScheduleTextBox.Text = DateTime.Now.AddSeconds(5).ToString("HH:mm:ss");
     }
 
+    private void OnPreviewStart(object sender, RoutedEventArgs e)
+    {
+        if (_runCancellation is not null) return;
+        if (_skipStartPreview)
+        {
+            OnStartBot(sender, e);
+            return;
+        }
+        var lines = new List<string>();
+        if (EnableClient1CheckBox.IsChecked == true)
+            lines.Add($"Cliente 1 · {Ta1ComboBox.SelectedItem}" + (Client1SapherasCheckBox.IsChecked == true ? " · Sapheras habilitada" : ""));
+        if (EnableClient2CheckBox.IsChecked == true)
+            lines.Add($"Cliente 2 · {Ta2ComboBox.SelectedItem}" + (Client2SapherasCheckBox.IsChecked == true ? " · Sapheras habilitada" : ""));
+        lines.Add($"Diárias: {DailyMissionsScopeComboBox.SelectedItem} · Diretiva: {GuildDirectiveScopeComboBox.SelectedItem}");
+        lines.Add($"Loja: {DailyShopScopeComboBox.SelectedItem} · Guilda: {GuildCheckinScopeComboBox.SelectedItem}");
+        lines.Add($"Boss do Amor: {LoveBossScopeComboBox.SelectedItem} · Agenda: {FarmScheduleScopeComboBox.SelectedItem}");
+        StartPreviewText.Text = string.Join(Environment.NewLine, lines);
+        StartPreviewOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void OnCancelStartPreview(object sender, RoutedEventArgs e) => StartPreviewOverlay.Visibility = Visibility.Collapsed;
+
+    private async void OnConfirmStartPreview(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!_databaseReady) { ShowValidation("Aguarde o carregamento do aplicativo."); return; }
+            var skipPreview = SkipStartPreviewCheckBox.IsChecked == true;
+            await _database.SaveSettingAsync(StartPreviewPreferenceKey, skipPreview ? "true" : "false");
+            _skipStartPreview = skipPreview;
+            RestoreStartPreviewButton.Visibility = _skipStartPreview ? Visibility.Visible : Visibility.Collapsed;
+            StartPreviewOverlay.Visibility = Visibility.Collapsed;
+            OnStartBot(sender, e);
+        }
+        catch (Exception exception) { ShowValidation($"Não foi possível salvar a preferência: {exception.GetBaseException().Message}"); }
+    }
+
+    private async void OnRestoreStartPreview(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await _database.SaveSettingAsync(StartPreviewPreferenceKey, "false");
+            _skipStartPreview = false;
+            SkipStartPreviewCheckBox.IsChecked = false;
+            RestoreStartPreviewButton.Visibility = Visibility.Collapsed;
+            AddLog("O resumo será exibido no próximo início.");
+        }
+        catch (Exception exception) { ShowValidation($"Não foi possível salvar a preferência: {exception.GetBaseException().Message}"); }
+    }
+
+    internal void ShowExecutionPreviewForScreenshot()
+    {
+        OnShowOverview(this, new RoutedEventArgs());
+        SetRunControls(true);
+        SetStatus(BotRunState.Running, "Clientes em execução", "Acompanhando as rotinas e conferindo o estado de cada janela.");
+        Client1ActivityText.Text = "Diárias em andamento · acompanhando as missões roxas";
+        Client2ActivityText.Text = "Farm detectado na T.A 2 · descanso confirmado";
+        Client1AudioStateText.Text = "Proteção ativa";
+        Client2AudioStateText.Text = "Proteção ativa";
+        RunElapsedText.Text = "Sessão há 00:12:48";
+    }
+
+    internal void ShowStartPreviewForScreenshot()
+    {
+        var skipPreview = _skipStartPreview;
+        try { _skipStartPreview = false; OnPreviewStart(this, new RoutedEventArgs()); }
+        finally { _skipStartPreview = skipPreview; }
+    }
+
     private async void OnStartBot(object sender, RoutedEventArgs e)
     {
         CancelScheduledStart();
@@ -1292,6 +1370,19 @@ public partial class MainWindow : Window
 
     private void AddLog(string message)
     {
+        if (!message.Contains("telemetria", StringComparison.OrdinalIgnoreCase) &&
+            !message.Contains("Proteção de HP", StringComparison.OrdinalIgnoreCase))
+        {
+            var clientIndex = message.IndexOf("Cliente 1:", StringComparison.Ordinal);
+            var activity = Client1ActivityText;
+            if (clientIndex < 0)
+            {
+                clientIndex = message.IndexOf("Cliente 2:", StringComparison.Ordinal);
+                activity = Client2ActivityText;
+            }
+            if (clientIndex >= 0)
+                activity.Text = $"{DateTime.Now:HH:mm:ss} · {message[(clientIndex + 10)..].Trim()}";
+        }
         LogListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
         while (LogListBox.Items.Count > 400)
         {
@@ -1325,10 +1416,34 @@ public partial class MainWindow : Window
         };
         StatusBadgeText.Text = text;
         StatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+        RunIndicatorTitle.Text = state switch
+        {
+            BotRunState.Running => "● Bot em execução",
+            BotRunState.Paused => "Ⅱ Execução pausada",
+            BotRunState.Waiting => "◷ Aguardando próximo passo",
+            BotRunState.Failed => "Atenção necessária",
+            _ => "Pronto para começar"
+        };
+        RunPulse.Visibility = _runStartedAt is not null && state is BotRunState.Running or BotRunState.Waiting
+            ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SetRunControls(bool isRunning)
     {
+        if (isRunning)
+        {
+            _runStartedAt = DateTime.Now;
+            _executionClock.Start();
+        }
+        else
+        {
+            _executionClock.Stop();
+            _runStartedAt = null;
+            RunPulse.Visibility = Visibility.Collapsed;
+        }
+        StartButton.Content = isRunning ? "●  PEXBOT em execução" : "▶  Preparar execução";
+        StartButton.Opacity = 1;
+        ConfigurationLockHint.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
         if (isRunning)
         {
             Client1AudioStateText.Text = EnableClient1CheckBox.IsChecked == true ? "Conectando…" : "Desativado";
@@ -1384,6 +1499,8 @@ public partial class MainWindow : Window
 
     private async Task LoadSettingsAsync()
     {
+        _skipStartPreview = await _database.GetSettingAsync(StartPreviewPreferenceKey) == "true";
+        RestoreStartPreviewButton.Visibility = _skipStartPreview ? Visibility.Visible : Visibility.Collapsed;
         var defaultsApplied = await _database.GetSettingAsync("sapheras.defaultsV050Applied");
         if (string.IsNullOrWhiteSpace(defaultsApplied))
         {

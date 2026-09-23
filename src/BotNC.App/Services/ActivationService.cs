@@ -54,6 +54,7 @@ internal sealed class ActivationService
     }
 
     public bool IsRequired => _server is not null;
+    internal static string ProfileKey { get; private set; } = "local";
 
     public bool HasValidActivation()
     {
@@ -72,9 +73,11 @@ internal sealed class ActivationService
             verifier.ImportSubjectPublicKeyInfo(Convert.FromBase64String(saved.PublicKey), out _);
             if (!verifier.VerifyData(payload, signature, HashAlgorithmName.SHA256)) return false;
             var license = JsonSerializer.Deserialize<OfflineLicense>(payload, JsonOptions);
-            return license is { Version: 1 } &&
+            var valid = license is { Version: 1 } &&
                    string.Equals(license.DeviceId, device.DeviceId, StringComparison.Ordinal) &&
                    string.Equals(license.Fingerprint, device.Fingerprint, StringComparison.Ordinal);
+            if (valid) SetProfile(license!.Username);
+            return valid;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
                CryptographicException or JsonException or FormatException)
@@ -127,7 +130,11 @@ internal sealed class ActivationService
         var temporary = path + ".new";
         await File.WriteAllBytesAsync(temporary, encrypted, cancellationToken);
         File.Move(temporary, path, overwrite: true);
+        SetProfile(license.Username);
     }
+
+    private static void SetProfile(string username) => ProfileKey =
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(username.Trim().ToUpperInvariant())))[..24].ToLowerInvariant();
 
     private DeviceIdentity ReadOrCreateDevice()
     {

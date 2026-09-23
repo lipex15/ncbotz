@@ -126,6 +126,11 @@ jobs:
             gh release upload $env:GITHUB_REF_NAME $installer $checksum --clobber --repo $targetRepo
           } else {
             $title = if ($testing) { "PEXBOT Teste v$version" } else { "PEXBOT v$version" }
-            gh release create $env:GITHUB_REF_NAME $installer $checksum --repo $targetRepo --target main --title $title --generate-notes
+            $notesFile = "docs/PATCH_${version}.md"
+            if (Test-Path -LiteralPath $notesFile) {
+              gh release create $env:GITHUB_REF_NAME $installer $checksum --repo $targetRepo --target main --title $title --notes-file $notesFile
+            } else {
+              gh release create $env:GITHUB_REF_NAME $installer $checksum --repo $targetRepo --target main --title $title --generate-notes
+            }
           }
           if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed.' }

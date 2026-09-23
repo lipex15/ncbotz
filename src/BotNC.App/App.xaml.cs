@@ -415,6 +415,10 @@ public partial class App : Application
         {
             window.ShowFarmScheduleForScreenshot();
         }
+        else if (isScreenshotMode && e.Args.Contains("--execution-view", StringComparer.Ordinal))
+        {
+            window.ShowExecutionPreviewForScreenshot();
+        }
 
         if (!isScreenshotMode)
         {
@@ -422,6 +426,10 @@ public partial class App : Application
         }
 
         await Task.Delay(1600);
+        if (e.Args.Contains("--execution-view", StringComparer.Ordinal))
+            window.ShowExecutionPreviewForScreenshot();
+        if (e.Args.Contains("--start-preview", StringComparer.Ordinal))
+            window.ShowStartPreviewForScreenshot();
         var outputPath = Path.GetFullPath(e.Args[screenshotIndex + 1]);
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         window.UpdateLayout();
@@ -454,13 +462,28 @@ public partial class App : Application
     private static async Task RunSelfTestAsync(string outputPath)
     {
         BotAutomationEngine.VerifySchedulePolicy();
+        BotAutomationEngine.VerifyDeathRestorationPolicy();
         LoveBossSchedule.VerifyPolicy();
-        var database = new AppDatabase();
+        var database = new AppDatabase(outputPath + ".data");
         await database.InitializeAsync();
+        await database.SaveSettingAsync("client1.routines.dailyCycle", "2026-09-23");
+        await database.MigrateRuntimeProfileAsync("first-user");
+        await database.MigrateRuntimeProfileAsync("second-user");
+        if (await database.GetSettingAsync("users.first-user.client1.routines.dailyCycle") != "2026-09-23" ||
+            !string.IsNullOrEmpty(await database.GetSettingAsync("users.second-user.client1.routines.dailyCycle")))
+            throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
         var activeTaSelector = LoadReferenceFrame(
             Path.Combine(referenceDirectory, "seletor_ta_tela.png"));
+        var realButtons = LoadReferenceFrame(Path.Combine(referenceDirectory, "ta_entry_states_real.png"));
+        if (TaEntryButtonAnalyzer.MeasureLabelInk(realButtons, 28, 24, 75, 25) >= 155 ||
+            TaEntryButtonAnalyzer.MeasureLabelInk(realButtons, 300, 24, 75, 25) < 180)
+            throw new InvalidOperationException("Os estados reais de Entrar foram confundidos.");
+        var restHud = await recognition.FindInImageAsync("game_hud_menu", Path.Combine(referenceDirectory, "descanso_generico.png"));
+        var normalHud = await recognition.FindInImageAsync("game_hud_menu", Path.Combine(referenceDirectory, "boss_room.png"));
+        if (restHud.Found || !normalHud.Found)
+            throw new InvalidOperationException($"HUD incorreto: descanso={restHud.Confidence:F3}, jogo={normalHud.Confidence:F3}.");
         foreach (var destination in new[]
                  { TaDestination.Ta1Codex, TaDestination.Ta2, TaDestination.Ta3 })
         {

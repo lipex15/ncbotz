@@ -19,11 +19,8 @@ public sealed class VisualRecognitionService(
     private readonly ConcurrentDictionary<string, Lazy<Task<VisualReference>>> _referenceCache = new();
 
     private Task<VisualReference> GetReferenceAsync(string referenceId) =>
-        referenceId.StartsWith("abadia_", StringComparison.Ordinal)
-            ? _referenceCache.GetOrAdd(
-                referenceId,
-                id => new Lazy<Task<VisualReference>>(() => database.GetReferenceAsync(id))).Value
-            : database.GetReferenceAsync(referenceId);
+        _referenceCache.GetOrAdd(referenceId,
+            id => new Lazy<Task<VisualReference>>(() => database.GetReferenceAsync(id))).Value;
     public async Task<RecognitionResult> FindAsync(
         string referenceId,
         CancellationToken cancellationToken = default)
@@ -79,6 +76,16 @@ public sealed class VisualRecognitionService(
         return await Task.Run(
             () => Match(frame, reference, cancellationToken),
             cancellationToken);
+    }
+
+    public async Task<RecognitionResult> FindAsync(string referenceId, PixelFrame frame,
+        int searchX, int searchY, int searchWidth, int searchHeight, CancellationToken cancellationToken)
+    {
+        var reference = await GetReferenceAsync(referenceId);
+        return await Task.Run(() => Match(frame, reference with
+        {
+            SearchX = searchX, SearchY = searchY, SearchWidth = searchWidth, SearchHeight = searchHeight
+        }, cancellationToken), cancellationToken);
     }
 
     public async Task<RecognitionResult> FindInCroppedImageAsync(
@@ -319,9 +326,7 @@ public sealed class VisualRecognitionService(
         {
             screen = NormalizeForReferenceMatching(screen);
         }
-        var template = reference.Id.StartsWith("abadia_", StringComparison.Ordinal)
-            ? DecodedReferences.GetValue(reference.Image, Decode)
-            : Decode(reference.Image);
+        var template = DecodedReferences.GetValue(reference.Image, Decode);
         ValidateSource(reference, template);
 
         var sourceX = reference.SourceX;
@@ -393,6 +398,27 @@ public sealed class VisualRecognitionService(
             }
         }
 
+        // A busca rápida anda de 2/3 em 2/3 pixels. Refine o melhor candidato:
+        // um deslocamento de 1 px não pode tornar a própria referência ilegível.
+        var coarseX = bestX;
+        var coarseY = bestY;
+        for (var y = Math.Max(searchY, coarseY - positionStep + 1); y <= Math.Min(maximumY, coarseY + positionStep - 1); y++)
+        for (var x = Math.Max(searchX, coarseX - positionStep + 1); x <= Math.Min(maximumX, coarseX + positionStep - 1); x++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var mean = samples.Average(sample => ReadLuma(screen, x + sample.X, y + sample.Y));
+            var covariance = 0d;
+            var variance = 0d;
+            foreach (var sample in samples)
+            {
+                var delta = ReadLuma(screen, x + sample.X, y + sample.Y) - mean;
+                covariance += (sample.Luma - templateMean) * delta;
+                variance += delta * delta;
+            }
+            var denominator = Math.Sqrt(templateVariance * variance);
+            var score = denominator < 0.001 ? -1 : covariance / denominator;
+            if (score > bestScore) { bestScore = score; bestX = x; bestY = y; }
+        }
         return new RecognitionResult(
             bestScore >= reference.Threshold,
             Math.Clamp(bestScore, 0, 1),

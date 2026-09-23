@@ -73,6 +73,14 @@
                         </Grid>
                     </Button>
                 </StackPanel>
+                <Border Grid.Row="3" x:Name="RunIndicator" VerticalAlignment="Bottom" Margin="0,20,0,20"
+                        Padding="14" CornerRadius="22" Background="#102B30" BorderBrush="#27625A" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock x:Name="RunIndicatorTitle" Text="Pronto para começar" Foreground="#75E4BD" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="RunElapsedText" Text="Selecione seus clientes e rotinas" Foreground="#B1C8D4" FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap" />
+                        <ProgressBar x:Name="RunPulse" IsIndeterminate="True" Height="3" Margin="0,12,0,0" Foreground="#45D8A5" Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
                 <StackPanel Grid.Row="4">
                     <TextBlock x:Name="ApplicationVersionText" Text="PEXBOT" Foreground="#52647A"
                                FontSize="10" Margin="2,0,0,0" />
@@ -121,13 +129,15 @@
                 <StackPanel Margin="0,0,6,0">
                     <Border Background="{StaticResource CardBrush}"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="11" Padding="20">
+                            CornerRadius="28" Padding="20">
                         <StackPanel>
                             <TextBlock Text="Clientes e ciclo de farm" Foreground="#65CEFA"
                                        FontSize="16" FontWeight="Bold" />
                             <TextBlock Text="Ative um cliente ou os dois. Quando ambos estiverem ativos, o Cliente 1 tem prioridade."
                                        Foreground="{StaticResource MutedBrush}"
                                        FontSize="12" Margin="0,5,0,18" />
+                            <TextBlock x:Name="ConfigurationLockHint" Text="🔒 Configuração desta sessão · pare a execução para editar"
+                                       Foreground="#79DAB6" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,12" Visibility="Collapsed" />
                             <TextBlock Text="CLIENTES · T.A (FARM OU RESERVA) · SAPHERAS" Style="{StaticResource FieldLabel}" />
                             <Grid Margin="0,7,0,8">
                                 <Grid.ColumnDefinitions>
@@ -171,7 +181,7 @@
                                     HorizontalAlignment="Right" Margin="0,0,0,12"
                                     Click="OnRefreshClients" />
                             <Border Background="#111C29" BorderBrush="#2A3B4D" BorderThickness="1"
-                                    CornerRadius="8" Padding="12" Margin="0,0,0,15">
+                                    CornerRadius="20" Padding="12" Margin="0,0,0,15">
                                 <StackPanel>
                                     <TextBlock Text="PONTO DE FARM PERSONALIZADO"
                                                Style="{StaticResource FieldLabel}" />
@@ -278,7 +288,7 @@
                                               Margin="0,7,0,0" IsEditable="True" />
                                 </StackPanel>
                             </Grid>
-                            <TextBlock Text="Sapheras tem prioridade máxima. Favoritos: farm na 1ª posição; teleporte opcional na 2ª."
+                            <TextBlock Text="Sapheras tem prioridade apenas nos clientes em que estiver habilitada e exige passe. Favoritos: farm na 1ª posição; teleporte opcional na 2ª."
                                        Foreground="#7F91A6" FontSize="11" Margin="0,10,0,0"
                                        TextWrapping="Wrap" />
                         </StackPanel>
@@ -296,9 +306,9 @@
                     </Grid.RowDefinitions>
                     <Border Background="{StaticResource CardBrush}"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="11" Padding="20">
+                            CornerRadius="28" Padding="20">
                         <StackPanel>
-                            <TextBlock Text="Controle" Foreground="#65CEFA"
+                            <TextBlock Text="Sua execução" Foreground="#65CEFA"
                                        FontSize="16" FontWeight="Bold" />
                             <TextBlock x:Name="CurrentStateText" Text="Bot parado"
                                        FontSize="18" FontWeight="SemiBold" Margin="0,15,0,0" />
@@ -307,7 +317,11 @@
                                        Foreground="{StaticResource MutedBrush}"
                                        TextWrapping="Wrap" Margin="0,5,0,17" />
                             <Button x:Name="StartButton" Content="▶  Iniciar PEXBOT"
-                                    Height="44" Background="#2475C5" BorderThickness="0" Click="OnStartBot" />
+                                    Height="48" Background="#2475C5" BorderThickness="0" Click="OnPreviewStart" />
+                            <Button x:Name="RestoreStartPreviewButton" Content="Mostrar resumo ao iniciar"
+                                    Visibility="Collapsed" HorizontalAlignment="Right" FontSize="10" Padding="4,3"
+                                    Background="Transparent" BorderThickness="0" Foreground="#9CB7CF"
+                                    Click="OnRestoreStartPreview" />
                             <Grid Margin="0,10,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -342,9 +356,9 @@
                     </Border>
                     <Border Grid.Row="2" Background="{StaticResource CardBrush}"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="11" Padding="16">
+                            CornerRadius="28" Padding="16">
                         <StackPanel>
-                            <TextBlock Text="PROTEÇÃO AUTOMÁTICA" FontSize="11" FontWeight="Bold" />
+                            <TextBlock Text="CLIENTES EM TEMPO REAL" FontSize="11" FontWeight="Bold" />
                             <Grid Margin="0,11,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="72" />
@@ -355,6 +369,7 @@
                                            Text="Aguardando início" Foreground="#7F91A6"
                                            FontWeight="SemiBold" />
                             </Grid>
+                            <TextBlock x:Name="Client1ActivityText" Text="Aguardando início" FontSize="11" Foreground="#B7C9DE" TextWrapping="Wrap" MaxHeight="48" Margin="0,6,0,8" />
                             <Grid Margin="0,9,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="72" />
@@ -365,11 +380,12 @@
                                            Text="Aguardando início" Foreground="#7F91A6"
                                            FontWeight="SemiBold" />
                             </Grid>
+                            <TextBlock x:Name="Client2ActivityText" Text="Aguardando início" FontSize="11" Foreground="#B7C9DE" TextWrapping="Wrap" MaxHeight="48" Margin="0,6,0,0" />
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="4" Background="#101A2C"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="11" Padding="16">
+                            CornerRadius="28" Padding="16">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -420,7 +436,7 @@
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                     <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="0,0,7,14">
+                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,7,14">
                         <StackPanel>
                             <TextBlock Text="Missões Diárias" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                             <TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
@@ -434,7 +450,7 @@
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="0" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="7,0,0,14">
+                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="7,0,0,14">
                         <StackPanel>
                             <TextBlock Text="Diretivas de Guilda" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                             <TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
@@ -460,7 +476,7 @@
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="2" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="7,0,0,0">
+                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="7,0,0,0">
                         <StackPanel>
                             <TextBlock Text="Correio de recursos" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                             <TextBlock Text="Resgatar as entregas das 01:00 e 07:00 para os clientes escolhidos."
@@ -469,7 +485,7 @@
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="1" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="7,0,0,14">
+                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="7,0,0,14">
                         <StackPanel>
                             <StackPanel>
                                 <TextBlock Text="Compra diária na Loja" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
@@ -484,7 +500,7 @@
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="2" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="0,0,7,0">
+                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,7,0">
                         <StackPanel>
                             <TextBlock Text="Boss do Amor · Trashi" Foreground="#65CEFA"
                                        FontSize="17" FontWeight="SemiBold" />
@@ -500,7 +516,7 @@
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="1" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="0,0,7,14">
+                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,7,14">
                         <StackPanel>
                             <TextBlock Text="Check-in e doações da Guilda" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                             <TextBlock Text="Check-in e até 3 doações de 10.000 ouro. Nunca usa Morion ou diamantes. Reinicia à 00:00 (UTC−3)."
@@ -529,7 +545,7 @@
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                     <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="20" Margin="0,0,0,14">
+                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,0,14">
                         <StackPanel>
                             <TextBlock Text="Cliente 1" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
                             <CheckBox x:Name="Client1AbbeyCheckBox" Content="Farmar na Abadia (T.A selecionada é o plano B)"
@@ -547,7 +563,7 @@
                         </StackPanel>
                     </Border>
                     <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="11" Padding="20">
+                            BorderThickness="1" CornerRadius="28" Padding="20">
                         <StackPanel>
                             <TextBlock Text="Cliente 2" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
                             <CheckBox x:Name="Client2AbbeyCheckBox" Content="Farmar na Abadia (T.A selecionada é o plano B)"
@@ -597,7 +613,7 @@
             </StackPanel>
             <Border Grid.Row="2" Background="{StaticResource CardBrush}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                    CornerRadius="11" Padding="22" VerticalAlignment="Top">
+                    CornerRadius="28" Padding="22" VerticalAlignment="Top">
                 <StackPanel>
                     <TextBlock Text="Anti Over Kill" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                     <TextBlock Text="ATIVAR PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
@@ -752,7 +768,7 @@
             </StackPanel>
             <Border Grid.Row="2" Background="{StaticResource CardBrush}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                    CornerRadius="11" Padding="24" VerticalAlignment="Top">
+                    CornerRadius="28" Padding="24" VerticalAlignment="Top">
                 <StackPanel>
                     <TextBlock Text="VERSÃO INSTALADA" Style="{StaticResource FieldLabel}" />
                     <TextBlock x:Name="InstalledVersionText" FontSize="22" FontWeight="SemiBold"
@@ -786,6 +802,28 @@
                     <TextBlock Text="A instalação preserva suas configurações e fecha o bot antes de atualizar."
                                Foreground="{StaticResource MutedBrush}" FontSize="11"
                                Margin="0,24,0,0" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </Grid>
+        <Grid x:Name="StartPreviewOverlay" Grid.ColumnSpan="2" Panel.ZIndex="100"
+              Background="#C0081020" Visibility="Collapsed">
+            <Border Width="620" Padding="30" CornerRadius="24" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="#14263D" BorderBrush="#3C6888" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="Vamos começar?" FontSize="28" FontWeight="Bold" />
+                    <TextBlock Text="Confira o que será executado nesta sessão." Foreground="#B7C9DE" Margin="0,8,0,20" />
+                    <Border Background="#0C1B2E" CornerRadius="22" Padding="18">
+                        <TextBlock x:Name="StartPreviewText" TextWrapping="Wrap" LineHeight="25" Foreground="#DFEBF8" />
+                    </Border>
+                    <TextBlock Text="O progresso é salvo durante a execução. Acompanhe cada cliente na Visão geral; você pode pausar ou parar a qualquer momento."
+                               TextWrapping="Wrap" Foreground="#ADC3D8" Margin="0,18,0,22" />
+                    <CheckBox x:Name="SkipStartPreviewCheckBox" Content="Não mostrar novamente"
+                              FontSize="11" Foreground="#ADC3D8" Margin="0,0,0,16" />
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Button Content="Voltar às configurações" Click="OnCancelStartPreview" />
+                        <Button Grid.Column="2" Content="▶  Iniciar agora" Background="#237DC6" Click="OnConfirmStartPreview" />
+                    </Grid>
                 </StackPanel>
             </Border>
         </Grid>

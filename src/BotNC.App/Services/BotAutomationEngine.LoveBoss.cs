@@ -13,7 +13,8 @@ public sealed partial class BotAutomationEngine
         DateTime? nextSapheras)
     {
         if (!options.EnableLoveBoss || !session.Options.EnableLoveBoss ||
-            session.HandlingDeath || session.InAgenda || session.InDailyCampaign ||
+            session.HandlingDeath || session.NeedsDeathRestoration || !session.StartupRestorationChecked ||
+            session.InAgenda || session.InDailyCampaign ||
             !session.LoveBossInside && !session.LoveBossReturnToFarmPending &&
             DateTime.UtcNow < session.NextLoveBossAttemptAt)
             return false;
@@ -49,7 +50,7 @@ public sealed partial class BotAutomationEngine
             return false;
 
         // Uma luta pode ocupar até 30 minutos. Sapheras continua prioritária.
-        if (!session.LoveBossInside && !session.LoveBossReturnToFarmPending && nextSapheras.HasValue &&
+        if (!session.LoveBossInside && !session.LoveBossReturnToFarmPending && session.Options.UseSapheras && nextSapheras.HasValue &&
             nextSapheras.Value - DateTime.Now < TimeSpan.FromMinutes(38))
             return false;
 
@@ -128,9 +129,8 @@ public sealed partial class BotAutomationEngine
             return;
         }
 
-        var taEntryState = await ReadDesiredTaEntryStateStableAsync(
-            session, EffectiveTaDestination(session), pause, cancellationToken);
-        if (taEntryState.State != TaEntryButtonState.Unknown)
+        if (await IsTaSelectorContextVisibleAsync(
+                session, EntryReadyReference(EffectiveTaDestination(session)), cancellationToken))
         {
             WriteLog(session, "Fechando o seletor da T.A antes de usar o ícone do Boss do Amor.");
             await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);

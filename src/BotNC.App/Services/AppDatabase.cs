@@ -8,9 +8,9 @@ public sealed class AppDatabase
 {
     private readonly string _connectionString;
 
-    public AppDatabase()
+    public AppDatabase(string? isolatedDirectory = null)
     {
-        var dataDirectory = Path.Combine(
+        var dataDirectory = isolatedDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             AppIdentity.DataDirectoryName);
         Directory.CreateDirectory(dataDirectory);
@@ -23,6 +23,32 @@ public sealed class AppDatabase
     }
 
     public string DatabasePath { get; }
+
+    public async Task MigrateRuntimeProfileAsync(string profile)
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction();
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT value FROM bot_settings WHERE key='runtime.legacyOwner'";
+        var owner = await command.ExecuteScalarAsync() as string;
+        if (owner is null)
+        {
+            command.CommandText = "INSERT INTO bot_settings(key,value) VALUES('runtime.legacyOwner',$profile)";
+            command.Parameters.AddWithValue("$profile", profile);
+            await command.ExecuteNonQueryAsync();
+            command.CommandText = """
+                INSERT OR IGNORE INTO bot_settings(key,value)
+                SELECT 'users.' || $profile || '.' || key, value FROM bot_settings
+                WHERE key LIKE 'client%.routines.%' OR key LIKE 'client%.restoration.%'
+                   OR key LIKE 'client%.farmSchedule.%' OR key LIKE 'client%.abbey.runtime.%'
+                   OR key LIKE 'client%.mail.%'
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+        await transaction.CommitAsync();
+    }
 
     public async Task InitializeAsync()
     {
@@ -240,6 +266,7 @@ public sealed class AppDatabase
             new("guild_checkin_done", "Check-in realizado", "guild_checkin_reward.png", 803, 880, 155, 50, 755, 830, 250, 125, 0.72),
             new("guild_checkin_reward", "Recompensa do check-in", "guild_checkin_reward.png", 810, 270, 310, 82, 730, 220, 500, 180, 0.66),
             new("guild_donation_panel", "Painel de doações", "guild_donation_panel.png", 905, 206, 155, 55, 800, 170, 350, 115, 0.68),
+            new("game_hud_menu", "Menu da tela de jogo", "boss_room.png", 1855, 48, 42, 32, 1820, 25, 95, 75, 0.78),
             new("guild_directive_page", "Página de Diretivas", "guild_directive_page.png", 430, 105, 190, 70, 390, 85, 280, 115, 0.68),
             new("guild_directive_accepted", "Campanha Aceita", "guild_directive_accepted.png", 805, 105, 315, 165, 730, 70, 470, 245, 0.66),
             new("guild_directive_in_progress", "Diretiva em andamento", "guild_directive_in_progress.png", 720, 475, 235, 75, 650, 430, 350, 150, 0.64),
