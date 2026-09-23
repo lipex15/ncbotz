@@ -16,7 +16,7 @@ public static class LoveBossSchedule
         {
             var spawnDay = hour == 0 && now.Hour == 23 ? now.AddDays(1) : now;
             var spawn = new DateTimeOffset(spawnDay.Year, spawnDay.Month, spawnDay.Day, hour, 0, 0, GameOffset);
-            if (now >= spawn.AddMinutes(-2) && now < spawn.AddSeconds(-15))
+            if (now >= spawn.AddMinutes(-3) && now < spawn.AddSeconds(-15))
                 return spawn;
         }
         return null;
@@ -43,7 +43,7 @@ public static class LoveBossSchedule
 
     public static void VerifyPolicy()
     {
-        var justBefore = new DateTimeOffset(2026, 9, 22, 15, 57, 59, GameOffset);
+        var justBefore = new DateTimeOffset(2026, 9, 22, 15, 56, 59, GameOffset);
         var opening = justBefore.AddSeconds(1);
         var ending = new DateTimeOffset(2026, 9, 22, 16, 0, 0, GameOffset);
         if (EntrySlot(justBefore) is not null ||

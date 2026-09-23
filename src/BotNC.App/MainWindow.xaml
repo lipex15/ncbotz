@@ -396,21 +396,26 @@
                                 <TextBlock Text="Atividade recente" FontSize="12" FontWeight="SemiBold"
                                            Foreground="#AFC2DE" />
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Content="Ampliar" Padding="8,3" FontSize="10" Margin="0,0,7,0" Click="OnExpandLog" />
-                                    <Button x:Name="CopyLogButton" Content="Copiar log" Margin="0,0,7,0"
+                                    <Button Content="Técnico" Padding="8,3" FontSize="10" Margin="0,0,7,0" Click="OnExpandLog" />
+                                    <Button x:Name="CopyLogButton" Content="Copiar diagnóstico" Margin="0,0,7,0"
                                             Padding="8,3" FontSize="10" Click="OnCopyLog" />
                                     <Button Content="Limpar" Padding="8,3" FontSize="10" Click="OnClearLog" />
                                 </StackPanel>
                             </Grid>
                             <ListBox x:Name="LogListBox" Grid.Row="2"
-                                     Visibility="Collapsed"
+                                     Visibility="Visible" HorizontalContentAlignment="Stretch"
                                      Background="Transparent" BorderThickness="0"
                                      Foreground="#AFC0D8" FontFamily="Segoe UI" FontSize="11"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding}" TextWrapping="Wrap"
-                                                   Margin="0,2,6,3" />
+                                        <Border CornerRadius="12" Background="#14263B" Padding="10" Margin="0,3,4,4">
+                                            <StackPanel>
+                                                <DockPanel><TextBlock Text="{Binding Time}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="#849AB4" FontSize="10"/>
+                                                    <TextBlock Text="{Binding Client}" Foreground="{Binding Tone}" FontWeight="SemiBold" FontSize="10"/></DockPanel>
+                                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,5,0,0" Foreground="#E1ECF7" FontSize="12"/>
+                                            </StackPanel>
+                                        </Border>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
@@ -810,20 +815,18 @@
         <Grid x:Name="ExpandedLogOverlay" Grid.ColumnSpan="2" Panel.ZIndex="90" Background="#EE081020" Visibility="Collapsed" Margin="16">
             <Border CornerRadius="24" Background="#122238" Padding="24" BorderBrush="#35516B" BorderThickness="1">
                 <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <DockPanel Margin="0,0,0,18">
                         <Button DockPanel.Dock="Right" Content="Fechar" Click="OnCloseExpandedLog" />
-                        <Button DockPanel.Dock="Right" Content="Copiar log completo" Click="OnCopyLog" Margin="0,0,12,0" />
-                        <TextBlock Text="Logs da execução" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
+                          <Button x:Name="TechnicalCopyLogButton" DockPanel.Dock="Right" Content="Copiar log completo" Click="OnCopyLog" Margin="0,0,12,0" />
+                        <Button DockPanel.Dock="Right" Content="Atualizar" Click="OnExpandLog" Margin="0,0,12,0" />
+                        <TextBlock Text="Diagnóstico técnico" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" />
                     </DockPanel>
-                    <ListBox Grid.Row="1" ItemsSource="{Binding Items, ElementName=LogListBox}"
+                      <TextBlock Grid.Row="1" Text="Exibindo as últimas 1.500 linhas. Copiar log completo inclui toda a execução, sem cortar o diagnóstico."
+                                 TextWrapping="Wrap" Foreground="#9BB5D5" FontSize="12" Margin="0,0,0,12"/>
+                      <TextBox x:Name="TechnicalLogText" Grid.Row="2" IsReadOnly="True" TextWrapping="Wrap"
                              Background="#0C192B" Foreground="#E1ECF7" BorderThickness="0" Padding="12"
-                             FontFamily="Consolas" FontSize="14" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                             HorizontalContentAlignment="Stretch">
-                        <ListBox.ItemTemplate><DataTemplate>
-                            <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,5,8,5" />
-                        </DataTemplate></ListBox.ItemTemplate>
-                    </ListBox>
+                             FontFamily="Consolas" FontSize="12" VerticalScrollBarVisibility="Auto"/>
                 </Grid>
             </Border>
         </Grid>

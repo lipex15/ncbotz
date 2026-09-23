@@ -20,6 +20,13 @@ public enum LoveBossPhase
 // no centro da arena nunca entram na decisão de estado.
 public sealed class LoveBossReader
 {
+    public async Task<bool> IsRewardClaimedAsync(PixelFrame frame, bool weekly, CancellationToken token)
+    {
+        var text = await ReadRegionAsync(frame, 1270, weekly ? 580 : 355, 180, 65, token);
+        return text.Contains("recebida", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("recebido", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("resgatad", StringComparison.OrdinalIgnoreCase);
+    }
     private static readonly Regex Counter = new(
         @"(?<!\d)(?<done>[0-5])\s*[/\\]\s*(?<total>[15])(?!\d)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -71,17 +78,18 @@ public sealed class LoveBossReader
         PixelFrame frame, int referenceX, int referenceY, int referenceWidth,
         int referenceHeight, CancellationToken cancellationToken)
     {
+        frame = VisualRecognitionService.NormalizeForReferenceMatching(frame);
         var engine = OcrEngine.TryCreateFromUserProfileLanguages() ??
                      OcrEngine.TryCreateFromLanguage(new Language("pt-BR")) ??
                      OcrEngine.TryCreateFromLanguage(new Language("en-US"));
         if (engine is null) return "OCR indisponível";
 
-        var x0 = (int)Math.Round(referenceX * frame.Width / 1920d);
-        var y0 = (int)Math.Round(referenceY * frame.Height / 1080d);
-        var sourceWidth = Math.Min(frame.Width - x0,
-            (int)Math.Round(referenceWidth * frame.Width / 1920d));
-        var sourceHeight = Math.Min(frame.Height - y0,
-            (int)Math.Round(referenceHeight * frame.Height / 1080d));
+        // Coordinates are already in the normalized game frame. A 1040 px WGC
+        // frame omits the taskbar; it must not shift the counters upward by 4%.
+        var x0 = referenceX;
+        var y0 = referenceY;
+        var sourceWidth = Math.Min(frame.Width - x0, referenceWidth);
+        var sourceHeight = Math.Min(frame.Height - y0, referenceHeight);
         if (sourceWidth <= 0 || sourceHeight <= 0) return "região indisponível";
 
         var observations = new List<string>();

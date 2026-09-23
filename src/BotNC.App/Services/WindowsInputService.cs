@@ -7,6 +7,8 @@ public sealed record CapturedScreenPoint(int X, int Y);
 
 public sealed class WindowsInputService
 {
+    public Action? ValidateWorkflowTarget { get; set; }
+    public Action<string>? WorkflowTrace { get; set; }
     private static readonly TimeSpan CommandCooldown = TimeSpan.FromMilliseconds(1800);
     private const uint InputMouse = 0;
     private const uint InputKeyboard = 1;
@@ -29,6 +31,8 @@ public sealed class WindowsInputService
         CancellationToken cancellationToken = default,
         TimeSpan? cooldown = null)
     {
+        ValidateWorkflowTarget?.Invoke();
+        WorkflowTrace?.Invoke($"input key=0x{virtualKey:X2}; target=verified");
         KeyDown(virtualKey);
         try
         {
@@ -46,6 +50,8 @@ public sealed class WindowsInputService
         int virtualKey,
         CancellationToken cancellationToken)
     {
+        ValidateWorkflowTarget?.Invoke();
+        WorkflowTrace?.Invoke($"input emergencyKey=0x{virtualKey:X2}; target=verified");
         KeyDown(virtualKey);
         try
         {
@@ -74,10 +80,14 @@ public sealed class WindowsInputService
             throw new Win32Exception(Marshal.GetLastWin32Error(), "A janela do jogo não aceitou a tecla em segundo plano.");
         }
 
-        await Task.Delay(hold ?? TimeSpan.FromMilliseconds(75), cancellationToken);
-        if (!NativeMethods.PostMessage(window, WmKeyUp, new IntPtr(virtualKey), upLParam))
+        try
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "A janela do jogo não aceitou a liberação da tecla em segundo plano.");
+            await Task.Delay(hold ?? TimeSpan.FromMilliseconds(75), cancellationToken);
+        }
+        finally
+        {
+            if (!NativeMethods.PostMessage(window, WmKeyUp, new IntPtr(virtualKey), upLParam))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "A janela do jogo não aceitou a liberação da tecla em segundo plano.");
         }
     }
 
@@ -86,6 +96,8 @@ public sealed class WindowsInputService
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
+        ValidateWorkflowTarget?.Invoke();
+        WorkflowTrace?.Invoke($"input holdKey=0x{virtualKey:X2}; durationMs={duration.TotalMilliseconds:F0}; target=verified");
         KeyDown(virtualKey);
         try
         {
@@ -105,21 +117,21 @@ public sealed class WindowsInputService
         CancellationToken cancellationToken,
         TimeSpan? cooldown = null)
     {
+        ValidateWorkflowTarget?.Invoke();
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
         var normalizedX = (int)Math.Round(screenX * 65535d / Math.Max(1, width - 1));
         var normalizedY = (int)Math.Round(screenY * 65535d / Math.Max(1, height - 1));
         Send(CreateMouseInput(normalizedX, normalizedY, MouseMove | MouseAbsolute));
         await Task.Delay(80, cancellationToken);
+        ValidateWorkflowTarget?.Invoke();
+        WorkflowTrace?.Invoke($"input click={screenX},{screenY}; target=verified");
         Send(CreateMouseInput(
             normalizedX,
             normalizedY,
             MouseMove | MouseAbsolute | MouseLeftDown));
-        await Task.Delay(70, cancellationToken);
-        Send(CreateMouseInput(
-            normalizedX,
-            normalizedY,
-            MouseMove | MouseAbsolute | MouseLeftUp));
+        try { await Task.Delay(70, cancellationToken); }
+        finally { Send(CreateMouseInput(normalizedX, normalizedY, MouseMove | MouseAbsolute | MouseLeftUp)); }
         await Task.Delay(cooldown ?? CommandCooldown, cancellationToken);
     }
 
@@ -130,6 +142,7 @@ public sealed class WindowsInputService
         CancellationToken cancellationToken,
         TimeSpan? cooldown = null)
     {
+        ValidateWorkflowTarget?.Invoke();
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
         if (!NativeMethods.GetCursorPos(out var current))
@@ -156,15 +169,14 @@ public sealed class WindowsInputService
         var normalizedX = (int)Math.Round(screenX * 65535d / Math.Max(1, width - 1));
         var normalizedY = (int)Math.Round(screenY * 65535d / Math.Max(1, height - 1));
         await Task.Delay(140, cancellationToken);
+        ValidateWorkflowTarget?.Invoke();
+        WorkflowTrace?.Invoke($"input click={screenX},{screenY}; movementMs={movementDuration.TotalMilliseconds:F0}; target=verified");
         Send(CreateMouseInput(
             normalizedX,
             normalizedY,
             MouseMove | MouseAbsolute | MouseLeftDown));
-        await Task.Delay(110, cancellationToken);
-        Send(CreateMouseInput(
-            normalizedX,
-            normalizedY,
-            MouseMove | MouseAbsolute | MouseLeftUp));
+        try { await Task.Delay(110, cancellationToken); }
+        finally { Send(CreateMouseInput(normalizedX, normalizedY, MouseMove | MouseAbsolute | MouseLeftUp)); }
         await Task.Delay(cooldown ?? CommandCooldown, cancellationToken);
     }
 
@@ -173,6 +185,8 @@ public sealed class WindowsInputService
         for (var index = 0; index < repetitions; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ValidateWorkflowTarget?.Invoke();
+            WorkflowTrace?.Invoke($"input scroll={wheelDelta}; target=verified");
             var wheel = CreateMouseInput(0, 0, MouseWheel);
             wheel.Union.Mouse.MouseData = unchecked((uint)wheelDelta);
             Send(wheel);

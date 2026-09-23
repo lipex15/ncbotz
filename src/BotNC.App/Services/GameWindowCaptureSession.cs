@@ -26,6 +26,7 @@ public sealed class GameWindowCaptureSession : IAsyncDisposable
     private readonly SemaphoreSlim _frameAvailable = new(0, 1);
     private readonly object _frameSync = new();
     private bool _disposed;
+    private Windows.Graphics.SizeInt32 _captureSize;
 
     public static bool IsCaptureSupported => GraphicsCaptureSession.IsSupported();
 
@@ -39,6 +40,7 @@ public sealed class GameWindowCaptureSession : IAsyncDisposable
 
         _device = CreateDirect3DDevice();
         _item = CreateItemForWindow(target.Handle);
+        _captureSize = _item.Size;
         _framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
             _device,
             DirectXPixelFormat.B8G8R8A8UIntNormalized,
@@ -81,6 +83,17 @@ public sealed class GameWindowCaptureSession : IAsyncDisposable
         if (latest is null)
         {
             throw new InvalidOperationException("A captura sinalizou um quadro, mas não retornou a imagem.");
+        }
+
+        if (latest.ContentSize.Width != _captureSize.Width || latest.ContentSize.Height != _captureSize.Height)
+        {
+            var size = latest.ContentSize;
+            latest.Dispose();
+            if (size.Width < 640 || size.Height < 360)
+                throw new InvalidOperationException("Janela minimizada ou pequena demais para reconhecimento confiável.");
+            _framePool.Recreate(_device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, size);
+            _captureSize = size;
+            throw new InvalidOperationException("Dimensões da janela mudaram; captura recriada, aguardando quadro atualizado.");
         }
 
         using (latest)

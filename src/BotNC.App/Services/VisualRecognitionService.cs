@@ -21,6 +21,20 @@ public sealed class VisualRecognitionService(
     private readonly object _referenceCacheSync = new();
     private readonly Dictionary<string, (Task<VisualReference> Value, long Access)> _referenceCache = new();
     private long _referenceAccess;
+    // Only the sequential workflow binds this provider; watchdogs pass explicit frames.
+    public Func<CancellationToken, Task<PixelFrame>>? WorkflowFrameProvider { get; set; }
+    public Action<string>? WorkflowTrace { get; set; }
+    public string WorkflowContextId { get; set; } = "offline";
+    private readonly Dictionary<string, (bool Found, DateTime At)> _traceStates = new();
+    internal void TraceWorkflowResult(string id, PixelFrame frame, RecognitionResult result)
+    {
+        var key = $"{WorkflowContextId}|{id}";
+        if (_traceStates.TryGetValue(key, out var last) && last.Found == result.Found && DateTime.UtcNow - last.At < TimeSpan.FromMinutes(1)) return;
+        _traceStates[key] = (result.Found, DateTime.UtcNow);
+        WorkflowTrace?.Invoke($"recognition ref={id}; found={result.Found}; confidence={result.Confidence:F4}; xy={result.X},{result.Y}; frame={frame.Width}x{frame.Height}");
+    }
+    private Task<PixelFrame> CaptureWorkflowAsync(CancellationToken token) =>
+        WorkflowFrameProvider is { } provider ? provider(token) : Task.FromResult(capture.CapturePrimaryScreen());
 
     private Task<VisualReference> GetReferenceAsync(string referenceId)
     {
@@ -43,10 +57,10 @@ public sealed class VisualRecognitionService(
         CancellationToken cancellationToken = default)
     {
         var reference = await GetReferenceAsync(referenceId);
-        var screen = capture.CapturePrimaryScreen();
-        return await Task.Run(
-            () => Match(screen, reference, cancellationToken),
-            cancellationToken);
+        var screen = await CaptureWorkflowAsync(cancellationToken);
+        var result = await Task.Run(() => Match(screen, reference, cancellationToken), cancellationToken);
+        TraceWorkflowResult(referenceId, screen, result);
+        return result;
     }
 
     public async Task<RecognitionResult> FindAsync(
@@ -76,10 +90,12 @@ public sealed class VisualRecognitionService(
             SearchWidth = searchWidth,
             SearchHeight = searchHeight
         };
-        var screen = capture.CapturePrimaryScreen();
-        return await Task.Run(
+        var screen = await CaptureWorkflowAsync(cancellationToken);
+        var result = await Task.Run(
             () => Match(screen, regionalReference, cancellationToken),
             cancellationToken);
+        TraceWorkflowResult($"{referenceId}@{searchX},{searchY},{searchWidth},{searchHeight}", screen, result);
+        return result;
     }
 
     public async Task<RecognitionResult> FindInImageAsync(
@@ -303,7 +319,7 @@ public sealed class VisualRecognitionService(
 
     public async Task<string> SaveDiagnosticAsync(string name)
     {
-        var frame = capture.CapturePrimaryScreen();
+        var frame = await CaptureWorkflowAsync(CancellationToken.None);
         return await SaveDiagnosticAsync(name, frame);
     }
 

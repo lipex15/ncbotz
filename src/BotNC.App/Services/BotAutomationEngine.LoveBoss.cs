@@ -14,13 +14,13 @@ public sealed partial class BotAutomationEngine
     {
         if (!options.EnableLoveBoss || !session.Options.EnableLoveBoss ||
             session.HandlingDeath || session.NeedsDeathRestoration || !session.StartupRestorationChecked ||
-            session.InAgenda || session.InDailyCampaign ||
-            !session.LoveBossInside && !session.LoveBossReturnToFarmPending &&
-            DateTime.UtcNow < session.NextLoveBossAttemptAt)
+            session.InAgenda || DateTime.UtcNow < session.NextLoveBossAttemptAt)
             return false;
 
         if (session.LoveBossReturnToFarmPending &&
             allSessions.Any(other => other != session && other.LoveBossInside))
+            return false;
+        if (session.LoveBossInside && DateTime.UtcNow < session.NextLoveBossRoomScanAt)
             return false;
 
         var now = DateTimeOffset.UtcNow;
@@ -59,7 +59,7 @@ public sealed partial class BotAutomationEngine
             await ActivateGameAsync(session, cancellationToken);
             if (session.LoveBossReturnToFarmPending)
             {
-                await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+                await ResumeAfterLoveBossAsync(session, pause, cancellationToken);
                 session.LoveBossReturnToFarmPending = false;
                 WriteLog(session, "Raide encerrada nos clientes; farm retomado.");
                 return true;
@@ -75,11 +75,21 @@ public sealed partial class BotAutomationEngine
             {
                 await ExitRestIfNeededAsync(session, pause, cancellationToken);
                 await ClaimLoveBossRewardsAsync(session, pause, cancellationToken, day);
-                await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+                await ResumeAfterLoveBossAsync(session, pause, cancellationToken);
                 session.NextLoveBossAttemptAt = DateTime.UtcNow.AddMinutes(15);
                 return true;
             }
 
+            if (session.InDailyCampaign || session.DailyCycle == DailyCycleKey(DateTime.Now) &&
+                session.DailyCompletedCycle != session.DailyCycle)
+            {
+                session.ResumeDailyAfterLoveBoss = true;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.loveBoss.resumeDaily", "true");
+                session.InDailyCampaign = false;
+                session.DailyNeedsTeleport = false;
+                WriteLog(session, "Pausando as Diárias para o Boss do Amor; o progresso será retomado após a raide.");
+            }
+            session.IsFarmingTa = false;
             await EnterAndCompleteLoveBossAsync(session, pause, cancellationToken, day, slot!.Value);
             return true;
         }
@@ -89,11 +99,12 @@ public sealed partial class BotAutomationEngine
         }
         catch (Exception exception)
         {
-            session.NextLoveBossAttemptAt = DateTime.UtcNow.AddMinutes(10);
+            session.NextLoveBossAttemptAt = DateTime.UtcNow.Add(session.LoveBossInside
+                ? TimeSpan.FromSeconds(15) : TimeSpan.FromMinutes(10));
             WritePersistentOnly(session, exception.ToString());
             WriteLog(session,
                 $"Boss do Amor interrompido com segurança: {exception.GetBaseException().Message}. " +
-                "Não repetirei a entrada às cegas; nova verificação em 10 minutos.");
+                $"Próxima verificação em {(session.LoveBossInside ? "15 segundos na sala" : "10 minutos")}; sem repetir a entrada.");
             try
             {
                 session.LoveBossInside = (await FindReferenceOnClientAsync(
@@ -101,7 +112,7 @@ public sealed partial class BotAutomationEngine
                 if (!session.LoveBossInside)
                 {
                     await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-                    await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+                    await ResumeAfterLoveBossAsync(session, pause, cancellationToken);
                 }
             }
             catch (Exception recoveryException)
@@ -125,7 +136,7 @@ public sealed partial class BotAutomationEngine
         if (LoveBossSchedule.EntrySlot(DateTimeOffset.UtcNow) != slot)
         {
             WriteLog(session, "Janela de entrada do boss terminou durante a preparação; sem clique tardio.");
-            await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
+            await ResumeAfterLoveBossAsync(session, pause, cancellationToken);
             return;
         }
 
@@ -136,8 +147,9 @@ public sealed partial class BotAutomationEngine
             await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
             await Task.Delay(400, cancellationToken);
         }
-        WriteLog(session, "Boss do Amor: abrindo a entrada pelo ícone ao lado do minimapa (354, 131).");
-        await input.MoveAndClickAsync(354, 131, TimeSpan.FromMilliseconds(300),
+        WriteLog(session, "Boss do Amor: abrindo a entrada pelo ícone ao lado do minimapa (413, 127).");
+        var entryPoint = gameWindows.MapReferencePoint(session.Options.Target, 413, 127);
+        await input.MoveAndClickAsync(entryPoint.X, entryPoint.Y, TimeSpan.FromMilliseconds(300),
             cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
         await WaitForReferenceAsync("boss_entry_panel", "convite da Raide de Chefe",
             TimeSpan.FromSeconds(10), pause, cancellationToken);
@@ -152,13 +164,13 @@ public sealed partial class BotAutomationEngine
             $"{SessionSettingPrefix(session)}.routines.loveBoss.lastSlot",
             session.LoveBossLastSlot);
         session.LoveBossInside = true;
+        session.LoveBossAutoCommandSent = false;
         WriteLog(session, "Entrada no Berço da Chama Vermelha confirmada.");
-        await EnsureLoveBossAutoAsync(session, pause, cancellationToken);
-        session.LoveBossAutoConfirmed = true;
+        session.LoveBossAutoConfirmed = await EnsureLoveBossAutoAsync(session, pause, cancellationToken);
         session.LoveBossRoomDeadline = DateTime.UtcNow.AddMinutes(36);
         session.NextLoveBossRoomScanAt = DateTime.UtcNow.AddSeconds(3);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: Boss do Amor",
-            "Auto ligado; acompanhando Trashi e o temporizador da sala");
+            session.LoveBossAutoConfirmed ? "Auto confirmado; acompanhando a sala" : "Auto ainda não confirmado; acompanhando a sala sem alternar o botão");
     }
 
     private async Task MonitorLoveBossInsideStepAsync(
@@ -167,8 +179,7 @@ public sealed partial class BotAutomationEngine
     {
         if (!session.LoveBossAutoConfirmed)
         {
-            await EnsureLoveBossAutoAsync(session, pause, cancellationToken);
-            session.LoveBossAutoConfirmed = true;
+            session.LoveBossAutoConfirmed = await EnsureLoveBossAutoAsync(session, pause, cancellationToken);
         }
         if (DateTime.UtcNow < session.NextLoveBossRoomScanAt)
             return;
@@ -204,20 +215,40 @@ public sealed partial class BotAutomationEngine
         WriteLog(session, "Recompensa tratada; aguardando os outros clientes terminarem a raide antes de retomar o farm.");
     }
 
-    private async Task EnsureLoveBossAutoAsync(
+    private async Task<bool> EnsureLoveBossAutoAsync(
         ClientSession session, PauseController pause, CancellationToken cancellationToken)
     {
-        if ((await recognition.FindAsync("boss_auto_on", cancellationToken)).Found)
+        var first = await recognition.FindAsync("boss_auto_on", cancellationToken);
+        await Task.Delay(350, cancellationToken);
+        var second = await recognition.FindAsync("boss_auto_on", cancellationToken);
+        if (first.Found && second.Found)
         {
             WriteLog(session, "Auto já está ligado na sala do boss.");
-            return;
+            return true;
         }
+        // A falta do template não prova Auto desligado. Nunca alternar novamente
+        // um comando já enviado só porque uma animação prejudicou a confirmação.
+        if (session.LoveBossAutoCommandSent || first.Found || second.Found) return false;
         await CheckpointAsync(pause, cancellationToken);
-        await input.MoveAndClickAsync(1875, 672, TimeSpan.FromMilliseconds(300),
+        var point = gameWindows.MapReferencePoint(session.Options.Target, 1875, 672);
+        await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(300),
             cancellationToken, cooldown: TimeSpan.FromMilliseconds(170));
-        await WaitForReferenceAsync("boss_auto_on", "Auto ligado na Raide",
-            TimeSpan.FromSeconds(8), pause, cancellationToken);
-        WriteLog(session, "Auto ligado e confirmado visualmente.");
+        session.LoveBossAutoCommandSent = true;
+        var deadline = DateTime.UtcNow.AddSeconds(8);
+        var hits = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            hits = (await recognition.FindAsync("boss_auto_on", cancellationToken)).Found ? hits + 1 : 0;
+            if (hits >= 2)
+            {
+                WriteLog(session, "Auto ligado e confirmado visualmente.");
+                return true;
+            }
+            await Task.Delay(350, cancellationToken);
+        }
+        WriteLog(session, "Auto do boss não confirmado após o comando; mantendo a leitura da sala, sem alternar o botão às cegas.");
+        return false;
     }
 
     private async Task LeaveFarmDungeonForLoveBossAsync(
@@ -298,7 +329,7 @@ public sealed partial class BotAutomationEngine
         {
             await CheckpointAsync(pause, cancellationToken);
             var reading = await _loveBossReader.ReadMissionAsync(
-                capture.CapturePrimaryScreen(), cancellationToken);
+                await CaptureClientFrameAsync(session, cancellationToken), cancellationToken);
             if (previous is not null &&
                 reading.DailyCompleted == previous.DailyCompleted &&
                 reading.WeeklyCompleted == previous.WeeklyCompleted &&
@@ -308,7 +339,7 @@ public sealed partial class BotAutomationEngine
             await Task.Delay(350, cancellationToken);
         }
         WriteLog(session, $"Leitura instável da missão do boss: {previous?.Evidence}.");
-        return previous ?? new LoveBossMissionStatus(null, null, "nenhuma leitura");
+        return new LoveBossMissionStatus(null, null, previous?.Evidence ?? "nenhuma leitura");
     }
 
     private async Task ClaimLoveBossRewardsAsync(
@@ -356,7 +387,13 @@ public sealed partial class BotAutomationEngine
             WriteLog(session, "Recompensa diária do Boss do Amor recebida.");
         }
         else
-            WriteLog(session, "Recompensa diária da Raide já aparece como recebida.");
+        {
+            var claimed = await _loveBossReader.IsRewardClaimedAsync(
+                await CaptureClientFrameAsync(session, cancellationToken), false, cancellationToken);
+            if (!claimed)
+                throw new InvalidOperationException("Recompensa diária não confirmada: botão não encontrado não significa prêmio recebido.");
+            WriteLog(session, "Recompensa diária da Raide confirmada como já recebida.");
+        }
 
         if (mission.WeeklyCompleted == 5)
         {
@@ -374,6 +411,9 @@ public sealed partial class BotAutomationEngine
                     TimeSpan.FromSeconds(8), pause, cancellationToken);
                 WriteLog(session, "Recompensa semanal de 5/5 Raides recebida.");
             }
+            else if (!await _loveBossReader.IsRewardClaimedAsync(
+                         await CaptureClientFrameAsync(session, cancellationToken), true, cancellationToken))
+                throw new InvalidOperationException("Recompensa semanal 5/5 ainda não teve coleta confirmada.");
         }
         session.LoveBossRewardCycle = day;
         await database.SaveSettingAsync(
@@ -385,6 +425,28 @@ public sealed partial class BotAutomationEngine
         session.LoveBossCompletedCycle = day;
         await database.SaveSettingAsync(
             $"{SessionSettingPrefix(session)}.routines.loveBoss.completedCycle", day);
+    }
+
+    private async Task ResumeAfterLoveBossAsync(ClientSession session, PauseController pause, CancellationToken token)
+    {
+        if (session.ResumeDailyAfterLoveBoss)
+        {
+            var resumed = await ResumeDailyCampaignAsync(session, pause, token);
+            if (resumed == DailyResumeResult.Started)
+            {
+                session.InDailyCampaign = true;
+                session.NextDailyMissionCheckAt = DateTime.UtcNow.AddMinutes(2);
+                WriteLog(session, "Diárias retomadas após o Boss do Amor.");
+            }
+            else if (resumed == DailyResumeResult.NoMission)
+                await MarkDailyCampaignCompletedAsync(session, "Diárias já concluídas ao retornar do boss.");
+            else
+                await YieldUncertainDailyToFarmAsync(session, pause, token);
+            session.ResumeDailyAfterLoveBoss = false;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.loveBoss.resumeDaily", "false");
+            if (resumed != DailyResumeResult.NoMission) return;
+        }
+        await ResumeStableFarmAsync(session, pause, token);
     }
 
     private async Task SaveLoveBossWeeklyStateAsync(ClientSession session)

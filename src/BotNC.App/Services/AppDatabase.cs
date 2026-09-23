@@ -295,7 +295,7 @@ public sealed class AppDatabase
             new("boss_room", "Berço da Chama Vermelha", "boss_room.png",
                 65, 96, 251, 34, 32, 68, 340, 105, 0.70),
             new("boss_auto_on", "Auto ligado na Raide", "boss_auto_on.png",
-                28, 8, 68, 90, 1810, 600, 110, 125, 0.77),
+                36, 35, 44, 39, 1810, 600, 110, 125, 0.80),
             new("boss_alive", "Barra de vida de Trashi", "boss_alive.png",
                 708, 36, 520, 62, 630, 20, 670, 125, 0.72),
             new("boss_victory", "Raide de Chefe Bem-sucedido", "boss_victory.png",

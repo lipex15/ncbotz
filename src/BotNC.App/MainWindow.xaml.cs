@@ -849,6 +849,9 @@ public partial class MainWindow : Window
         Client1AudioStateText.Text = "Proteção ativa";
         Client2AudioStateText.Text = "Proteção ativa";
         RunElapsedText.Text = "Sessão há 00:12:48";
+        AddLog("Cliente 1: Campanha automática das Diárias em andamento.");
+        AddLog("Cliente 2: Farm da T.A 2 iniciado e confirmado.");
+        AddLog("Cliente 2: Correio conferido; fluxo normal retomado.");
     }
 
     internal void ShowStartPreviewForScreenshot()
@@ -1270,7 +1273,19 @@ public partial class MainWindow : Window
 
     private void OnClearLog(object sender, RoutedEventArgs e) => LogListBox.Items.Clear();
 
-    private void OnExpandLog(object sender, RoutedEventArgs e) => ExpandedLogOverlay.Visibility = Visibility.Visible;
+    private async void OnExpandLog(object sender, RoutedEventArgs e)
+    {
+        ExpandedLogOverlay.Visibility = Visibility.Visible;
+        try
+        {
+            await using var stream = new FileStream(_engine.RuntimeLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            var text = await reader.ReadToEndAsync();
+            TechnicalLogText.Text = string.Join(Environment.NewLine, text.Split('\n').TakeLast(1500));
+            TechnicalLogText.ScrollToEnd();
+        }
+        catch (IOException) { TechnicalLogText.Text = "O diagnóstico será preenchido ao iniciar a execução."; }
+    }
     private void OnCloseExpandedLog(object sender, RoutedEventArgs e) => ExpandedLogOverlay.Visibility = Visibility.Collapsed;
 
     private async void OnCopyLog(object sender, RoutedEventArgs e)
@@ -1290,17 +1305,20 @@ public partial class MainWindow : Window
             {
                 content = string.Join(
                     Environment.NewLine,
-                    LogListBox.Items.Cast<object>().Select(item => item.ToString()));
+                    LogListBox.Items.Cast<UserActivityEntry>().Select(item => $"[{item.Time}] {item.Client}: {item.Summary}"));
             }
 
             Clipboard.SetText(content);
             CopyLogButton.Content = "Copiado!";
+            TechnicalCopyLogButton.Content = "Copiado!";
             await Task.Delay(1800);
-            CopyLogButton.Content = "Copiar log";
+            CopyLogButton.Content = "Copiar diagnóstico";
+            TechnicalCopyLogButton.Content = "Copiar log completo";
         }
         catch (Exception exception)
         {
             CopyLogButton.Content = "Falhou";
+            TechnicalCopyLogButton.Content = "Tentar copiar novamente";
             AddLog($"Não foi possível copiar o log: {exception.GetBaseException().Message}");
         }
     }
@@ -1373,27 +1391,13 @@ public partial class MainWindow : Window
 
     private void AddLog(string message)
     {
-        if (!message.Contains("telemetria", StringComparison.OrdinalIgnoreCase) &&
-            !message.Contains("Proteção de HP", StringComparison.OrdinalIgnoreCase))
-        {
-            var clientIndex = message.IndexOf("Cliente 1:", StringComparison.Ordinal);
-            var activity = Client1ActivityText;
-            if (clientIndex < 0)
-            {
-                clientIndex = message.IndexOf("Cliente 2:", StringComparison.Ordinal);
-                activity = Client2ActivityText;
-            }
-            if (clientIndex >= 0)
-                activity.Text = message.Contains("Falha", StringComparison.OrdinalIgnoreCase) || message.Contains("incerto", StringComparison.OrdinalIgnoreCase)
-                    ? "Aguardando recuperação"
-                    : message.Contains("restaura", StringComparison.OrdinalIgnoreCase) ? "Restaurando recursos"
-                    : message.Contains("descanso", StringComparison.OrdinalIgnoreCase) ? "Conferindo descanso"
-                    : message.Contains("Diária", StringComparison.OrdinalIgnoreCase) ? "Conferindo missões diárias"
-                    : message.Contains("Diretiva", StringComparison.OrdinalIgnoreCase) ? "Conferindo diretiva"
-                    : message.Contains("farm", StringComparison.OrdinalIgnoreCase) ? "Preparando farm"
-                    : "Em preparação";
-        }
-        LogListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+        var entry = UserActivityLog.Describe(message);
+        if (entry is null) return;
+        var activity = entry.Client == "CLIENTE 1" ? Client1ActivityText : entry.Client == "CLIENTE 2" ? Client2ActivityText : null;
+        if (activity is not null) activity.Text = entry.Summary;
+        var previous = LogListBox.Items.Cast<UserActivityEntry>().LastOrDefault(item => item.Client == entry.Client);
+        if (previous?.Summary == entry.Summary) return;
+        LogListBox.Items.Add(entry);
         while (LogListBox.Items.Count > 400)
         {
             LogListBox.Items.RemoveAt(0);

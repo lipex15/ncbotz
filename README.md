@@ -6,11 +6,11 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Patch atual — v0.10.14
+## Patch atual — v0.10.16
 
-Retomada persistente por usuário/cliente, revisão de lápide e Diretivas, leitura de “Entrar” independente do preço e confirmação do descanso pela janela correta. Interface arredondada, campos legíveis durante execução e resumo de início opcional.
+Atividade resumida por cliente e diagnóstico técnico completo para copiar. Capturas vinculadas à janela responsável, Diárias separadas do estado de farm, esperas preservadas após leituras inconclusivas, retomada após Boss e verificações adicionais de restauração. Mantém a interface arredondada, campos legíveis durante execução e resumo de início opcional.
 
-Consulte [as mudanças e os limites da validação](docs/PATCH_0.10.14.md) e [o guia rápido de uso](docs/GUIA_RAPIDO.md). O código atual é publicado somente no repositório privado `pexbot-source`; os dois repositórios públicos distribuem os instaladores.
+Consulte [as mudanças e os limites da validação](docs/PATCH_0.10.16.md) e [o guia rápido de uso](docs/GUIA_RAPIDO.md). O código atual é publicado somente no repositório privado `pexbot-source`; os dois repositórios públicos distribuem os instaladores.
 
 ## Histórico — v0.10.4 (comportamentos substituídos pelo patch atual)
 

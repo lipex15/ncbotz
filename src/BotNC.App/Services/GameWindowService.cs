@@ -138,7 +138,7 @@ public sealed class GameWindowService
         }
 
         NativeMethods.GetWindowThreadProcessId(foreground, out var processId);
-        return processId == target.ProcessId;
+        return foreground == target.Handle && processId == target.ProcessId;
     }
 
     public (int X, int Y) MapReferencePoint(

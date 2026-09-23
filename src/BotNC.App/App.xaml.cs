@@ -463,6 +463,7 @@ public partial class App : Application
     {
         BotAutomationEngine.VerifySchedulePolicy();
         BotAutomationEngine.VerifyDeathRestorationPolicy();
+        BotAutomationEngine.VerifyWorkflowStabilityPolicy();
         LoveBossSchedule.VerifyPolicy();
         var database = new AppDatabase(outputPath + ".data");
         await database.InitializeAsync();
@@ -474,6 +475,19 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        BotAutomationEngine.VerifyDailyListFixture(LoadReferenceFrame(Path.Combine(referenceDirectory, "daily_automatic.png")));
+        var bossRewards = LoadReferenceFrame(Path.Combine(referenceDirectory, "boss_reward_panel.png"));
+        var bossWindowPixels = new byte[bossRewards.Stride * 1040];
+        Buffer.BlockCopy(bossRewards.Pixels, 0, bossWindowPixels, 0, bossWindowPixels.Length);
+        var bossWindow = new PixelFrame(bossRewards.Width, 1040, bossRewards.Stride, bossWindowPixels);
+        var bossReader = new LoveBossReader();
+        foreach (var rewardFrame in new[] { bossRewards, bossWindow })
+        {
+            var mission = await bossReader.ReadMissionAsync(rewardFrame, CancellationToken.None);
+            if (mission.DailyCompleted != 1 || mission.WeeklyCompleted != 1 ||
+                await bossReader.IsRewardClaimedAsync(rewardFrame, false, CancellationToken.None))
+                throw new InvalidOperationException($"Contadores/recompensa do Boss não reconhecidos na captura {rewardFrame.Height}: {mission.Evidence}");
+        }
         var activeTaSelector = LoadReferenceFrame(
             Path.Combine(referenceDirectory, "seletor_ta_tela.png"));
         var userSelector = LoadReferenceFrame(Path.Combine(referenceDirectory, "ta_selector_user_active.png"));
