@@ -404,7 +404,11 @@ public partial class App : Application
         MainWindow = window;
         window.Show();
 
-        if (isScreenshotMode && e.Args.Contains("--updates-tab", StringComparer.Ordinal))
+        if (isScreenshotMode && e.Args.Contains("--statistics-tab", StringComparer.Ordinal))
+        {
+            window.ShowStatisticsForScreenshot();
+        }
+        else if (isScreenshotMode && e.Args.Contains("--updates-tab", StringComparer.Ordinal))
         {
             window.ShowUpdatesForScreenshot();
         }
@@ -434,7 +438,7 @@ public partial class App : Application
             return;
         }
 
-        await Task.Delay(1600);
+        await Task.Delay(e.Args.Contains("--statistics-tab", StringComparer.Ordinal) ? 5000 : 1600);
         if (e.Args.Contains("--execution-view", StringComparer.Ordinal))
             window.ShowExecutionPreviewForScreenshot();
         if (e.Args.Contains("--start-preview", StringComparer.Ordinal))
@@ -486,6 +490,8 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        await StatisticsRegression.VerifyAsync(outputPath + ".statistics.txt", recognition,
+            name => LoadReferenceFrame(Path.Combine(referenceDirectory, name)));
         var treasureChecks = await GuildTreasureRegression.VerifyAsync(recognition, database,
             name => LoadReferenceFrame(Path.Combine(referenceDirectory, name)));
         await File.WriteAllLinesAsync(outputPath + ".treasure.txt", treasureChecks);

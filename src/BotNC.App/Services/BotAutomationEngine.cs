@@ -96,6 +96,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        StatisticsSessionId = Guid.NewGuid().ToString("N");
         if (runOptions.Clients.Count == 0)
         {
             throw new InvalidOperationException("Selecione ao menos um cliente do Night Crows.");
@@ -302,6 +303,11 @@ public sealed partial class BotAutomationEngine(
 
             foreach (var session in sessions)
             {
+                if (session.StatisticsFarmSeconds > 0)
+                {
+                    await RecordStatisticAsync(session, "farm", "Agenda", quantity: session.StatisticsFarmSeconds);
+                    session.StatisticsFarmSeconds = 0;
+                }
                 await SaveFarmScheduleStateAsync(session);
                 if (session.AbbeyInside)
                 {
@@ -494,7 +500,15 @@ public sealed partial class BotAutomationEngine(
         PublishFarmScheduleProgress(session);
         if (IsScheduleFarmActive(session) && elapsed > TimeSpan.Zero && elapsed < TimeSpan.FromSeconds(30))
         {
+            var statisticsSeconds = Math.Max(0, Math.Min(elapsed.TotalSeconds, session.FarmScheduleRemaining.TotalSeconds));
             session.FarmScheduleRemaining -= elapsed;
+            session.StatisticsFarmSeconds += statisticsSeconds;
+            if (session.StatisticsFarmSeconds >= 30)
+            {
+                await RecordStatisticAsync(session, "farm", ScheduleDestinationName(session.FarmScheduleSteps[session.FarmScheduleIndex].Destination),
+                    quantity: session.StatisticsFarmSeconds);
+                session.StatisticsFarmSeconds = 0;
+            }
             if (now - session.FarmScheduleLastSaveUtc >= TimeSpan.FromMinutes(1))
             {
                 session.FarmScheduleLastSaveUtc = now;
@@ -1427,6 +1441,7 @@ public sealed partial class BotAutomationEngine(
         {
             WriteLog(session, $"Proteção em Sapheras: enviando um TP {sapheras.EmergencyTeleportKeyName}.");
             await input.PressEmergencyKeyAsync(sapheras.EmergencyTeleportVirtualKey, cancellationToken);
+            await RecordEmergencyCommandAsync(session);
         }
         else WriteLog(session, "TP de emergência recente; verificando a chegada sem envio simultâneo em Sapheras.");
 
@@ -1770,6 +1785,7 @@ public sealed partial class BotAutomationEngine(
         await Task.Delay(180, cancellationToken);
         await input.MoveAndClickAsync(1798, 992, TimeSpan.FromMilliseconds(200), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
         await WaitForReferenceAsync("anonymous_entry_confirmation", "confirmação de entrada do Estreito de Tenerys", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        session.StatisticsDungeonPrice = await ReadStatisticsPriceAsync(session, "dungeon", cancellationToken);
         session.AnonymousDungeonEntryMayHaveBeenCharged = true;
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         await WaitForAnonymousArrivalAsync(session, pause, cancellationToken);
@@ -1880,6 +1896,7 @@ public sealed partial class BotAutomationEngine(
         await CheckpointAsync(pause, cancellationToken);
         await input.MoveAndClickAsync(1794, 988, TimeSpan.FromMilliseconds(470), cancellationToken);
         await WaitForReferenceAsync("abadia_confirmacao", "confirmação de entrada na Abadia da Lembrança", TimeSpan.FromSeconds(12), pause, cancellationToken);
+        session.StatisticsDungeonPrice = await ReadStatisticsPriceAsync(session, "dungeon", cancellationToken);
 
         // Depois de Y uma entrada pode ter sido cobrada, mesmo se a captura falhar.
         // Nunca tentar comprar de novo sem ter comprovado a chegada.
@@ -2123,6 +2140,7 @@ public sealed partial class BotAutomationEngine(
         var entry = TaEntryPoints[destination];
         var arrivalReference = ArrivalReference(destination);
         var arrivalConfirmed = false;
+        GoldPriceReading paidEntryPrice = new(null, "preço não apurado");
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             var retryEntryClick = false;
@@ -2142,6 +2160,8 @@ public sealed partial class BotAutomationEngine(
                 session.Options.Target,
                 entry.X,
                 entry.Y);
+            paidEntryPrice = await ReadStatisticsPriceAsync(session, destination switch
+            { TaDestination.Ta1Codex => "ta1", TaDestination.Ta2 => "ta2", _ => "ta3" }, cancellationToken);
             WriteLog(
                 session,
                 $"Movendo o cursor até Entrar da {taName} em ({mappedEntry.X}, {mappedEntry.Y}) — tentativa {attempt}/3.");
@@ -2217,6 +2237,7 @@ public sealed partial class BotAutomationEngine(
                 $"{session.Options.Label}: a entrada na {taName} não foi confirmada após três tentativas. Diagnóstico: {diagnostic}");
         }
 
+        await RecordExpenseAsync(session, $"Entrada · {taName}", paidEntryPrice);
         await TryDismissAgendaAsync(session, cancellationToken);
 
         WriteLog(session, $"{taName} reconhecida; verificando o NPC de suprimentos assim que estiver visível.");
@@ -2568,6 +2589,7 @@ public sealed partial class BotAutomationEngine(
         var originalTitle = VisualRecognitionService.MeasureAverageLuma(before, 80, 40, 290, 45);
         await input.MoveAndClickAsync(428, 1005, TimeSpan.FromMilliseconds(300), cancellationToken);
         await Task.Delay(400, cancellationToken);
+        var articlePrice = await ReadStatisticsPriceAsync(session, "articles", cancellationToken);
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         var deadline = DateTime.UtcNow.AddSeconds(18);
         var exhaustedHits = 0;
@@ -2577,6 +2599,7 @@ public sealed partial class BotAutomationEngine(
             var frame = await CaptureClientFrameAsync(session, cancellationToken);
             if ((await recognition.FindAsync("compra_concluida", frame, cancellationToken)).Found)
             {
+                await RecordExpenseAsync(session, "Mercador de Artigos · compra em lote", articlePrice);
                 await input.MoveAndClickAsync(966, 453, TimeSpan.FromMilliseconds(300), cancellationToken);
                 await WaitForReferenceToDisappearAsync("compra_concluida", TimeSpan.FromSeconds(8), pause, cancellationToken);
                 return;
@@ -3830,10 +3853,13 @@ public sealed partial class BotAutomationEngine(
         }
 
         WriteLog(session, $"Popup Compra em Lote de {category} confirmado; enviando Y agora.");
+        var purchasePrice = await ReadStatisticsPriceAsync(session, "daily-shop", cancellationToken);
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         await WaitForReferenceToDisappearAsync("daily_shop_bulk_title", TimeSpan.FromSeconds(8), pause, cancellationToken);
         await WaitForReferenceAsync("daily_shop_result", $"resultado da compra de {category}",
             TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await RecordExpenseAsync(session, $"Loja diária · {category}", purchasePrice,
+            $"daily-shop.{DailyShopCycleKey(DateTime.Now)}.{category}");
         await CloseDailyShopResultIfVisibleAsync(session, pause, cancellationToken);
         WriteLog(session, $"Compra em Lote de {category} confirmada.");
     }
@@ -4611,6 +4637,8 @@ public sealed partial class BotAutomationEngine(
         await database.SaveSettingAsync($"{prefix}.directiveState", session.DirectiveState);
         await database.SaveSettingAsync($"{prefix}.directiveAttemptCycle", cycle);
         await database.SaveSettingAsync($"{prefix}.directiveAttemptCount", "0");
+        if (session.DirectiveState == "completed")
+            await RecordStatisticAsync(session, "routine", "Diretiva concluída", $"directive.{cycle}");
     }
 
     private async Task<bool> RegisterDirectiveUncertainAsync(
@@ -4841,6 +4869,8 @@ public sealed partial class BotAutomationEngine(
             return false;
         }
 
+        var teleportPrice = await ReadStatisticsPriceAsync(session, "daily-teleport", cancellationToken);
+        var teleportId = Guid.NewGuid().ToString("N");
         for (var attempt = 1; attempt <= 2; attempt++)
         {
             await EnsureGameForegroundAsync(session, cancellationToken);
@@ -4848,6 +4878,7 @@ public sealed partial class BotAutomationEngine(
             await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
             if (await WaitForDailyTeleportPopupToCloseAsync(session, pause, cancellationToken))
             {
+                await RecordPendingDailyTeleportAsync(session, teleportId, teleportPrice);
                 WriteLog(session, "Popup de teleporte fechado; prosseguindo com a campanha.");
                 return true;
             }
@@ -4855,6 +4886,7 @@ public sealed partial class BotAutomationEngine(
             popup = await FindDailyTeleportPopupOnClientAsync(session, cancellationToken);
             if (popup is null)
             {
+                await RecordPendingDailyTeleportAsync(session, teleportId, teleportPrice);
                 WriteLog(session, "Popup de teleporte fechado; prosseguindo com a campanha.");
                 return true;
             }
@@ -4867,6 +4899,7 @@ public sealed partial class BotAutomationEngine(
             await input.MoveAndClickAsync(popup.X, popup.Y, TimeSpan.FromMilliseconds(300), cancellationToken);
             if (await WaitForDailyTeleportPopupToCloseAsync(session, pause, cancellationToken))
             {
+                await RecordPendingDailyTeleportAsync(session, teleportId, teleportPrice);
                 return true;
             }
         }
@@ -5587,6 +5620,7 @@ public sealed partial class BotAutomationEngine(
         session.DailyNormalHuntHits = 0;
         var completedCycle = session.DailyCycle ?? DailyCycleKey(DateTime.Now);
         session.DailyCompletedCycle = completedCycle;
+        await RecordStatisticAsync(session, "routine", "Diárias concluídas", $"daily.{completedCycle}");
         await database.SaveSettingAsync(
             $"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle",
             completedCycle);
@@ -5711,6 +5745,7 @@ public sealed partial class BotAutomationEngine(
             if (await FindRestStateAsync(session, cancellationToken) is not null)
             {
                 WriteLog(session, "Descanso das Diárias já presente; preservando o estado atual.");
+                await TryRecordDailyExpenseAsync(session, cancellationToken);
                 return true;
             }
             await EnsureGameForegroundAsync(session, cancellationToken);
@@ -5729,6 +5764,7 @@ public sealed partial class BotAutomationEngine(
                     await FindRestStateAsync(session, cancellationToken) is not null)
                 {
                     WriteLog(session, "Modo descanso das Diárias confirmado.");
+                    await TryRecordDailyExpenseAsync(session, cancellationToken);
                     return true;
                 }
 
@@ -5933,6 +5969,7 @@ public sealed partial class BotAutomationEngine(
                 session.Options.Target.Handle,
                 emergencyTeleportVirtualKey,
                 cancellationToken: cancellationToken);
+            await RecordEmergencyCommandAsync(session);
 
             await Task.Delay(900, cancellationToken);
             var frame = await CaptureClientFrameAsync(session, cancellationToken);
@@ -5948,6 +5985,9 @@ public sealed partial class BotAutomationEngine(
             }
 
             var death = await FindDeathInFrameAsync(frame, cancellationToken);
+            if (cityVisible && !death.Found)
+                await RecordStatisticAsync(session, "town", "Cidade observada após TP de emergência",
+                    $"{StatisticsSessionId}.town.{Interlocked.Read(ref session.EmergencyClaimUntilTicks)}");
             if (!cityVisible && !death.Found && hp.Found && hp.Percent <= 0.35)
             {
                 WriteLog(session, "HP continua crítico e o TP em segundo plano não confirmou chegada; emergência encaminhada ao fluxo principal.");
@@ -6272,6 +6312,7 @@ public sealed partial class BotAutomationEngine(
         {
             WriteLog(session, $"Enviando um TP de emergência ({options.EmergencyTeleportKeyName}); sem repetição cega que gaste gold.");
             await input.PressEmergencyKeyAsync(options.EmergencyTeleportVirtualKey, cancellationToken);
+            await RecordEmergencyCommandAsync(session);
         }
         else
         {
@@ -6341,6 +6382,7 @@ public sealed partial class BotAutomationEngine(
             WriteLog(session, "O TP em segundo plano não teve chegada confirmada. Dando foco apenas para o TP de emergência.");
             await ActivateGameForEmergencyAsync(session, cancellationToken);
             await input.PressEmergencyKeyAsync(options.EmergencyTeleportVirtualKey, cancellationToken);
+            await RecordEmergencyCommandAsync(session);
             death = await WaitForDeathAfterEmergencyAsync(session, TimeSpan.FromSeconds(4), cancellationToken);
             if (death is not null)
             {
@@ -6349,6 +6391,9 @@ public sealed partial class BotAutomationEngine(
             }
         }
 
+        if (arrivedInTown)
+            await RecordStatisticAsync(session, "town", "Cidade observada após TP de emergência",
+                $"{StatisticsSessionId}.town.{Interlocked.Read(ref session.EmergencyClaimUntilTicks)}");
         await RecordAbbeyExitAsync(session);
         await RecordAnonymousDungeonExitAsync(session);
         WriteLog(session, $"Proteção visual executada sem morte; retomando {ConfiguredFarmName(session)}.");
@@ -7578,6 +7623,9 @@ public sealed partial class BotAutomationEngine(
 
     private async Task RecordAgendaPaidEntryAsync(ClientSession session, string destination)
     {
+        await RecordExpenseAsync(session, $"Entrada · {destination}",
+            session.StatisticsDungeonPrice ?? new(null, "chegada tardia; preço não apurado"));
+        session.StatisticsDungeonPrice = null;
         if (session.FarmScheduleSteps.Count > 0)
             return;
 
@@ -7774,6 +7822,11 @@ public sealed partial class BotAutomationEngine(
         public string? DailyShopCycle { get; set; }
         public string? GuildCheckinCycle { get; set; }
         public DateTimeOffset? LastGuildTreasureVisit { get; set; }
+        public GoldPriceReading? StatisticsDungeonPrice { get; set; }
+        public GoldPriceReading? StatisticsDailyPrice { get; set; }
+        public string? StatisticsDailyPriceId { get; set; }
+        public DateTime StatisticsDailyPriceAt { get; set; }
+        public double StatisticsFarmSeconds { get; set; }
         public bool GuildTreasureCheckedThisVisit { get; set; }
         public DateTime NextGuildCheckinAttemptAt { get; set; }
         public string? DailyShopCommonCycle { get; set; }
