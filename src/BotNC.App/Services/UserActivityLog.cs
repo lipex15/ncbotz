@@ -59,6 +59,12 @@ public static class UserActivityLog
         else if (lower.Contains("correio") && (lower.Contains("conferido") || lower.Contains("recebidas"))) summary = "Correio conferido · atividade retomada";
         else if (lower.Contains("compra diária") && lower.Contains("concluída"))
         { summary = "Compras diárias concluídas"; tone = "#38D59A"; }
+        else if (lower.Contains("baú da guilda conferido"))
+        { summary = "Baú da Guilda conferido · sem recompensas restantes"; tone = "#38D59A"; }
+        else if (lower.Contains("baú da guilda: recompensa coletada"))
+        { summary = "Baú da Guilda · recompensa coletada"; tone = "#38D59A"; }
+        else if (lower.Contains("baú da guilda não confirmado"))
+        { summary = "Baú da Guilda não confirmado · sem repetir cliques"; tone = "#F0B84B"; }
         else if (lower.Contains("check-in") && lower.Contains("concluíd"))
         { summary = "Check-in e doações em ouro concluídos"; tone = "#38D59A"; }
         else if (lower.Contains("execução encerrada")) summary = "Execução encerrada";

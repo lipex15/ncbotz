@@ -134,6 +134,9 @@ public sealed partial class BotAutomationEngine(
             session.Mail07Date = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.mail.07Date");
             session.DailyShopCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCycle");
             session.GuildCheckinCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.guildCheckinCycle");
+            if (DateTimeOffset.TryParse(await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.guildTreasure.lastVisit"),
+                    CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var treasureVisit))
+                session.LastGuildTreasureVisit = treasureVisit;
             session.DailyShopCommonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCommonCycle");
             session.DailyShopSummonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopSummonCycle");
             session.DailyShopAttemptCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopAttemptCycle");
@@ -3629,6 +3632,7 @@ public sealed partial class BotAutomationEngine(
                 WriteLog(session, "Check-in sem notificação visível; seguindo para verificar as doações de ouro.");
             }
 
+            await CollectVisibleGuildTreasureAsync(session, pause, cancellationToken);
             await input.MoveAndClickAsync(1083, 910, TimeSpan.FromMilliseconds(340), cancellationToken,
                 cooldown: TimeSpan.FromMilliseconds(200));
             await WaitForReferenceAsync("guild_donation_panel", "painel de Doação", TimeSpan.FromSeconds(12), pause, cancellationToken);
@@ -3837,13 +3841,15 @@ public sealed partial class BotAutomationEngine(
     private async Task<bool> IsTombstoneIconStableAsync(
         ClientSession session, PauseController pause, CancellationToken cancellationToken)
     {
+        TombstoneIconReading? previous = null;
         for (var sample = 0; sample < 2; sample++)
         {
             await CheckpointAsync(pause, cancellationToken);
             var frame = await CaptureClientFrameAsync(session, cancellationToken);
-            var icon = await recognition.FindAsync("icone_perda_exp", frame, cancellationToken);
-            if (!icon.Found || !TombstoneIconAnalyzer.HasRedIcon(frame))
+            var icon = await TombstoneIconReader.ReadAsync(recognition, frame, cancellationToken);
+            if (!icon.Found || sample > 0 && !icon.AgreesWith(previous))
                 return false;
+            previous = icon;
             if (sample == 0)
                 await Task.Delay(400, cancellationToken);
         }
@@ -4533,6 +4539,7 @@ public sealed partial class BotAutomationEngine(
             await input.MoveAndClickAsync(1600, 340, TimeSpan.FromMilliseconds(300), cancellationToken);
             await WaitForReferenceAsync("guild_page", "Guilda", TimeSpan.FromSeconds(12), pause, cancellationToken);
         }
+        await CollectVisibleGuildTreasureAsync(session, pause, cancellationToken);
         await input.MoveAndClickAsync(520, 138, TimeSpan.FromMilliseconds(300), cancellationToken);
         await WaitForReferenceAsync("guild_directive_page", "aba Diretiva", TimeSpan.FromSeconds(12), pause, cancellationToken);
     }
@@ -4566,6 +4573,7 @@ public sealed partial class BotAutomationEngine(
     {
         for (var attempt = 1; attempt <= 5; attempt++)
         {
+            await CollectVisibleGuildTreasureAsync(session, pause, cancellationToken);
             await EnsureGameForegroundAsync(session, cancellationToken);
             await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
             await CheckpointAsync(pause, cancellationToken);
@@ -4576,6 +4584,7 @@ public sealed partial class BotAutomationEngine(
             if (!directiveVisible && !guildVisible && !completedVisible)
             {
                 WriteLog(session, $"Tela da Guilda fechada e confirmada após {attempt} ESC.");
+                session.GuildTreasureCheckedThisVisit = false;
                 return;
             }
 
@@ -4641,6 +4650,9 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        // Reset the visit marker even when the caller already closed the Guild.
+        if (!(await recognition.FindAsync("guild_page", cancellationToken)).Found)
+            session.GuildTreasureCheckedThisVisit = false;
         var guildVisible = (await recognition.FindAsync("guild_page", cancellationToken)).Found;
         var directiveVisible = (await recognition.FindAsync("guild_directive_page", cancellationToken)).Found;
         if (!guildVisible && !directiveVisible)
@@ -5257,6 +5269,7 @@ public sealed partial class BotAutomationEngine(
                     nextMailCheckAt = DateTime.Now.AddSeconds(30);
                     foreach (var mailSession in sessions.OrderBy(item => item.Options.Priority))
                     {
+                        await TryCollectDueGuildTreasureAsync(mailSession, pause, cancellationToken);
                         if (await TryCollectDueMailSafelyAsync(mailSession, pause, cancellationToken))
                         {
                             break;
@@ -6557,8 +6570,20 @@ public sealed partial class BotAutomationEngine(
         WriteLog(session, "Aguardando o personagem e os indicadores de perda estabilizarem.");
         await ActionDelayAsync(cancellationToken, 1800, 2600);
         await ActivateGameForEmergencyAsync(session, cancellationToken);
-        var panelCounter = await WaitForRestorationCounterAsync(
-            session, TimeSpan.FromSeconds(4), pause, cancellationToken);
+        // Decide absence before waiting for a panel which may not exist.
+        var initialObservation = await ReadStartupRestorationAsync(session, pause, cancellationToken);
+        if (initialObservation == StartupRestorationObservation.Absent)
+        {
+            await SetRestorationPendingAsync(session, false);
+            WriteLog(session, "Tela válida sem lápide após ressurreição; seguindo sem clique de teste.");
+            return;
+        }
+        if (initialObservation == StartupRestorationObservation.Unknown)
+            throw new InvalidOperationException("Tela de restauração inconclusiva; nenhum clique nem busca prolongada de lápide será executado.");
+        var panelCounter = await ReadRestorationCounterAsync(session, cancellationToken);
+        if (panelCounter.State != RestorationCountState.Unknown)
+            panelCounter = await WaitForRestorationCounterAsync(
+                session, TimeSpan.FromSeconds(4), pause, cancellationToken);
         if (panelCounter.State != RestorationCountState.Unknown)
         {
             WriteLog(session, "O painel de restauração já está aberto; evitando clique desnecessário.");
@@ -6575,31 +6600,24 @@ public sealed partial class BotAutomationEngine(
             }
 
             WriteLog(session, "Verificando se esta morte gerou lápide de restauração.");
-            var initialObservation = await ReadStartupRestorationAsync(session, pause, cancellationToken);
-            if (initialObservation == StartupRestorationObservation.Absent)
-            {
-                await SetRestorationPendingAsync(session, false);
-                WriteLog(session, "Tela válida sem lápide após ressurreição; seguindo sem clique de teste.");
-                return;
-            }
-            // Após um TP por HP, a ausência estável da lápide não é uma falha
-            // recuperável: pode não ter ocorrido morte nem perda neste servidor.
-            var iconTimeout = confirmedDeathScreen ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(6);
-            var iconDeadline = DateTime.UtcNow + iconTimeout;
+            // Presence was already observed. Reconfirm the same icon briefly;
+            // never spend 6–10 seconds hunting an icon that is not on screen.
             var iconFound = false;
             var iconConfirmations = 0;
-            while (DateTime.UtcNow < iconDeadline)
+            TombstoneIconReading? previousIcon = null;
+            for (var sample = 0; sample < 3; sample++)
             {
                 await CheckpointAsync(pause, cancellationToken);
                 var iconFrame = await CaptureClientFrameAsync(session, cancellationToken);
-                var icon = await recognition.FindAsync("icone_perda_exp", iconFrame, cancellationToken);
-                if (icon.Found && TombstoneIconAnalyzer.HasRedIcon(iconFrame))
+                var icon = await TombstoneIconReader.ReadAsync(recognition, iconFrame, cancellationToken);
+                if (icon.Found)
                 {
-                    iconConfirmations++;
+                    iconConfirmations = icon.AgreesWith(previousIcon) ? iconConfirmations + 1 : 1;
                     if (iconConfirmations >= 2)
                     {
                         iconFound = true;
-                        WriteLog(session, $"Ícone de perda confirmado em dois quadros ({icon.Confidence:P0}); abrindo a lápide em (1537, 72).");
+                        previousIcon = icon;
+                        WriteLog(session, $"Ícone de perda confirmado em dois quadros ({icon.Confidence:P0}); abrindo a lápide reconhecida.");
                         break;
                     }
                 }
@@ -6607,8 +6625,9 @@ public sealed partial class BotAutomationEngine(
                 {
                     iconConfirmations = 0;
                 }
+                previousIcon = icon;
 
-                await Task.Delay(400, cancellationToken);
+                if (sample < 2) await Task.Delay(250, cancellationToken);
             }
 
             if (!iconFound)
@@ -6634,11 +6653,12 @@ public sealed partial class BotAutomationEngine(
             {
                 await EnsureGameForegroundAsync(session, cancellationToken);
                 var currentIconFrame = await CaptureClientFrameAsync(session, cancellationToken);
-                if (!TombstoneIconAnalyzer.HasRedIcon(currentIconFrame) ||
-                    !(await recognition.FindAsync("icone_perda_exp", currentIconFrame, cancellationToken)).Found)
+                var currentIcon = await TombstoneIconReader.ReadAsync(recognition, currentIconFrame, cancellationToken);
+                if (!currentIcon.AgreesWith(previousIcon))
                     break;
-                WriteLog(session, $"Clicando na lápide em (1537, 72) — tentativa {attempt}/3.");
-                var tombstonePoint = gameWindows.MapReferencePoint(session.Options.Target, 1537, 72);
+                WriteLog(session, $"Clicando na lápide reconhecida — tentativa {attempt}/3.");
+                var tombstonePoint = gameWindows.MapReferencePoint(session.Options.Target,
+                    currentIcon.ClickReferenceX, currentIcon.ClickReferenceY);
                 await input.MoveAndClickAsync(tombstonePoint.X, tombstonePoint.Y, TimeSpan.FromMilliseconds(450), cancellationToken);
                 panelCounter = await WaitForRestorationCounterAsync(
                     session, TimeSpan.FromSeconds(6), pause, cancellationToken);
@@ -7753,6 +7773,8 @@ public sealed partial class BotAutomationEngine(
         public DateTime NextDirectiveAttemptAt { get; set; }
         public string? DailyShopCycle { get; set; }
         public string? GuildCheckinCycle { get; set; }
+        public DateTimeOffset? LastGuildTreasureVisit { get; set; }
+        public bool GuildTreasureCheckedThisVisit { get; set; }
         public DateTime NextGuildCheckinAttemptAt { get; set; }
         public string? DailyShopCommonCycle { get; set; }
         public string? DailyShopSummonCycle { get; set; }

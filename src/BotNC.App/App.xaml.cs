@@ -477,6 +477,12 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        var treasureChecks = await GuildTreasureRegression.VerifyAsync(recognition, database,
+            name => LoadReferenceFrame(Path.Combine(referenceDirectory, name)));
+        await File.WriteAllLinesAsync(outputPath + ".treasure.txt", treasureChecks);
+        var tombstoneChecks = await TombstoneIconRegression.VerifyAsync(recognition,
+            name => LoadReferenceFrame(Path.Combine(referenceDirectory, name)));
+        await File.WriteAllLinesAsync(outputPath + ".tombstone.txt", tombstoneChecks);
         foreach (var file in new[] { "anonymous_exit_confirmation.png", "anonymous_arrival_regression.png", "ta_selector_user_active.png" })
         {
             var popup = await recognition.FindInImageAsync("anonymous_exit_confirmation", Path.Combine(referenceDirectory, file));

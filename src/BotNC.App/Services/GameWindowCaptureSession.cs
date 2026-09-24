@@ -368,10 +368,19 @@ public static class TombstoneIconAnalyzer
 {
     public static bool HasRedIcon(PixelFrame frame)
     {
-        var left = (int)Math.Round(1512d * frame.Width / 1920);
-        var right = (int)Math.Round(1558d * frame.Width / 1920);
-        var top = (int)Math.Round(17d * frame.Height / 1040);
-        var bottom = (int)Math.Round(85d * frame.Height / 1040);
+        frame = VisualRecognitionService.NormalizeForReferenceMatching(frame);
+        return HasRedAt(frame, 1537, 59);
+    }
+
+    // Coordinates belong to the same normalized frame used by template matching.
+    // Do not scale only the area while keeping a fixed pixel-count threshold.
+    internal static bool HasRedAt(PixelFrame frame, int centerX, int centerY)
+    {
+        var left = centerX - 25;
+        var right = centerX + 21;
+        var top = centerY - 42;
+        var bottom = centerY + 26;
+        top = Math.Max(0, top);
         if (left < 0 || right >= frame.Width || top < 0 || bottom >= frame.Height)
         {
             return false;

@@ -40,6 +40,7 @@ public sealed partial class BotAutomationEngine
         if (await TryAdoptRunningDailyAsync(session, routines, token)) return;
         if (await RecoverOpenRoutinePanelsSafelyAsync(session, routines, pause, token)) return;
         if (await TryStartVisibleDailyCampaignSafelyAsync(session, routines, pause, token)) return;
+        await TryCollectDueGuildTreasureAsync(session, pause, token);
         await TryCollectDueMailSafelyAsync(session, pause, token);
         if (await RunDueDailyRoutinesSafelyAsync(session, routines, pause, token) &&
             (session.InDailyCampaign || session.IsFarmingTa || session.NextRecoveryAttemptAt != default)) return;
