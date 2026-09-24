@@ -179,12 +179,16 @@ public partial class MainWindow : Window
     private void OnShowSapheras(object sender, RoutedEventArgs e)
     {
         OnShowOverview(sender, e);
+        OverviewNavigationButton.Background = Brushes.Transparent;
+        SapherasNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
         SapherasSettingsSection.BringIntoView();
     }
 
     private void OnShowFarm(object sender, RoutedEventArgs e)
     {
         OnShowOverview(sender, e);
+        OverviewNavigationButton.Background = Brushes.Transparent;
+        TaNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
         OverviewScrollViewer.ScrollToTop();
     }
 
@@ -284,6 +288,8 @@ public partial class MainWindow : Window
 
     private void HideStatistics()
     {
+        SapherasNavigationButton.Background = Brushes.Transparent;
+        TaNavigationButton.Background = Brushes.Transparent;
         UserStatisticsPanel.Visibility = Visibility.Collapsed;
         StatisticsNavigationButton.Background = Brushes.Transparent;
     }

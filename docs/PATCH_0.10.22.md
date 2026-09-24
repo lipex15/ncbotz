@@ -1,10 +1,10 @@
-# PEXBOT Teste 0.10.22 — Meu painel
+# PEXBOT Teste 0.10.22 — Estatísticas
 
 Disponível exclusivamente no ambiente de testes, partindo da mesma base v0.10.21 do normal. Sem promoção automática para main ou release normal e sem instalação no PC durante o desenvolvimento.
 
 ## Painel
 
-- Nova página Meu painel: cards arredondados lado a lado, saudação por horário, nicks opcionais por cliente, filtros Hoje / Esta sessão / Últimos 7 dias e Cliente 1 / Cliente 2 / Ambos.
+- Nova página Estatísticas, junto de Início e separada do grupo Farm: cards arredondados lado a lado, saudação por horário, nicks opcionais por cliente em Personalizar nomes, filtros Hoje / Esta sessão / Últimos 7 dias e Cliente 1 / Cliente 2 / Ambos. Somente a página atual fica destacada.
 - Nicks são rótulos, não reconhecimento de conta. Trocar a conta dentro da mesma janela não separa o histórico daquele cliente.
 - Histórico discreto, recolhido por padrão, com até 100 movimentações; totais calculados sobre todo o período filtrado. Hoje usa meia-noite do PC; regras e resets do jogo permanecem os mesmos.
 - Dados salvos em statistics.db no diretório exclusivo PEXBOT-Teste, separados por usuário do bot e cliente. Sem recuperar estatísticas retroativas das versões antigas.
@@ -27,7 +27,7 @@ Disponível exclusivamente no ambiente de testes, partindo da mesma base v0.10.2
 
 ## Teste sugerido
 
-1. Atualize somente PEXBOT Teste. Abra Meu painel, salve os nicks e alterne os clientes/períodos.
+1. Atualize somente PEXBOT Teste. Abra Estatísticas, salve os nicks em Personalizar nomes e alterne os clientes/períodos.
 2. Durante uso normal, confira uma entrada paga, uma compra em lote e um TP de Diária contra o preço mostrado pelo jogo. Sem provocar gastos ou mortes só para testar.
 3. Confira que o TP da tecla 7 não altera ouro e que uma compra cancelada não entra no total confirmado.
 4. Pare e reinicie: histórico e nicks permanecem; Esta sessão passa a representar a nova execução.
