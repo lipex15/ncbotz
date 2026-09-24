@@ -37,7 +37,10 @@ internal static class GuildTreasureRegression
         foreach (var count in new[] { 0, 1, 2, 7, 30 })
             if (GuildTreasureReader.ParseCount($"QNTD. DE BAU: {count}") != count)
                 throw new InvalidOperationException("Quantidade de baús não reconhecida.");
-        if (GuildTreasureReader.ParseCount("QNTD. DE BAU: 1 | QNTD. DE BAU: 0") is not null ||
+        if (GuildTreasureReader.ParseCount("QNTD. DE BAT: 1 | QNTD. DE BAT: 1") != 1 ||
+            GuildTreasureReader.ParseCount("QNTD. DE BAT: 0") != 0 ||
+            GuildTreasureReader.ParseCount("QNTD. DE BAU: 1 | QNTD. DE BAT: 0") is not null ||
+            GuildTreasureReader.ParseCount("QNTD. DE BAU: 1 | QNTD. DE BAU: 0") is not null ||
             GuildTreasureReader.ParseCount("Item Obtido") is not null)
             throw new InvalidOperationException("Leitura incerta virou quantidade.");
         for (var count = 3; count > 0; count--)

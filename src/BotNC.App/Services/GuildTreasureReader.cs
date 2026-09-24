@@ -9,7 +9,10 @@ internal static class GuildTreasureReader
 {
     internal static int? ParseCount(string text)
     {
-        var values = Regex.Matches(text, @"(?:QNTD|QTD)\.?\s*(?:DE\s*)?BAU\s*:?\s*(\d{1,4})\b")
+        // The en-US Windows OCR model reads the accented BAÚ as BAT on the
+        // reference screen. Keep the quantity label and all visual gates;
+        // tolerate only this observed letter substitution, never infer a count.
+        var values = Regex.Matches(text, @"(?:QNTD|QTD)\.?\s*(?:DE\s*)?BA[UT]\s*:?\s*(\d{1,4})\b")
             .Select(match => int.Parse(match.Groups[1].Value)).Distinct().ToArray();
         return values.Length == 1 ? values[0] : null;
     }
