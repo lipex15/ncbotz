@@ -1,4 +1,4 @@
-# Reforço localizado da lápide — v0.10.20
+# Reforço localizado da lápide — v0.10.21
 
 Objetivo: decidir rapidamente se existe lápide, sem manter o personagem procurando um ícone ausente. Nenhuma mudança de Agenda, Sapheras, prioridade de clientes ou detector de morte.
 
@@ -12,4 +12,4 @@ Objetivo: decidir rapidamente se existe lápide, sem manter o personagem procura
 
 Validação local: compilação sem avisos/erros e suíte completa de autotestes aprovada. Testes adicionais: quinze combinações de escala/brilho (67%, 75%, 100%, 125%, 150%; brilho 70%, 100%, 120%), cinco capturas negativas, deslocamento do ícone, rejeição de posição instável e de marca vermelha sem forma.
 
-As variantes são transformações sintéticas da referência, não testes em quinze PCs. Não houve teste ao vivo nos personagens nem instalação local. Incluído no patch 0.10.20; a validação em jogo permanece necessária.
+As variantes são transformações sintéticas da referência, não testes em quinze PCs. Não houve teste ao vivo nos personagens nem instalação local. Incluído no patch 0.10.21; a validação em jogo permanece necessária.

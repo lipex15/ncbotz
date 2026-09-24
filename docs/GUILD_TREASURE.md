@@ -1,4 +1,4 @@
-# Baú do Tesouro da Guilda — v0.10.20
+# Baú do Tesouro da Guilda — v0.10.21
 
 - Cada cliente ativo possui seu próprio intervalo de 17 horas, salvo em UTC por usuário do PEXBOT e posição do cliente, sem depender do nick.
 - Sem histórico, a primeira verificação ocorre na primeira oportunidade segura. Bot parado/offline não executa verificações; ao retornar, uma verificação vencida é atendida sem repetir ciclos perdidos.
@@ -14,4 +14,4 @@
 
 Testes com as capturas fornecidas: disponível (1), vazio (0), Item Obtido e tela alheia. Remoção sintética do desenho/nome do item não muda a decisão. Testes de quantidade 0/1/2/7/30, leituras discordantes, sequência 3→2→1→0, bloqueio de repetição sem progresso, fronteira exata de 17 horas, persistência após reabrir banco e isolamento entre clientes.
 
-Não houve clique nos personagens nem instalação local. Incluído no patch 0.10.20 junto do reforço localizado da lápide; a validação em jogo permanece necessária.
+Não houve clique nos personagens nem instalação local. Incluído no patch 0.10.21 junto do reforço localizado da lápide; a validação em jogo permanece necessária.
