@@ -8,7 +8,7 @@ O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualiz
 
 ## Painel experimental — somente testes v0.10.22
 
-A branch `testing` inclui Meu painel, com nicks visuais, histórico de gastos confirmados, proteções, baús, Boss, rotinas e tempo da Agenda. Consulte [o roteiro de testes e as limitações](docs/PATCH_0.10.22.md). O canal normal permanece na v0.10.21; a promoção do painel depende de autorização explícita.
+A branch `testing` inclui Estatísticas, com nicks visuais, histórico de gastos confirmados, proteções, baús, Boss, rotinas e tempo da Agenda. Consulte [o roteiro de testes e as limitações](docs/PATCH_0.10.22.md). O canal normal permanece na v0.10.21; a promoção do painel depende de autorização explícita.
 
 ## Base estável — v0.10.21
 

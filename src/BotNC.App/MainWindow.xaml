@@ -35,33 +35,35 @@
                     </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Row="2">
-                    <Button x:Name="OverviewNavigationButton" Content="🏠   Visão geral"
+                    <Button x:Name="OverviewNavigationButton" Content="🏠   Início"
                             HorizontalContentAlignment="Left" Background="#275796"
                             BorderThickness="0" Click="OnShowOverview" />
-                    <TextBlock Text="ÁREAS" Foreground="#8299B7" FontSize="10"
-                               FontWeight="Bold" Margin="13,24,0,9" />
-                    <Button x:Name="StatisticsNavigationButton" Content="◈   Meu painel" Click="OnShowStatistics"
-                            Visibility="Collapsed" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0"/>
-                    <Button Content="⛏️   Sapheras" HorizontalContentAlignment="Left"
-                            Background="#17283F" BorderThickness="0"
+                    <Button x:Name="StatisticsNavigationButton" Content="◈   Estatísticas" Click="OnShowStatistics"
+                            Visibility="Collapsed" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Margin="0,4,0,0"/>
+                    <TextBlock Text="FARM" Foreground="#8299B7" FontSize="10"
+                               FontWeight="Bold" Margin="13,18,0,9" />
+                    <Button x:Name="SapherasNavigationButton" Content="⛏️   Sapheras" HorizontalContentAlignment="Left"
+                            Background="Transparent" BorderThickness="0"
                             Click="OnShowSapheras" />
-                    <Button Content="🗺️   T.A 1 / T.A 2 / T.A 3" HorizontalContentAlignment="Left"
+                    <Button x:Name="TaNavigationButton" Content="🗺️   T.A 1 / T.A 2 / T.A 3" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarm" />
                     <Button x:Name="AbbeyNavigationButton" Content="🏰   Abadia / Anônima" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowAbbey" />
-                    <Button x:Name="RoutinesNavigationButton" Content="📋   Rotinas diárias" HorizontalContentAlignment="Left"
-                            Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
-                            Click="OnShowRoutines" />
                     <Button x:Name="FarmScheduleNavigationButton" Content="📅   Agenda de farm" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarmSchedule" />
+                    <TextBlock Text="AUTOMAÇÃO" Foreground="#8299B7" FontSize="10"
+                               FontWeight="Bold" Margin="13,18,0,9" />
+                    <Button x:Name="RoutinesNavigationButton" Content="📋   Rotinas diárias" HorizontalContentAlignment="Left"
+                            Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
+                            Click="OnShowRoutines" />
                     <Button x:Name="ProtectionNavigationButton" Content="🛡️   Proteção" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowProtection" />
                     <Button x:Name="UpdatesNavigationButton"
-                            Margin="0,4,0,0" HorizontalContentAlignment="Stretch"
+                            Margin="0,16,0,0" HorizontalContentAlignment="Stretch"
                             Background="Transparent" BorderThickness="0"
                             Click="OnShowUpdates">
                         <Grid>
