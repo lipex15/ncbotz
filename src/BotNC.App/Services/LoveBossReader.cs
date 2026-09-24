@@ -20,6 +20,13 @@ public enum LoveBossPhase
 // no centro da arena nunca entram na decisão de estado.
 public sealed class LoveBossReader
 {
+    public async Task<bool> IsRewardAvailableAsync(PixelFrame frame, bool weekly, CancellationToken token)
+    {
+        var text = await ReadRegionAsync(frame, 1270, weekly ? 580 : 355, 180, 65, token);
+        // Action label only, not the mission name and not "Recebida".
+        return Regex.IsMatch(text, @"\bRECEBER\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
     public async Task<bool> IsRewardClaimedAsync(PixelFrame frame, bool weekly, CancellationToken token)
     {
         var text = await ReadRegionAsync(frame, 1270, weekly ? 580 : 355, 180, 65, token);

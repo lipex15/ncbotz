@@ -402,9 +402,7 @@ public sealed partial class BotAutomationEngine
             throw new InvalidOperationException(
                 $"Vitória sem contador diário 1/1 no painel da Raide: {mission.Evidence}.");
 
-        var dailyButton = await recognition.FindAsync(
-            "boss_reward_button", 1260, 340, 210, 105, cancellationToken);
-        if (dailyButton.Found)
+        if (await WaitForLoveBossRewardStateAsync(session, false, pause, cancellationToken))
         {
             await input.MoveAndClickAsync(1350, 391, TimeSpan.FromMilliseconds(300),
                 cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
@@ -418,18 +416,12 @@ public sealed partial class BotAutomationEngine
         }
         else
         {
-            var claimed = await _loveBossReader.IsRewardClaimedAsync(
-                await CaptureClientFrameAsync(session, cancellationToken), false, cancellationToken);
-            if (!claimed)
-                throw new InvalidOperationException("Recompensa diária não confirmada: botão não encontrado não significa prêmio recebido.");
             WriteLog(session, "Recompensa diária da Raide confirmada como já recebida.");
         }
 
         if (mission.WeeklyCompleted == 5)
         {
-            var weeklyButton = await recognition.FindAsync(
-                "boss_reward_button", 1260, 560, 210, 105, cancellationToken);
-            if (weeklyButton.Found)
+            if (await WaitForLoveBossRewardStateAsync(session, true, pause, cancellationToken))
             {
                 await input.MoveAndClickAsync(1350, 609, TimeSpan.FromMilliseconds(300),
                     cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
@@ -441,13 +433,53 @@ public sealed partial class BotAutomationEngine
                     TimeSpan.FromSeconds(8), pause, cancellationToken);
                 WriteLog(session, "Recompensa semanal de 5/5 Raides recebida.");
             }
-            else if (!await _loveBossReader.IsRewardClaimedAsync(
-                         await CaptureClientFrameAsync(session, cancellationToken), true, cancellationToken))
-                throw new InvalidOperationException("Recompensa semanal 5/5 ainda não teve coleta confirmada.");
         }
         session.LoveBossRewardCycle = day;
         await database.SaveSettingAsync(
             $"{SessionSettingPrefix(session)}.routines.loveBoss.rewardCycle", day);
+    }
+
+    private async Task<bool> WaitForLoveBossRewardStateAsync(
+        ClientSession session, bool weekly, PauseController pause, CancellationToken token)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        bool? previous = null;
+        var stable = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, token);
+            bool? available = null;
+            if ((await recognition.FindAsync("boss_reward_panel", token)).Found)
+            {
+                var frame = await CaptureClientFrameAsync(session, token);
+                var mission = await _loveBossReader.ReadMissionAsync(frame, token);
+                if (weekly ? mission.WeeklyCompleted == 5 : mission.DailyCompleted == 1)
+                {
+                    var claimed = await _loveBossReader.IsRewardClaimedAsync(frame, weekly, token);
+                    var receive = await _loveBossReader.IsRewardAvailableAsync(frame, weekly, token);
+                    var button = await recognition.FindAsync("boss_reward_button",
+                        1260, weekly ? 560 : 340, 210, 105, token);
+                    if (claimed && !receive && !button.Found) available = false;
+                    else if (!claimed) available = true;
+                    // The verified raid panel and completed row authorize this
+                    // fixed reward coordinate even when its scrolling caption
+                    // differs from the template. Success still requires the
+                    // Item Obtained overlay after the click, never this fallback.
+                    WritePersistentOnly(session,
+                        $"boss_reward weekly={weekly}; receive={receive}; claimed={claimed}; template={button.Confidence:F3}; state={available}; {mission.Evidence}");
+                }
+            }
+            stable = available.HasValue && available == previous ? stable + 1 : available.HasValue ? 1 : 0;
+            previous = available;
+            if (stable >= 2)
+            {
+                if (available == true)
+                    WriteLog(session, "Painel e contador da Raide confirmados; coletando na coordenada da recompensa.");
+                return available!.Value;
+            }
+            await Task.Delay(350, token);
+        }
+        throw new InvalidOperationException("Recompensa da Raide inconclusiva após novas leituras; coleta permanece pendente, sem marcar como recebida.");
     }
 
     private async Task MarkLoveBossCompletedAsync(ClientSession session, string day)
