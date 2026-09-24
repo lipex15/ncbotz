@@ -131,7 +131,7 @@ public sealed partial class BotAutomationEngine
                 if (!(await recognition.FindAsync("menu_guild", token)).Found)
                 {
                     await input.PressKeyAsync(KeyEquals, cancellationToken: token);
-                    await WaitForReferenceAsync("menu_guild", "menu da Guilda", TimeSpan.FromSeconds(8), pause, token);
+                    await WaitForSafeMenuNavigationAsync("menu_guild", "menu da Guilda", TimeSpan.FromSeconds(8), pause, token);
                 }
                 var guild = gameWindows.MapReferencePoint(session.Options.Target, 1600, 340);
                 await input.MoveAndClickAsync(guild.X, guild.Y, TimeSpan.FromMilliseconds(300), token);

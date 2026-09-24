@@ -3342,7 +3342,7 @@ public sealed partial class BotAutomationEngine(
             if (!mailScreenOpened && !(await recognition.FindAsync("menu_mail", cancellationToken)).Found)
             {
                 await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
-                await WaitForReferenceAsync(
+                await WaitForSafeMenuNavigationAsync(
                     "menu_mail", "ícone Correio", TimeSpan.FromSeconds(10), pause, cancellationToken);
             }
 
@@ -3707,7 +3707,7 @@ public sealed partial class BotAutomationEngine(
                 if (!(await recognition.FindAsync("menu_guild", cancellationToken)).Found)
                 {
                     await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
-                    await WaitForReferenceAsync("menu_guild", "menu lateral", TimeSpan.FromSeconds(8), pause, cancellationToken);
+                    await WaitForSafeMenuNavigationAsync("menu_guild", "menu lateral", TimeSpan.FromSeconds(8), pause, cancellationToken);
                 }
 
                 await input.MoveAndClickAsync(1600, 340, TimeSpan.FromMilliseconds(320), cancellationToken,
@@ -4638,7 +4638,7 @@ public sealed partial class BotAutomationEngine(
             if (!(await FindReferenceOnClientAsync(session, "menu_guild", cancellationToken, requireObservable: true)).Found)
             {
                 await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
-                await WaitForReferenceAsync("menu_guild", "menu da Guilda", TimeSpan.FromSeconds(8), pause, cancellationToken);
+                await WaitForSafeMenuNavigationAsync("menu_guild", "menu da Guilda", TimeSpan.FromSeconds(8), pause, cancellationToken);
             }
             await input.MoveAndClickAsync(1600, 340, TimeSpan.FromMilliseconds(300), cancellationToken);
             await WaitForReferenceAsync("guild_page", "Guilda", TimeSpan.FromSeconds(12), pause, cancellationToken);
@@ -4786,7 +4786,7 @@ public sealed partial class BotAutomationEngine(
     {
         SetStatus(BotRunState.Running, $"{session.Options.Label}: Missões Diárias", "Aceitando as 30 campanhas do ciclo");
         await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
-        await WaitForReferenceAsync("menu_campaign", "ícone Camp.", TimeSpan.FromSeconds(10), pause, cancellationToken);
+        await WaitForSafeMenuNavigationAsync("menu_campaign", "ícone Camp.", TimeSpan.FromSeconds(10), pause, cancellationToken);
         await input.MoveAndClickAsync(1606, 264, TimeSpan.FromMilliseconds(320), cancellationToken);
         await WaitForReferenceAsync("campaign_page", "página Campanha", TimeSpan.FromSeconds(15), pause, cancellationToken);
         await input.MoveAndClickAsync(728, 144, TimeSpan.FromMilliseconds(320), cancellationToken);
@@ -7505,6 +7505,41 @@ public sealed partial class BotAutomationEngine(
         }
 
         return null;
+    }
+
+    private async Task WaitForSafeMenuNavigationAsync(
+        string referenceId, string description, TimeSpan timeout,
+        PauseController pause, CancellationToken token)
+    {
+        // Deliberate allowlist: navigation only. Callers click their known
+        // coordinate once, then verify the destination screen separately.
+        if (referenceId is not ("menu_guild" or "menu_campaign" or "menu_mail"))
+            throw new ArgumentOutOfRangeException(nameof(referenceId));
+        var deadline = DateTime.UtcNow + timeout;
+        var stableMenu = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, token);
+            if (_workflowClient is not { } session) break;
+            ThrowIfDeathPending(session);
+            var frame = await CaptureClientFrameAsync(session, token);
+            if ((await recognition.FindAsync(referenceId, frame, token)).Found) return;
+            var anchors = 0;
+            foreach (var anchor in new[] { "menu_guild", "menu_campaign", "menu_mail", "menu_ta" })
+            {
+                if (anchor != referenceId && (await recognition.FindAsync(anchor, frame, token)).Found)
+                    anchors++;
+            }
+            var blocked = (await recognition.FindAsync("aviso_agenda", frame, token)).Found;
+            stableMenu = anchors >= 2 && !blocked ? stableMenu + 1 : 0;
+            if (stableMenu >= 2)
+            {
+                WriteLog(session, $"Menu confirmado por outros ícones; abrindo {description} pela coordenada conhecida e conferindo a próxima tela.");
+                return;
+            }
+            await Task.Delay(250, token);
+        }
+        await WaitForReferenceAsync(referenceId, description, timeout, pause, token);
     }
 
     private async Task<RecognitionResult> WaitForReferenceAsync(
