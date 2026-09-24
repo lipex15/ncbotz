@@ -408,6 +408,10 @@ public partial class App : Application
         {
             window.ShowStatisticsForScreenshot();
         }
+        else if (isScreenshotMode && e.Args.Contains("--diagnostics-tab", StringComparer.Ordinal))
+        {
+            window.ShowDiagnosticsForScreenshot();
+        }
         else if (isScreenshotMode && e.Args.Contains("--updates-tab", StringComparer.Ordinal))
         {
             window.ShowUpdatesForScreenshot();

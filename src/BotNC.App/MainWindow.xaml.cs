@@ -47,6 +47,7 @@ public partial class MainWindow : Window
     private string? _lastSeenUpdateVersion;
     private DateTime? _runStartedAt;
     private readonly DispatcherTimer _executionClock = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly DispatcherTimer _diagnosticTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     private readonly DispatcherTimer _updateCheckTimer = new()
     {
         Interval = TimeSpan.FromMinutes(15)
@@ -68,6 +69,11 @@ public partial class MainWindow : Window
             recognition,
             _capture,
             _database);
+        _diagnosticTimer.Tick += async (_, _) =>
+        {
+            if (ExpandedLogOverlay.Visibility == Visibility.Visible) await RefreshDiagnosticAsync();
+        };
+        _diagnosticTimer.Start();
         _engine.Log += OnEngineLog;
         _engine.StatusChanged += OnEngineStatusChanged;
         _engine.AudioStatusChanged += OnEngineAudioStatusChanged;
@@ -288,10 +294,13 @@ public partial class MainWindow : Window
     }
 
     internal void ShowUpdatesForScreenshot() => OnShowUpdates(this, new RoutedEventArgs());
+    internal void ShowDiagnosticsForScreenshot() => OnExpandLog(this, new RoutedEventArgs());
     internal void ShowStatisticsForScreenshot() => OnShowStatistics(this, new RoutedEventArgs());
 
     private void HideStatistics()
     {
+        ExpandedLogOverlay.Visibility = Visibility.Collapsed;
+        DiagnosticsNavigationButton.Background = Brushes.Transparent;
         SapherasNavigationButton.Background = Brushes.Transparent;
         TaNavigationButton.Background = Brushes.Transparent;
         UserStatisticsPanel.Visibility = Visibility.Collapsed;
@@ -1343,7 +1352,19 @@ public partial class MainWindow : Window
 
     private async void OnExpandLog(object sender, RoutedEventArgs e)
     {
+        OnShowOverview(sender, e);
+        OverviewPanel.Visibility = Visibility.Collapsed;
+        OverviewNavigationButton.Background = Brushes.Transparent;
+        DiagnosticsNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
         ExpandedLogOverlay.Visibility = Visibility.Visible;
+        await RefreshDiagnosticAsync();
+    }
+
+    private bool _diagnosticReading;
+    private async Task RefreshDiagnosticAsync()
+    {
+        if (_diagnosticReading) return;
+        _diagnosticReading = true;
         try
         {
             await using var stream = new FileStream(_engine.RuntimeLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -1353,6 +1374,29 @@ public partial class MainWindow : Window
             TechnicalLogText.ScrollToEnd();
         }
         catch (IOException) { TechnicalLogText.Text = "O diagnóstico será preenchido ao iniciar a execução."; }
+        finally { _diagnosticReading = false; }
+    }
+
+    private async void OnSaveDiagnostic(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Salvar diagnóstico", Filter = "Arquivo de log (*.log)|*.log",
+            FileName = $"pexbot-diagnostico-{DateTime.Now:yyyyMMdd-HHmmss}.log"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            await using var stream = new FileStream(_engine.RuntimeLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+            await File.WriteAllTextAsync(dialog.FileName, content);
+            MessageBox.Show(this, "Diagnóstico salvo.", "PEXBOT", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(this, $"Não foi possível salvar o diagnóstico: {exception.GetBaseException().Message}", "PEXBOT", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
     private void OnCloseExpandedLog(object sender, RoutedEventArgs e) => ExpandedLogOverlay.Visibility = Visibility.Collapsed;
 
@@ -1381,7 +1425,7 @@ public partial class MainWindow : Window
             TechnicalCopyLogButton.Content = "Copiado!";
             await Task.Delay(1800);
             CopyLogButton.Content = "Copiar diagnóstico";
-            TechnicalCopyLogButton.Content = "Copiar log completo";
+            TechnicalCopyLogButton.Content = "Copiar diagnóstico";
         }
         catch (Exception exception)
         {
@@ -2052,6 +2096,7 @@ public partial class MainWindow : Window
     protected override void OnClosing(CancelEventArgs e)
     {
         _updateCheckTimer.Stop();
+        _diagnosticTimer.Stop();
         CancelScheduledStart();
         _runCancellation?.Cancel();
         _updateDownloadCancellation?.Cancel();
