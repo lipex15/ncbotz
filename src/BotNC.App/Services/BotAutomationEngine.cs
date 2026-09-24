@@ -471,6 +471,9 @@ public sealed partial class BotAutomationEngine(
             }
         }
         PublishFarmScheduleProgress(session);
+        // Accounting remains live while the user owns the mouse; only route
+        // changes and game inputs must wait for the interface to be released.
+        if (HumanOwnsInterface) return false;
         if (session.InAgenda || session.HandlingDeath || session.InDailyCampaign || session.LoveBossInside ||
             session.NextRecoveryAttemptAt != default)
         {
@@ -5352,6 +5355,11 @@ public sealed partial class BotAutomationEngine(
                     return;
                 }
 
+                if (HumanOwnsInterface)
+                {
+                    foreach (var scheduledSession in sessions.Where(s => s.FarmScheduleSteps.Count > 0))
+                        await TryAdvanceFarmScheduleAsync(scheduledSession, pause, cancellationToken);
+                }
                 if (!HumanOwnsInterface)
                 {
                 var handledLoveBoss = false;
@@ -7999,6 +8007,8 @@ public sealed partial class BotAutomationEngine(
         public long ObservedScheduleTicks;
         public DateTime ScheduleObservedAt;
         public bool SchedulePreviousObservationActive;
+        public bool ScheduleHuntConfirmed;
+        public int ScheduleConfirmedStep = -1;
         public long FarmSchedulePauseVersion { get; set; }
         public DateTime FarmScheduleLastSaveUtc { get; set; }
         public bool InDailyCampaign { get; set; }

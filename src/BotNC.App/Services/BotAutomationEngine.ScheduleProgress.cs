@@ -6,10 +6,32 @@ public sealed partial class BotAutomationEngine
     {
         var now = DateTime.UtcNow;
         if (now - session.ScheduleObservedAt < TimeSpan.FromSeconds(1)) return;
-        var active = session.FarmScheduleSteps.Count > 0 && !pause.IsPaused && IsScheduleFarmActive(session) &&
-                     ((await recognition.FindAsync("caca_automatica", frame, token)).Found || session.OpenHudHunt == OpenHudHuntState.Active);
+        var eligible = session.FarmScheduleSteps.Count > 0 && !pause.IsPaused &&
+                       !session.VisualCaptureFaulted && IsScheduleFarmActive(session);
+        var reading = (await recognition.FindAsync("caca_automatica", frame, token)).Found
+            ? OpenHudHuntState.Active : session.OpenHudHunt;
+        var active = ResolveScheduleHuntObservation(session, now, eligible, reading, pause.PauseVersion);
         AccumulateScheduleObservation(session, now, active, pause.PauseVersion);
         PublishFarmScheduleProgress(session);
+    }
+
+    private static bool ResolveScheduleHuntObservation(ClientSession session, DateTime now,
+        bool eligible, OpenHudHuntState reading, long pauseVersion)
+    {
+        // An occluded HUD is not a stopped hunt. Keep the last confirmed state
+        // only within the same uninterrupted, observable dungeon farming context.
+        if (!eligible || session.ScheduleConfirmedStep != session.FarmScheduleIndex ||
+            session.FarmSchedulePauseVersion != pauseVersion ||
+            now - session.ScheduleObservedAt >= TimeSpan.FromSeconds(10))
+        {
+            session.ScheduleHuntConfirmed = false;
+            session.SchedulePreviousObservationActive = false;
+        }
+        session.ScheduleConfirmedStep = session.FarmScheduleIndex;
+        if (!eligible) return false;
+        if (reading == OpenHudHuntState.Active) session.ScheduleHuntConfirmed = true;
+        else if (reading == OpenHudHuntState.Inactive) session.ScheduleHuntConfirmed = false;
+        return session.ScheduleHuntConfirmed;
     }
 
     private static void AccumulateScheduleObservation(ClientSession session, DateTime now, bool active, long pauseVersion)
@@ -44,6 +66,31 @@ public sealed partial class BotAutomationEngine
         AccumulateScheduleObservation(first, now.AddMinutes(5), true, 1);
         if (TimeSpan.FromTicks(first.ObservedScheduleTicks).TotalSeconds != 60)
             throw new InvalidOperationException("Agenda contou pausa, saída ou intervalo sem observação.");
+
+        var hidden = new ClientSession(options);
+        for (var tick = 0; tick <= 300; tick++)
+        {
+            var at = now.AddSeconds(tick);
+            var active = ResolveScheduleHuntObservation(hidden, at, true,
+                tick == 0 ? OpenHudHuntState.Active : OpenHudHuntState.Unknown, 0);
+            AccumulateScheduleObservation(hidden, at, active, 0);
+        }
+        if (TimeSpan.FromTicks(hidden.ObservedScheduleTicks).TotalSeconds != 300)
+            throw new InvalidOperationException("Auto encoberto interrompeu cinco minutos de farm confirmado.");
+        if (ResolveScheduleHuntObservation(hidden, now.AddSeconds(301), true, OpenHudHuntState.Inactive, 0) ||
+            ResolveScheduleHuntObservation(hidden, now.AddSeconds(302), true, OpenHudHuntState.Unknown, 0) ||
+            ResolveScheduleHuntObservation(second, now, true, OpenHudHuntState.Unknown, 0))
+            throw new InvalidOperationException("Agenda presumiu farm sem confirmação ou após Auto desligado.");
+        foreach (var interruption in new[] { "exit", "pause", "capture", "step" })
+        {
+            var sample = new ClientSession(options) { ScheduleObservedAt = now };
+            ResolveScheduleHuntObservation(sample, now, true, OpenHudHuntState.Active, 0);
+            if (interruption == "step") sample.FarmScheduleIndex++;
+            if (ResolveScheduleHuntObservation(sample,
+                    interruption == "capture" ? now.AddSeconds(20) : now.AddSeconds(1),
+                    interruption != "exit", OpenHudHuntState.Unknown, interruption == "pause" ? 1 : 0))
+                throw new InvalidOperationException($"Agenda preservou farm após interrupção: {interruption}.");
+        }
     }
     private static bool IsScheduleFarmActive(ClientSession session) =>
         !session.FarmScheduleCompleted && session.IsFarmingTa &&
@@ -63,6 +110,6 @@ public sealed partial class BotAutomationEngine
             session.FarmScheduleCompleted ? "Agenda concluída" :
             $"Etapa {session.FarmScheduleIndex + 1}/{session.FarmScheduleSteps.Count} · {ScheduleDestinationName(step.Destination)} · " +
             $"{Math.Ceiling(remaining):0} min restantes na etapa · Agenda restante: {FormatDuration(total)} · " +
-            (IsScheduleFarmActive(session) ? "Farmando" : "Pausado — aguardando farm na masmorra"));
+            (IsScheduleFarmActive(session) && session.SchedulePreviousObservationActive ? "Farmando" : "Pausado — aguardando farm na masmorra"));
     }
 }
