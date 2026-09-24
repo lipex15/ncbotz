@@ -2634,9 +2634,10 @@ public sealed partial class BotAutomationEngine(
         if (!await IsMapOpenAsync(session, cancellationToken))
         {
             await input.PressKeyAsync(KeyM, cancellationToken: cancellationToken);
-            await WaitForReferenceAsync(
-                destination == TaDestination.Ta1Codex ? "mapa_ta1" : "mapa_aberto",
-                "mapa aberto", TimeSpan.FromSeconds(15), pause, cancellationToken);
+            if (destination == TaDestination.Ta1Codex)
+                await WaitForTa1MapAsync(session, pause, cancellationToken);
+            else
+                await WaitForReferenceAsync("mapa_aberto", "mapa aberto", TimeSpan.FromSeconds(15), pause, cancellationToken);
         }
 
         if (destination == TaDestination.Ta1Codex)
@@ -2768,12 +2769,22 @@ public sealed partial class BotAutomationEngine(
         var custom = EffectiveCustomFarmCoordinate(session) ??
             throw new InvalidOperationException("A T.A 1 (Codex) exige uma coordenada personalizada.");
         SetStatus(BotRunState.Running, $"{session.Options.Label}: T.A 1 (Codex)", "Abrindo todo o mapa e indo ao ponto personalizado");
-        await WaitForReferenceAsync("mapa_ta1", "mapa de Kildebat", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        await WaitForTa1MapAsync(session, pause, cancellationToken);
 
-        // Fecha as duas laterais antes do zoom para manter a mesma geometria da captura do usuário.
-        await input.MoveAndClickAsync(444, 531, TimeSpan.FromMilliseconds(250), cancellationToken);
-        await input.MoveAndClickAsync(1484, 532, TimeSpan.FromMilliseconds(250), cancellationToken);
-        await input.MoveAndClickAsync(1000, 520, TimeSpan.FromMilliseconds(180), cancellationToken);
+        await EnsureGameForegroundAsync(session, cancellationToken);
+        foreach (var reference in new[] { "ta1_left_collapsed", "ta1_right_collapsed" })
+        {
+            if ((await recognition.FindAsync(reference, cancellationToken)).Found) continue;
+            var opened = await recognition.FindAsync(reference.Replace("collapsed", "open"), cancellationToken);
+            if (!opened.Found) throw new InvalidOperationException("Estado da lateral do mapa incerto; nenhum clique por estimativa enviado.");
+            var arrow = gameWindows.MapReferencePoint(session.Options.Target, opened.X, opened.Y);
+            await input.MoveAndClickAsync(arrow.X, arrow.Y, TimeSpan.FromMilliseconds(250), cancellationToken,
+                cooldown: TimeSpan.FromMilliseconds(250));
+            await WaitForReferenceAsync(reference, "lateral do mapa recolhida", TimeSpan.FromSeconds(5), pause, cancellationToken);
+        }
+        // The wheel needs the pointer over the map, never a selection click.
+        var wheelPoint = gameWindows.MapReferencePoint(session.Options.Target, 1000, 520);
+        await input.MovePointerAsync(wheelPoint.X, wheelPoint.Y, cancellationToken);
         await input.ScrollAsync(-120, 12, cancellationToken);
         await WaitForReferenceAsync("mapa_ta1_zoom_max", "mapa de Kildebat no zoom mínimo", TimeSpan.FromSeconds(12), pause, cancellationToken);
 
@@ -2781,13 +2792,15 @@ public sealed partial class BotAutomationEngine(
         WriteLog(session, $"T.A 1 no zoom mínimo confirmada; selecionando o ponto Codex ({custom.X}, {custom.Y}).");
         await input.ClickAsync(spot.X, spot.Y, cancellationToken);
         var goReferences = new[] { "botao_ir", "botao_ir_legado", "botao_ir_ta2" };
-        var searchX = Math.Max(0, spot.X - 220);
-        var searchY = Math.Max(0, spot.Y - 210);
+        var searchX = Math.Max(0, custom.X - 220);
+        var searchY = Math.Max(0, custom.Y - 210);
         var go = await WaitForAnyReferenceInRegionAsync(
             goReferences, searchX, searchY, 470, 230, TimeSpan.FromSeconds(8), pause, cancellationToken);
+        if (go is null) throw new InvalidOperationException("T.A 1: botão Ir não confirmado no ponto personalizado; nenhum clique por estimativa será enviado.");
+        var goPoint = gameWindows.MapReferencePoint(session.Options.Target, go.X, go.Y);
         await ClickGoButtonWithConfirmationAsync(
             session, goReferences, searchX, searchY,
-            go?.X ?? spot.X + 16, go?.Y ?? spot.Y - 76,
+            goPoint.X, goPoint.Y,
             pause, cancellationToken);
         await CloseMapAfterGoAsync(session, pause, cancellationToken);
         await OpenRestForTravelAsync(session, pause, cancellationToken);
@@ -2800,6 +2813,32 @@ public sealed partial class BotAutomationEngine(
         session.ConsecutiveRecoveryFailures = 0;
         session.RequiresHardFlowReset = false;
         WriteLog(session, "Farm da T.A 1 (Codex) iniciado no ponto personalizado.");
+    }
+
+    private async Task<bool> HasTa1MapControlsAsync(ClientSession session, CancellationToken cancellationToken)
+    {
+        var frame = await CaptureClientFrameAsync(session, cancellationToken);
+        var left = (await recognition.FindAsync("ta1_left_collapsed", frame, cancellationToken)).Found ||
+                   (await recognition.FindAsync("ta1_left_open", frame, cancellationToken)).Found;
+        var right = (await recognition.FindAsync("ta1_right_collapsed", frame, cancellationToken)).Found ||
+                    (await recognition.FindAsync("ta1_right_open", frame, cancellationToken)).Found;
+        return left && right;
+    }
+
+    private async Task WaitForTa1MapAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, cancellationToken);
+            if (await HasTa1MapControlsAsync(session, cancellationToken))
+            {
+                WriteLog(session, "Mapa confirmado pelos dois controles laterais; preparando zoom e ponto personalizado.");
+                return;
+            }
+            await Task.Delay(250, cancellationToken);
+        }
+        throw new TimeoutException("T.A 1: controles laterais do mapa não confirmados; navegação interrompida sem cliques às cegas.");
     }
 
     private async Task OpenFavoritesAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
@@ -2964,7 +3003,8 @@ public sealed partial class BotAutomationEngine(
 
         var destination = EffectiveTaDestination(session);
         if (destination == TaDestination.Ta1Codex &&
-            ((await recognition.FindAsync("mapa_ta1", cancellationToken)).Found ||
+            (await HasTa1MapControlsAsync(session, cancellationToken) ||
+             (await recognition.FindAsync("mapa_ta1", cancellationToken)).Found ||
              (await recognition.FindAsync("mapa_ta1_zoom_max", cancellationToken)).Found))
         {
             return true;

@@ -363,6 +363,10 @@ public sealed class AppDatabase
             new("ta1_chegada", "Serviços de Kildebat", "ta1_arrival.png", 10, 90, 315, 165, 0, 70, 410, 230, 0.60),
             new("mapa_ta1", "Mapa de Kildebat", "ta1_map.png", 22, 26, 180, 68, 0, 10, 290, 120, 0.64),
             new("mapa_ta1_zoom_max", "Mapa de Kildebat no zoom mínimo", "ta1_map_zoom_max.png", 805, 50, 390, 85, 735, 25, 540, 145, 0.62),
+            new("ta1_left_open", "Lateral esquerda aberta", "mapa_ta2_favorito_unico.png", 426, 511, 24, 37, 395, 470, 90, 120, 0.85),
+            new("ta1_right_open", "Lateral direita aberta", "mapa_ta2_favorito_unico.png", 1473, 511, 24, 37, 1440, 470, 90, 120, 0.85),
+            new("ta1_left_collapsed", "Lateral esquerda recolhida", "ta1_map.png", 9, 508, 31, 43, 0, 485, 75, 90, 0.85),
+            new("ta1_right_collapsed", "Lateral direita recolhida", "ta1_map.png", 1878, 508, 31, 43, 1840, 485, 79, 90, 0.85),
             new(
                 "abadia_especial",
                 "Aba Especial da Masmorra",

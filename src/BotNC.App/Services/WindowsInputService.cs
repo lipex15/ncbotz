@@ -180,6 +180,16 @@ public sealed class WindowsInputService
         await Task.Delay(cooldown ?? CommandCooldown, cancellationToken);
     }
 
+    public async Task MovePointerAsync(int screenX, int screenY, CancellationToken cancellationToken)
+    {
+        ValidateWorkflowTarget?.Invoke();
+        Send(CreateAbsoluteMouseMove(screenX, screenY,
+            NativeMethods.GetSystemMetrics(SmCxScreen), NativeMethods.GetSystemMetrics(SmCyScreen)));
+        WorkflowTrace?.Invoke($"input pointerOnly={screenX},{screenY}; noClick=true");
+        await Task.Delay(120, cancellationToken);
+        ValidateWorkflowTarget?.Invoke();
+    }
+
     public async Task ScrollAsync(int wheelDelta, int repetitions, CancellationToken cancellationToken)
     {
         for (var index = 0; index < repetitions; index++)

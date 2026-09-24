@@ -486,6 +486,22 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        foreach (var id in new[] { "ta1_left_open", "ta1_right_open" })
+        foreach (var file in new[] { "mapa_ta2_favorito_unico.png", "ta1_map.png", "ta_selector_user_active.png", "daily_page.png" })
+        {
+            var result = await recognition.FindInImageAsync(id, Path.Combine(referenceDirectory, file));
+            await File.AppendAllTextAsync(outputPath + ".ta1.txt", $"{id}; {file}; found={result.Found}; score={result.Confidence:F4}\n");
+            if (result.Found != (file == "mapa_ta2_favorito_unico.png"))
+                throw new InvalidOperationException($"Estado da lateral aberta incorreto: {id}, {file}, {result.Confidence}");
+        }
+        foreach (var id in new[] { "ta1_left_collapsed", "ta1_right_collapsed" })
+        foreach (var file in new[] { "ta1_map.png", "ta1_map_zoom_max.png", "ta_selector_user_active.png", "daily_page.png" })
+        {
+            var result = await recognition.FindInImageAsync(id, Path.Combine(referenceDirectory, file));
+            await File.AppendAllTextAsync(outputPath + ".ta1.txt", $"{id}; {file}; found={result.Found}; score={result.Confidence:F4}\n");
+            if (result.Found != file.StartsWith("ta1_map", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Estado da lateral incorreto: {id}, {file}, {result.Confidence}");
+        }
         var treasureChecks = await GuildTreasureRegression.VerifyAsync(recognition, database,
             name => LoadReferenceFrame(Path.Combine(referenceDirectory, name)));
         await File.WriteAllLinesAsync(outputPath + ".treasure.txt", treasureChecks);
