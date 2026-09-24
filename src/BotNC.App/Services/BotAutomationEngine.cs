@@ -2947,29 +2947,32 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        for (var attempt = 1; attempt <= 3; attempt++)
+        WriteLog(session, $"Clicando em Ir ({goX}, {goY}) uma única vez; aguardando a resposta do jogo.");
+        await input.ClickAsync(goX, goY, cancellationToken);
+        var deadline = DateTime.UtcNow.AddSeconds(12);
+        var absentSamples = 0;
+        while (DateTime.UtcNow < deadline)
         {
-            WriteLog(session, $"Clicando em Ir ({goX}, {goY}) — tentativa {attempt}/3.");
-            await input.ClickAsync(goX, goY, cancellationToken);
+            await Task.Delay(500, cancellationToken);
             await CheckpointAsync(pause, cancellationToken);
 
             var popupStillVisible = await FindAnyReferenceInRegionOnceAsync(
                 goReferences, searchX, searchY, 470, 230, cancellationToken);
-            if (popupStillVisible is null)
+            absentSamples = popupStillVisible is null ? absentSamples + 1 : 0;
+            if (absentSamples >= 2)
             {
                 WriteLog(session, "Clique em Ir aceito; o seletor do mapa desapareceu.");
                 return;
             }
 
-            goX = popupStillVisible.X;
-            goY = popupStillVisible.Y;
-            WriteLog(session, "O seletor ainda está visível; repetindo o clique no Ir reconhecido.");
+            // A delayed/cached frame is not permission to click again: the same
+            // position can already be bare map, cancelling the route just sent.
         }
 
         var diagnostic = await recognition.SaveDiagnosticAsync($"botao_ir_persistente_{session.Options.Priority}");
         WriteLog(
             session,
-            $"O seletor continuou visível após 3 cliques; seguindo para a validação de deslocamento sem interromper o fluxo. Diagnóstico: {diagnostic}");
+            $"Resposta de Ir inconclusiva; nenhum clique repetido. Fechando o mapa para validar o deslocamento. Diagnóstico: {diagnostic}");
     }
 
     private async Task CloseMapAfterGoAsync(
@@ -4439,20 +4442,9 @@ public sealed partial class BotAutomationEngine(
                 break;
         }
 
-        if (sidebar.State == GuildDirectiveSidebarState.Available)
-        {
-        var sidebarShortcut = gameWindows.MapReferencePoint(session.Options.Target, 1628, 210);
-        await input.MoveAndClickAsync(
-            sidebarShortcut.X,
-            sidebarShortcut.Y,
-            TimeSpan.FromMilliseconds(220),
-            cancellationToken,
-            cooldown: TimeSpan.FromMilliseconds(60));
-        }
-        else
-        {
-            await OpenGuildDirectivePanelAsync(session, pause, cancellationToken);
-        }
+        // Quest order varies. Never click a fixed sidebar row, which may be a
+        // white side quest rather than the directive that was recognized.
+        await OpenGuildDirectivePanelAsync(session, pause, cancellationToken);
         var directivePageDeadline = DateTime.UtcNow.AddSeconds(15);
         var directivePageVisible = false;
         while (DateTime.UtcNow < directivePageDeadline)

@@ -47,7 +47,6 @@ public sealed class GuildDirectiveSidebarReader
             return new GuildDirectiveSidebarResult(GuildDirectiveSidebarState.Unknown, "região indisponível", 0, 0);
 
         var greenPixels = 0;
-        var greenByRow = new int[height];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -59,7 +58,6 @@ public sealed class GuildDirectiveSidebarReader
                 if (green >= 78 && green >= red + 17 && green + 10 >= blue)
                 {
                     greenPixels++;
-                    greenByRow[y]++;
                 }
             }
         }
@@ -79,15 +77,16 @@ public sealed class GuildDirectiveSidebarReader
             var bitmap = CreateOcrBitmap(frame, x0, y0, width, height, threshold);
             using (bitmap)
             {
-                var text = (await engine.RecognizeAsync(bitmap).AsTask(cancellationToken)).Text;
+                var ocr = await engine.RecognizeAsync(bitmap).AsTask(cancellationToken);
+                var text = ocr.Text;
                 observations.Add(text);
                 var normalized = Normalize(text);
-                activeCounterSeen |= ActiveCounter.IsMatch(normalized);
+                activeCounterSeen |= ocr.Lines.Any(line =>
+                    ActiveCounter.IsMatch(Normalize(line.Text)) &&
+                    HasGreenText(frame, line, x0, y0));
                 genericCounters = Math.Max(genericCounters, GenericCounter.Matches(normalized).Count);
-                if (normalized.Contains("DIRETIVA", StringComparison.Ordinal) &&
-                    (normalized.Contains("DISPON", StringComparison.Ordinal) ||
-                     normalized.Contains("DISP0N", StringComparison.Ordinal) ||
-                     normalized.Contains("GUILDA", StringComparison.Ordinal)))
+                if (ocr.Lines.Any(line => IsAvailableLabel(line.Text) &&
+                    HasGreenText(frame, line, x0, y0)))
                 {
                     return new GuildDirectiveSidebarResult(
                         GuildDirectiveSidebarState.Available,
@@ -110,17 +109,8 @@ public sealed class GuildDirectiveSidebarReader
                 genericCounters);
         }
 
-        // A faixa selecionada de "disponível" possui muito mais área verde
-        // que um texto comum. Isso cobre uma falha eventual do OCR da frase.
-        var strongRows = greenByRow.Count(value => value >= Math.Max(35, width / 10));
-        if (greenPixels >= Math.Max(1200, width * 3) && strongRows >= 14)
-        {
-            return new GuildDirectiveSidebarResult(
-                GuildDirectiveSidebarState.Available,
-                string.Join(" | ", observations),
-                greenPixels,
-                genericCounters);
-        }
+        // Green scenery is not a directive. Availability requires its generic
+        // UI label and green text on that same OCR line, never the quest name.
 
         // Só devolvemos ausência quando a lista lateral foi realmente
         // observável (outros contadores existem). O painel da Guilda ainda será
@@ -133,6 +123,34 @@ public sealed class GuildDirectiveSidebarReader
             string.Join(" | ", observations),
             greenPixels,
             genericCounters);
+    }
+
+    private static bool IsAvailableLabel(string text)
+    {
+        var normalized = Normalize(text);
+        return normalized.Contains("DIRETIVA", StringComparison.Ordinal) &&
+            normalized.Contains("DISP0N", StringComparison.Ordinal);
+    }
+
+    private static bool HasGreenText(PixelFrame frame, OcrLine line, int x0, int y0)
+    {
+        var count = 0;
+        foreach (var word in line.Words)
+        {
+            var box = word.BoundingRect;
+            for (var y = Math.Max(0, y0 + (int)(box.Y / 2));
+                 y < Math.Min(frame.Height, y0 + (int)Math.Ceiling(box.Bottom / 2)); y++)
+            for (var x = Math.Max(0, x0 + (int)(box.X / 2));
+                 x < Math.Min(frame.Width, x0 + (int)Math.Ceiling(box.Right / 2)); x++)
+            {
+                var offset = y * frame.Stride + x * 4;
+                var b = frame.Pixels[offset];
+                var g = frame.Pixels[offset + 1];
+                var r = frame.Pixels[offset + 2];
+                if (g >= 78 && g >= r + 17 && g + 10 >= b) count++;
+            }
+        }
+        return count >= 35;
     }
 
     private static SoftwareBitmap CreateOcrBitmap(
