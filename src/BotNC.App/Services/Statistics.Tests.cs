@@ -32,6 +32,16 @@ internal static class StatisticsRegression
             await System.IO.File.WriteAllLinesAsync(output, lines);
             if (reading.Value != expected) throw new InvalidOperationException(lines[^1]);
         }
+        var articleSource = load("statistics_article_purchase.png");
+        foreach (var offsetY in new[] { -100, 100 })
+        {
+            var shifted = new PixelFrame(1920, 1040, 7680, new byte[1920 * 1040 * 4]);
+            for (var y = 0; y < Math.Min(1040, articleSource.Height); y++)
+                if (y + offsetY >= 0 && y + offsetY < 1040)
+                    Buffer.BlockCopy(articleSource.Pixels, y * articleSource.Stride, shifted.Pixels, (y + offsetY) * shifted.Stride, 7680);
+            var price = await GoldPriceReader.ReadAsync(recognition, shifted, "articles", CancellationToken.None);
+            if (price.Value != 244100) throw new Exception($"Preço do lote deslocado {offsetY}: {price.Evidence}");
+        }
         foreach (var (name, x, y, expected) in new[]
         {
             ("daily_teleport.png", 630, 210, 15000L),
@@ -76,6 +86,15 @@ internal static class StatisticsRegression
         if (all.Count != 4 || all.Count(item => item.Gold is null) != 1 || all.Sum(item => item.Gold ?? 0) != 252700)
             throw new Exception("Total misturou clientes/usuários/valores desconhecidos.");
         lines.Add("statistics dedup=true; restart=true; profiles=true; clients=true; session=true; periodBoundary=true; unknownExcluded=true; pendingPromotion=true");
+        var backup = await reopened.ResetAsync("profileA", 1, false);
+        if (!System.IO.File.Exists(backup) || (await reopened.ReadAsync("profileA", DateTimeOffset.MinValue, DateTimeOffset.MaxValue, 1)).Count != 0 ||
+            (await reopened.ReadAsync("profileA", DateTimeOffset.MinValue, DateTimeOffset.MaxValue, 2)).Count != 1 ||
+            (await reopened.ReadAsync("profileB", DateTimeOffset.MinValue, DateTimeOffset.MaxValue)).Count != 1)
+            throw new Exception("Reset vazou para outro cliente/perfil ou não criou backup.");
+        await reopened.RecordAsync(first);
+        if ((await reopened.ReadAsync("profileA", DateTimeOffset.MinValue, DateTimeOffset.MaxValue, 1)).Count != 0)
+            throw new Exception("Reset permitiu reaparecer um evento antigo repetido.");
+        lines.Add("statistics resetBackup=true; resetClientIsolation=true; resetDedup=true");
         await System.IO.File.WriteAllLinesAsync(output, lines);
     }
 }

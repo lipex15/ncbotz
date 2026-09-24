@@ -5,6 +5,14 @@ namespace BotNC.App.Services;
 public sealed partial class BotAutomationEngine
 {
     private ClientSession? _workflowClient;
+    private HumanInteractionMonitor? _humanInteraction;
+    private IReadOnlyList<ClientSession> _manualSessions = [];
+    private bool HumanOwnsInterface => _humanInteraction?.IsBusy == true || _manualSessions.Any(s => s.UserInterfaceBusy);
+    private void RespectHumanInteraction(ClientSession session)
+    {
+        if (!session.HandlingDeath && HumanOwnsInterface)
+            throw new HumanInteractionException();
+    }
 
     private void BindWorkflowClient(ClientSession session)
     {
@@ -15,6 +23,7 @@ public sealed partial class BotAutomationEngine
         recognition.WorkflowContextId = $"{session.Options.Priority}:{session.Options.Target.Handle}";
         recognition.WorkflowTrace = message => WritePersistentOnly(session, message);
         input.WorkflowTrace = message => WritePersistentOnly(session, message);
+        input.ValidateNormalInteraction = () => RespectHumanInteraction(session);
         input.ValidateWorkflowTarget = () =>
         {
             ThrowIfDeathPending(session);
@@ -72,7 +81,8 @@ public sealed partial class BotAutomationEngine
 
     private async Task ReconcileVisiblePendingDailyAsync(ClientSession session, DailyRoutineOptions options, CancellationToken token)
     {
-        if (session.StartupDailyReconciled || !options.EnableDailyMissions || !session.Options.EnableDailyMissions) return;
+        if (session.StartupDailyReconciled || !options.EnableDailyMissions || !session.Options.EnableDailyMissions ||
+            session.DailyCompletedCycle == DailyCycleKey(DateTime.Now)) return;
         for (var sample = 0; sample < 2; sample++)
         {
             var frame = await CaptureDailyMissionFrameAsync(session, token);
@@ -110,9 +120,10 @@ public sealed partial class BotAutomationEngine
             throw new InvalidOperationException("Restauração ainda não liberou o retorno ao combate.");
         await ActivateGameAsync(session, token);
         var hunt = await FindReferenceOnClientAsync(session, "caca_automatica", token, requireObservable: true);
-        if (session.IsFarmingTa && hunt.Found)
+        var openHunt = await OpenHudHuntReader.ReadAsync(recognition, await CaptureClientFrameAsync(session, token), token);
+        if (session.IsFarmingTa && (hunt.Found || openHunt == OpenHudHuntState.Active))
         {
-            session.SafeInRest = true;
+            session.SafeInRest = hunt.Found;
             WriteLog(session, "Farm confirmado no ponto atual; nenhuma nova entrada necessária.");
             return;
         }

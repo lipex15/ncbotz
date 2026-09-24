@@ -480,6 +480,9 @@ public partial class App : Application
         BotAutomationEngine.VerifyWorkflowStabilityPolicy();
         BotAutomationEngine.VerifyDeathPriorityPolicy();
         BotAutomationEngine.VerifyScheduleClockPolicy();
+        if (!HumanInteractionMonitor.IsPhysicalEvent(true, 0) || !HumanInteractionMonitor.IsPhysicalEvent(false, 0) ||
+            HumanInteractionMonitor.IsPhysicalEvent(true, 1) || HumanInteractionMonitor.IsPhysicalEvent(false, 16))
+            throw new InvalidOperationException("Comandos do bot confundidos com interação manual.");
         LoveBossSchedule.VerifyPolicy();
         var database = new AppDatabase(outputPath + ".data");
         await database.InitializeAsync();
@@ -491,6 +494,11 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        foreach (var (file, expected) in new[] { ("hud_auto_active.png", OpenHudHuntState.Active), ("hud_auto_inactive.png", OpenHudHuntState.Inactive), ("guild_treasure_empty.png", OpenHudHuntState.Unknown) })
+        {
+            var actual = await OpenHudHuntReader.ReadAsync(recognition, LoadReferenceFrame(Path.Combine(referenceDirectory, file)), CancellationToken.None);
+            if (actual != expected) throw new InvalidOperationException($"Auto HUD {file}: esperado={expected}; observado={actual}");
+        }
         foreach (var id in new[] { "ta1_left_open", "ta1_right_open" })
         foreach (var file in new[] { "mapa_ta2_favorito_unico.png", "ta1_map.png", "ta_selector_user_active.png", "daily_page.png" })
         {

@@ -8,6 +8,7 @@ public sealed record CapturedScreenPoint(int X, int Y);
 public sealed class WindowsInputService
 {
     public Action? ValidateWorkflowTarget { get; set; }
+    public Action? ValidateNormalInteraction { get; set; }
     public Action<string>? WorkflowTrace { get; set; }
     private static readonly TimeSpan CommandCooldown = TimeSpan.FromMilliseconds(1800);
     private const uint InputMouse = 0;
@@ -31,6 +32,7 @@ public sealed class WindowsInputService
         CancellationToken cancellationToken = default,
         TimeSpan? cooldown = null)
     {
+        ValidateNormalInteraction?.Invoke();
         ValidateWorkflowTarget?.Invoke();
         WorkflowTrace?.Invoke($"input key=0x{virtualKey:X2}; target=verified");
         KeyDown(virtualKey);
@@ -96,6 +98,7 @@ public sealed class WindowsInputService
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
+        ValidateNormalInteraction?.Invoke();
         ValidateWorkflowTarget?.Invoke();
         WorkflowTrace?.Invoke($"input holdKey=0x{virtualKey:X2}; durationMs={duration.TotalMilliseconds:F0}; target=verified");
         KeyDown(virtualKey);
@@ -117,6 +120,7 @@ public sealed class WindowsInputService
         CancellationToken cancellationToken,
         TimeSpan? cooldown = null)
     {
+        ValidateNormalInteraction?.Invoke();
         ValidateWorkflowTarget?.Invoke();
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
@@ -124,6 +128,7 @@ public sealed class WindowsInputService
         var normalizedY = (int)Math.Round(screenY * 65535d / Math.Max(1, height - 1));
         Send(CreateMouseInput(normalizedX, normalizedY, MouseMove | MouseAbsolute));
         await Task.Delay(80, cancellationToken);
+        ValidateNormalInteraction?.Invoke();
         ValidateWorkflowTarget?.Invoke();
         WorkflowTrace?.Invoke($"input click={screenX},{screenY}; target=verified");
         Send(CreateMouseInput(
@@ -142,6 +147,7 @@ public sealed class WindowsInputService
         CancellationToken cancellationToken,
         TimeSpan? cooldown = null)
     {
+        ValidateNormalInteraction?.Invoke();
         ValidateWorkflowTarget?.Invoke();
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
@@ -156,6 +162,7 @@ public sealed class WindowsInputService
         for (var step = 1; step <= steps; step++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ValidateNormalInteraction?.Invoke();
             var progress = step / (double)steps;
             // Curva suave: começa e termina devagar, evitando que o jogo perca
             // um salto instantâneo do ponteiro em máquinas mais lentas.
@@ -169,6 +176,7 @@ public sealed class WindowsInputService
         var normalizedX = (int)Math.Round(screenX * 65535d / Math.Max(1, width - 1));
         var normalizedY = (int)Math.Round(screenY * 65535d / Math.Max(1, height - 1));
         await Task.Delay(140, cancellationToken);
+        ValidateNormalInteraction?.Invoke();
         ValidateWorkflowTarget?.Invoke();
         WorkflowTrace?.Invoke($"input click={screenX},{screenY}; movementMs={movementDuration.TotalMilliseconds:F0}; target=verified");
         Send(CreateMouseInput(
@@ -182,11 +190,13 @@ public sealed class WindowsInputService
 
     public async Task MovePointerAsync(int screenX, int screenY, CancellationToken cancellationToken)
     {
+        ValidateNormalInteraction?.Invoke();
         ValidateWorkflowTarget?.Invoke();
         Send(CreateAbsoluteMouseMove(screenX, screenY,
             NativeMethods.GetSystemMetrics(SmCxScreen), NativeMethods.GetSystemMetrics(SmCyScreen)));
         WorkflowTrace?.Invoke($"input pointerOnly={screenX},{screenY}; noClick=true");
         await Task.Delay(120, cancellationToken);
+        ValidateNormalInteraction?.Invoke();
         ValidateWorkflowTarget?.Invoke();
     }
 
@@ -195,6 +205,7 @@ public sealed class WindowsInputService
         for (var index = 0; index < repetitions; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ValidateNormalInteraction?.Invoke();
             ValidateWorkflowTarget?.Invoke();
             WorkflowTrace?.Invoke($"input scroll={wheelDelta}; target=verified");
             var wheel = CreateMouseInput(0, 0, MouseWheel);

@@ -22,6 +22,12 @@ internal static class GoldPriceReader
             if (!label.Found) return new(null, "linha Recurso necessário não confirmada");
             region = (label.X + 145, label.Y - 25, 85, 50);
         }
+        if (layout == "articles")
+        {
+            var total = await recognition.FindAsync("statistics_article_total", frame, token);
+            if (!total.Found) return new(null, $"rótulo Preço total não confirmado: {total.Confidence:F3}");
+            region = (total.X + 145, total.Y - 30, 90, 60);
+        }
         if (region.Item3 == 0) return new(null, "layout sem referência");
         var coinReference = layout.StartsWith("ta", StringComparison.Ordinal) ? "statistics_ta_gold_coin" :
             layout == "daily-shop" ? "statistics_shop_gold_coin" : "statistics_gold_coin";

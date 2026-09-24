@@ -97,6 +97,9 @@ public sealed partial class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         StatisticsSessionId = Guid.NewGuid().ToString("N");
+        using var humanMonitor = System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            new HumanInteractionMonitor(runOptions.Clients.Select(client => client.Target.Handle)));
+        _humanInteraction = humanMonitor;
         if (runOptions.Clients.Count == 0)
         {
             throw new InvalidOperationException("Selecione ao menos um cliente do Night Crows.");
@@ -111,6 +114,7 @@ public sealed partial class BotAutomationEngine(
             .OrderBy(client => client.Priority)
             .Select(client => new ClientSession(client))
             .ToArray();
+        _manualSessions = sessions;
 
         WritePersistentOnly($"session_start version={typeof(BotAutomationEngine).Assembly.GetName().Version}; os={Environment.OSVersion}; scale={GameWindowService.GetSystemScalePercent()}; screen={capture.GetPrimaryScreenSize()}; timezone={TimeZoneInfo.Local.Id}; clients={sessions.Length}; capture=WGC; recoveryPolicy=v17");
 
@@ -2332,6 +2336,15 @@ public sealed partial class BotAutomationEngine(
             }
         }
 
+        if (await OpenHudHuntReader.ReadAsync(recognition, await CaptureClientFrameAsync(session, cancellationToken), cancellationToken) == OpenHudHuntState.Active)
+        {
+            session.IsFarmingTa = true;
+            session.SafeInRest = false;
+            session.AwaitingHuntActivationAtSpot = false;
+            session.Audio.Armed = true;
+            WriteLog(session, "Auto ligado na tela aberta; farm preservado sem Q nem L.");
+            return;
+        }
         // Abrir o descanso primeiro permite observar se a caça já estava ativa.
         // Pressionar Q às cegas aqui poderia desligá-la justamente no caso em
         // que o seletor informou que o personagem já estava dentro da T.A.
@@ -2601,7 +2614,15 @@ public sealed partial class BotAutomationEngine(
         var originalTitle = VisualRecognitionService.MeasureAverageLuma(before, 80, 40, 290, 45);
         await input.MoveAndClickAsync(428, 1005, TimeSpan.FromMilliseconds(300), cancellationToken);
         await Task.Delay(400, cancellationToken);
-        var articlePrice = await ReadStatisticsPriceAsync(session, "articles", cancellationToken);
+        var articlePrice = new GoldPriceReading(null, "popup de preço não confirmado");
+        var priceDeadline = DateTime.UtcNow.AddSeconds(4);
+        do
+        {
+            articlePrice = await ReadStatisticsPriceAsync(session, "articles", cancellationToken);
+            if (articlePrice.Value.HasValue) break;
+            await Task.Delay(180, cancellationToken);
+        } while (DateTime.UtcNow < priceDeadline);
+        WritePersistentOnly(session, $"article_price_before_confirmation value={articlePrice.Value}; {articlePrice.Evidence}");
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         var deadline = DateTime.UtcNow.AddSeconds(18);
         var exhaustedHits = 0;
@@ -3161,6 +3182,14 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        RespectHumanInteraction(session);
+        if (await OpenHudHuntReader.ReadAsync(recognition, await CaptureClientFrameAsync(session, cancellationToken), cancellationToken) == OpenHudHuntState.Active)
+        {
+            session.SafeInRest = false;
+            session.AwaitingHuntActivationAtSpot = false;
+            WriteLog(session, "Auto ligado fora do descanso: mantendo a caça sem alternar Q ou L.");
+            return;
+        }
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             await CheckpointAsync(pause, cancellationToken);
@@ -4123,6 +4152,7 @@ public sealed partial class BotAutomationEngine(
     {
         var currentCycle = DailyCycleKey(DateTime.Now);
         if (!options.EnableDailyMissions || !session.Options.EnableDailyMissions || session.InAgenda || session.HandlingDeath || session.LoveBossInside ||
+            session.DailyCompletedCycle == currentCycle || _humanInteraction?.IsBusy == true ||
             session.InDailyCampaign || session.NextRecoveryAttemptAt != default ||
             DateTime.UtcNow < session.NextVisibleDailyScanAt)
         {
@@ -5312,6 +5342,8 @@ public sealed partial class BotAutomationEngine(
                     return;
                 }
 
+                if (!HumanOwnsInterface)
+                {
                 var handledLoveBoss = false;
                 foreach (var raidSession in sessions
                              .OrderBy(item => item.LoveBossInside)
@@ -5393,9 +5425,10 @@ public sealed partial class BotAutomationEngine(
                     }
                 }
 
+                }
                 foreach (var session in sessions.OrderBy(session => session.Options.Priority))
                 {
-                    if (session.InDailyCampaign && !session.LoveBossInside && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
+                    if (!HumanOwnsInterface && session.InDailyCampaign && !session.LoveBossInside && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
                     {
                         try
                         {
@@ -5528,7 +5561,7 @@ public sealed partial class BotAutomationEngine(
                         }
                     }
 
-                    if (session.NextRecoveryAttemptAt != default &&
+                    if (!HumanOwnsInterface && session.NextRecoveryAttemptAt != default &&
                         DateTime.UtcNow >= session.NextRecoveryAttemptAt &&
                         !session.InAgenda && !session.HandlingDeath)
                     {
@@ -5856,6 +5889,17 @@ public sealed partial class BotAutomationEngine(
 
                 var frame = await CaptureClientFrameAsync(session, cancellationToken);
                 session.LastWindowFrameAt = DateTime.UtcNow;
+                session.OpenHudHunt = await OpenHudHuntReader.ReadAsync(recognition, frame, cancellationToken);
+                if (_humanInteraction is { } human && human.LastWindow == session.Options.Target.Handle && human.LastAt != session.LastHumanObservation)
+                {
+                    session.LastHumanObservation = human.LastAt;
+                    session.UserInterfaceBusy = true;
+                }
+                if (session.UserInterfaceBusy && _humanInteraction?.IsBusy != true &&
+                    (session.OpenHudHunt != OpenHudHuntState.Unknown ||
+                     (await recognition.FindAsync("tela_descanso", frame, cancellationToken)).Found ||
+                     (await recognition.FindAsync("caca_automatica", frame, cancellationToken)).Found))
+                    session.UserInterfaceBusy = false;
                 await ObserveScheduleClockAsync(session, frame, pause, cancellationToken);
                 if (session.VisualCaptureFaulted)
                 {
@@ -6139,6 +6183,11 @@ public sealed partial class BotAutomationEngine(
         Exception exception,
         string action)
     {
+        if (exception is HumanInteractionException)
+        {
+            WritePersistentOnly(session, "human_interaction: ação normal adiada; monitoramento e proteção continuam ativos.");
+            return;
+        }
         if (!session.HandlingDeath && Volatile.Read(ref session.PendingVisualDeath) != 0)
         {
             session.NextRecoveryAttemptAt = DateTime.MinValue;
@@ -6220,6 +6269,15 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        RespectHumanInteraction(session);
+        if (await OpenHudHuntReader.ReadAsync(recognition, await CaptureClientFrameAsync(session, cancellationToken), cancellationToken) == OpenHudHuntState.Active)
+        {
+            session.IsFarmingTa = isTaFarm;
+            session.SafeInRest = false;
+            session.AwaitingHuntActivationAtSpot = false;
+            session.Audio.Armed = true;
+            return;
+        }
         SetStatus(
             BotRunState.Running,
             $"{session.Options.Label}: retomando caça",
@@ -7508,6 +7566,7 @@ public sealed partial class BotAutomationEngine(
 
     private async Task ActivateGameAsync(ClientSession session, CancellationToken cancellationToken)
     {
+        RespectHumanInteraction(session);
         BindWorkflowClient(session);
         var target = session.Options.Target;
         if (!gameWindows.Activate(target))
@@ -7548,6 +7607,7 @@ public sealed partial class BotAutomationEngine(
 
     private async Task EnsureGameForegroundAsync(ClientSession session, CancellationToken cancellationToken)
     {
+        RespectHumanInteraction(session);
         BindWorkflowClient(session);
         var target = session.Options.Target;
         if (gameWindows.IsForeground(target))
@@ -7848,6 +7908,9 @@ public sealed partial class BotAutomationEngine(
         public bool AwaitingHuntActivationAtSpot { get; set; }
         public bool AwaitingFavoriteSpotRecognition { get; set; }
         public bool SafeInRest { get; set; }
+        public OpenHudHuntState OpenHudHunt { get; set; }
+        public bool UserInterfaceBusy { get; set; }
+        public long LastHumanObservation { get; set; }
         public bool IsFarmingTa { get; set; }
         public int AgendaEntries { get; set; }
         public int IndividualAnonymousEntries { get; set; }

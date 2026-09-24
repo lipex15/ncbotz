@@ -40,6 +40,7 @@ internal sealed class StatisticsStore(string directory)
                     description TEXT NOT NULL, gold INTEGER NULL, quantity REAL NOT NULL,
                     evidence TEXT NOT NULL, PRIMARY KEY(profile, client, id));
                 CREATE INDEX IF NOT EXISTS events_period ON events(profile,at);
+                CREATE TABLE IF NOT EXISTS statistic_resets (profile TEXT NOT NULL, client INTEGER NULL, since INTEGER NOT NULL, until INTEGER NOT NULL);
                 """;
             await command.ExecuteNonQueryAsync();
             _ready = true;
@@ -89,6 +90,8 @@ internal sealed class StatisticsStore(string directory)
             SELECT id,client,session,at,kind,description,gold,quantity,evidence FROM events
             WHERE profile=$profile AND at >= $since AND at < $until
             AND ($client IS NULL OR client=$client) AND ($session IS NULL OR session=$session)
+            AND NOT EXISTS (SELECT 1 FROM statistic_resets r WHERE r.profile=events.profile
+                AND (r.client IS NULL OR r.client=events.client) AND events.at>=r.since AND events.at<=r.until)
             ORDER BY at DESC
             """;
         command.Parameters.AddWithValue("$profile", profile);
@@ -103,5 +106,29 @@ internal sealed class StatisticsStore(string directory)
                 new DateTimeOffset(reader.GetInt64(3), TimeSpan.Zero), reader.GetString(4), reader.GetString(5),
                 reader.IsDBNull(6) ? null : reader.GetInt64(6), reader.GetDouble(7), reader.GetString(8)));
         return result;
+    }
+
+    internal async Task<string> ResetAsync(string profile, int? client, bool todayOnly)
+    {
+        if (client is not null and not 1 and not 2) throw new ArgumentOutOfRangeException(nameof(client));
+        await InitializeAsync();
+        await _gate.WaitAsync();
+        try
+        {
+            await using var connection = Connect();
+            await connection.OpenAsync();
+            var backupPath = System.IO.Path.Combine(directory, $"statistics-backup-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.db");
+            using (var backup = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = backupPath }.ToString()))
+            { backup.Open(); connection.BackupDatabase(backup); }
+            var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO statistic_resets VALUES($profile,$client,$since,$until)";
+            command.Parameters.AddWithValue("$profile", profile);
+            command.Parameters.AddWithValue("$client", (object?)client ?? DBNull.Value);
+            command.Parameters.AddWithValue("$since", todayOnly ? new DateTimeOffset(DateTime.Today).UtcTicks : 0);
+            command.Parameters.AddWithValue("$until", DateTimeOffset.UtcNow.UtcTicks);
+            await command.ExecuteNonQueryAsync();
+            return backupPath;
+        }
+        finally { _gate.Release(); }
     }
 }

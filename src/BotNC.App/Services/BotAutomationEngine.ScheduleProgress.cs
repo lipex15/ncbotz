@@ -7,7 +7,7 @@ public sealed partial class BotAutomationEngine
         var now = DateTime.UtcNow;
         if (now - session.ScheduleObservedAt < TimeSpan.FromSeconds(1)) return;
         var active = session.FarmScheduleSteps.Count > 0 && !pause.IsPaused && IsScheduleFarmActive(session) &&
-                     (await recognition.FindAsync("caca_automatica", frame, token)).Found;
+                     ((await recognition.FindAsync("caca_automatica", frame, token)).Found || session.OpenHudHunt == OpenHudHuntState.Active);
         AccumulateScheduleObservation(session, now, active, pause.PauseVersion);
         PublishFarmScheduleProgress(session);
     }
@@ -46,7 +46,7 @@ public sealed partial class BotAutomationEngine
             throw new InvalidOperationException("Agenda contou pausa, saída ou intervalo sem observação.");
     }
     private static bool IsScheduleFarmActive(ClientSession session) =>
-        !session.FarmScheduleCompleted && session.SafeInRest && session.IsFarmingTa &&
+        !session.FarmScheduleCompleted && session.IsFarmingTa &&
         !session.InDailyCampaign && !session.HandlingDeath && !session.NeedsDeathRestoration &&
         !session.LoveBossInside && !session.InAgenda && session.NextRecoveryAttemptAt == default &&
         Volatile.Read(ref session.PendingVisualDeath) == 0 && Volatile.Read(ref session.PendingVisualLowHp) == 0 &&
