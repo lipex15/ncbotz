@@ -128,6 +128,7 @@ public partial class MainWindow : Window
         Title = AppIdentity.DisplayName;
         AppNameText.Text = "PEXBOT";
         TestChannelBadge.Visibility = AppIdentity.IsTesting ? Visibility.Visible : Visibility.Collapsed;
+        StatisticsNavigationButton.Visibility = AppIdentity.IsTesting ? Visibility.Visible : Visibility.Collapsed;
         if (AppIdentity.IsTesting)
         {
             UpdatesIntroText.Text = "Canal de testes: atualizações independentes da versão usada pelos demais.";
@@ -142,6 +143,7 @@ public partial class MainWindow : Window
 
     private void OnShowOverview(object sender, RoutedEventArgs e)
     {
+        HideStatistics();
         OverviewPanel.Visibility = Visibility.Visible;
         AbbeyPanel.Visibility = Visibility.Collapsed;
         RoutinesPanel.Visibility = Visibility.Collapsed;
@@ -188,6 +190,7 @@ public partial class MainWindow : Window
 
     private async void OnShowUpdates(object sender, RoutedEventArgs e)
     {
+        HideStatistics();
         OverviewPanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Collapsed;
         RoutinesPanel.Visibility = Visibility.Collapsed;
@@ -210,6 +213,7 @@ public partial class MainWindow : Window
 
     private void OnShowAbbey(object sender, RoutedEventArgs e)
     {
+        HideStatistics();
         OverviewPanel.Visibility = Visibility.Collapsed;
         RoutinesPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
@@ -226,6 +230,7 @@ public partial class MainWindow : Window
 
     private void OnShowRoutines(object sender, RoutedEventArgs e)
     {
+        HideStatistics();
         OverviewPanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Collapsed;
         ProtectionPanel.Visibility = Visibility.Collapsed;
@@ -242,6 +247,7 @@ public partial class MainWindow : Window
 
     private void OnShowProtection(object sender, RoutedEventArgs e)
     {
+        HideStatistics();
         OverviewPanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Collapsed;
         RoutinesPanel.Visibility = Visibility.Collapsed;
@@ -258,6 +264,7 @@ public partial class MainWindow : Window
 
     private void OnShowFarmSchedule(object sender, RoutedEventArgs e)
     {
+        HideStatistics();
         OverviewPanel.Visibility = Visibility.Collapsed;
         AbbeyPanel.Visibility = Visibility.Collapsed;
         RoutinesPanel.Visibility = Visibility.Collapsed;
@@ -273,6 +280,23 @@ public partial class MainWindow : Window
     }
 
     internal void ShowUpdatesForScreenshot() => OnShowUpdates(this, new RoutedEventArgs());
+    internal void ShowStatisticsForScreenshot() => OnShowStatistics(this, new RoutedEventArgs());
+
+    private void HideStatistics()
+    {
+        UserStatisticsPanel.Visibility = Visibility.Collapsed;
+        StatisticsNavigationButton.Background = Brushes.Transparent;
+    }
+
+    private void OnShowStatistics(object sender, RoutedEventArgs e)
+    {
+        if (!AppIdentity.IsTesting) return;
+        OnShowOverview(sender, e);
+        OverviewPanel.Visibility = Visibility.Collapsed;
+        OverviewNavigationButton.Background = Brushes.Transparent;
+        UserStatisticsPanel.Visibility = Visibility.Visible;
+        StatisticsNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+    }
     internal void ShowAbbeyForScreenshot() => OnShowAbbey(this, new RoutedEventArgs());
     internal void ShowProtectionForScreenshot() => OnShowProtection(this, new RoutedEventArgs());
     internal void ShowRoutinesForScreenshot() => OnShowRoutines(this, new RoutedEventArgs());
@@ -498,6 +522,8 @@ public partial class MainWindow : Window
             ValidateEnvironment();
             _environmentReady = true;
             await LoadSettingsAsync();
+            try { await UserStatisticsPanel.ConfigureAsync(_database, () => _engine.StatisticsSessionId); }
+            catch (Exception exception) { AddLog($"Painel de estatísticas indisponível: {exception.Message}"); }
             _lastSeenUpdateVersion = await _database.GetSettingAsync("updates.lastSeenVersion");
             RefreshClients();
             SetStatus(BotRunState.Stopped, "Bot parado", "Configure o módulo e clique em Iniciar.");

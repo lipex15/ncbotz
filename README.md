@@ -6,7 +6,11 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Patch atual — v0.10.21
+## Painel experimental — somente testes v0.10.22
+
+A branch `testing` inclui Meu painel, com nicks visuais, histórico de gastos confirmados, proteções, baús, Boss, rotinas e tempo da Agenda. Consulte [o roteiro de testes e as limitações](docs/PATCH_0.10.22.md). O canal normal permanece na v0.10.21; a promoção do painel depende de autorização explícita.
+
+## Base estável — v0.10.21
 
 Reforço localizado da lápide (ausência confirmada sem busca prolongada) e coleta do Baú do Tesouro da Guilda por cliente a cada 17 horas, também aproveitando visitas normais à Guilda. Consulte [as mudanças e o roteiro de teste](docs/PATCH_0.10.21.md). Agenda, Sapheras e prioridade dos clientes não foram reformuladas neste patch.
 

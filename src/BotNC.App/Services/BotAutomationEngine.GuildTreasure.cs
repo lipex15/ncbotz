@@ -71,6 +71,7 @@ public sealed partial class BotAutomationEngine
                         throw new InvalidOperationException("A quantidade do baú não diminuiu após a coleta; sem repetir Abrir.");
                     awaitingDecreaseFrom = null;
                     collected++;
+                    await RecordStatisticAsync(session, "reward", "Baú da Guilda coletado");
                     WriteLog(session, $"Baú da Guilda: recompensa coletada; {reading.Count} restante(s).");
                 }
                 if (reading.State == GuildTreasureState.Empty)

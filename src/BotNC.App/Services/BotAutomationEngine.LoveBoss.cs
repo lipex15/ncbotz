@@ -439,6 +439,7 @@ public sealed partial class BotAutomationEngine
 
     private async Task MarkLoveBossCompletedAsync(ClientSession session, string day)
     {
+        await RecordStatisticAsync(session, "boss", "Boss do Amor concluído", $"boss.{day}");
         session.LoveBossCompletedCycle = day;
         await database.SaveSettingAsync(
             $"{SessionSettingPrefix(session)}.routines.loveBoss.completedCycle", day);
