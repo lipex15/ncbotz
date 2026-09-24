@@ -5,7 +5,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>BotNC.App</RootNamespace>
     <AssemblyName>PEXBOT</AssemblyName>
-    <Version>0.10.18</Version>
+    <Version>0.10.19</Version>
     <LicenseServerUrl Condition="'$(LicenseServerUrl)' == ''"></LicenseServerUrl>
     <LicensePublicKey Condition="'$(LicensePublicKey)' == ''"></LicensePublicKey>
     <ApplicationIcon>..\..\branding\PEXBOT.ico</ApplicationIcon>

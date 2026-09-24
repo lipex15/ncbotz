@@ -17,6 +17,7 @@ public sealed partial class BotAutomationEngine
         input.WorkflowTrace = message => WritePersistentOnly(session, message);
         input.ValidateWorkflowTarget = () =>
         {
+            ThrowIfDeathPending(session);
             if (!gameWindows.IsForeground(session.Options.Target))
                 throw new InvalidOperationException($"{session.Options.Label}: foco mudou antes do comando; ação cancelada sem clicar na outra janela.");
         };

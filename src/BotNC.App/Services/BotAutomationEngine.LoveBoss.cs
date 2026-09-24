@@ -257,7 +257,7 @@ public sealed partial class BotAutomationEngine
         WriteLog(session, "Saindo da masmorra atual para o Boss do Amor, conforme configurado.");
         await input.MoveAndClickAsync(354, 131, TimeSpan.FromMilliseconds(300),
             cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
-        await WaitForReferenceAsync("boss_exit_ok", "confirmação de saída da masmorra",
+        await WaitForReferenceAsync(session.AnonymousDungeonInside ? "anonymous_exit_confirmation" : "boss_exit_ok", "confirmação de saída da masmorra",
             TimeSpan.FromSeconds(8), pause, cancellationToken);
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         var deadline = DateTime.UtcNow.AddSeconds(50);
@@ -297,12 +297,29 @@ public sealed partial class BotAutomationEngine
     {
         if ((await recognition.FindAsync("boss_reward_panel", cancellationToken)).Found)
             return;
-        if (!(await recognition.FindAsync("menu_guild", cancellationToken)).Found)
+        await ActivateGameAsync(session, cancellationToken);
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        var menuConfirmed = false;
+        for (var attempt = 0; attempt < 3 && !menuConfirmed; attempt++)
         {
+            await AbortWorkflowIfDeathDetectedAsync(session, "antes de consultar a recompensa do Boss", cancellationToken);
+            menuConfirmed = (await recognition.FindAsync("menu_guild", cancellationToken)).Found ||
+                (await recognition.FindAsync("menu_ta", cancellationToken)).Found;
+            if (menuConfirmed) break;
+            if (attempt > 0) await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            await EnsureGameForegroundAsync(session, cancellationToken);
             await input.PressKeyAsync(KeyEquals, cancellationToken: cancellationToken);
-            await WaitForReferenceAsync("menu_guild", "menu lateral",
-                TimeSpan.FromSeconds(8), pause, cancellationToken);
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline && !menuConfirmed)
+            {
+                await CheckpointAsync(pause, cancellationToken);
+                ThrowIfDeathPending(session);
+                menuConfirmed = (await recognition.FindAsync("menu_guild", cancellationToken)).Found ||
+                    (await recognition.FindAsync("menu_ta", cancellationToken)).Found;
+                if (!menuConfirmed) await Task.Delay(250, cancellationToken);
+            }
         }
+        if (!menuConfirmed) throw new TimeoutException("Menu da Raide não abriu após três tentativas; recompensa permanece pendente.");
         await input.MoveAndClickAsync(1880, 513, TimeSpan.FromMilliseconds(300),
             cancellationToken, cooldown: TimeSpan.FromMilliseconds(150));
         await WaitForReferenceAsync("boss_reward_panel", "painel Raide de Chefe",

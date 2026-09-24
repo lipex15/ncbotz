@@ -302,6 +302,8 @@ public sealed class AppDatabase
                 208, 181, 482, 67, 625, 130, 675, 205, 0.76),
             new("boss_exit_timer", "Saída automática da Raide", "boss_exit_timer.png",
                 14, 208, 307, 29, 0, 285, 365, 75, 0.76),
+            new("anonymous_exit_confirmation", "Saída do Estreito confirmada", "anonymous_exit_confirmation.png",
+                744, 464, 363, 30, 660, 380, 610, 220, 0.82),
             new("boss_exit_popup", "Confirmação de saída da Raide", "boss_exit_popup.png",
                 70, 141, 468, 48, 570, 345, 770, 280, 0.72),
             new("boss_exit_ok", "OK da saída de masmorra", "boss_exit_popup.png",

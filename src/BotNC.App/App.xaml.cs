@@ -465,6 +465,7 @@ public partial class App : Application
         BotAutomationEngine.VerifyDeathRestorationPolicy();
         BotAutomationEngine.VerifyStartupObservationPolicy();
         BotAutomationEngine.VerifyWorkflowStabilityPolicy();
+        BotAutomationEngine.VerifyDeathPriorityPolicy();
         LoveBossSchedule.VerifyPolicy();
         var database = new AppDatabase(outputPath + ".data");
         await database.InitializeAsync();
@@ -476,6 +477,21 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        foreach (var file in new[] { "anonymous_exit_confirmation.png", "anonymous_arrival_regression.png", "ta_selector_user_active.png" })
+        {
+            var popup = await recognition.FindInImageAsync("anonymous_exit_confirmation", Path.Combine(referenceDirectory, file));
+            if (popup.Found != (file == "anonymous_exit_confirmation.png"))
+                throw new InvalidOperationException($"Confirmação de saída da Anônima incorreta: {file}; score={popup.Confidence}");
+        }
+        foreach (var file in new[] { "anonymous_arrival_regression.png", "anonymous_arrival_inventory.png", "ta_selector_user_active.png" })
+        {
+            var evidence = new List<string>();
+            var inside = await BotAutomationEngine.ReadAnonymousFrameAsync(recognition,
+                LoadReferenceFrame(Path.Combine(referenceDirectory, file)), CancellationToken.None, evidence.Add);
+            await File.AppendAllTextAsync(outputPath, $"Anonymous regression {file}: {inside}; {string.Join("; ", evidence)}\n");
+            if (inside != file.StartsWith("anonymous_", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Chegada à Anônima incorreta: {file}; {string.Join("; ", evidence)}");
+        }
         foreach (var file in new[] { "boss_room.png", "daily_automatic.png", "ta1_arrival.png", "agenda_tela.png", "daily_page.png" })
         {
             var negativePanel = await recognition.FindInImageAsync("painel_restauracao", Path.Combine(referenceDirectory, file));

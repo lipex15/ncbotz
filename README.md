@@ -6,7 +6,9 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
-## Patch atual — v0.10.18
+## Patch atual — v0.10.19
+
+Morte interrompe comandos normais e prioriza Ressuscitar; áudio e imagem compartilham a proteção contra TP duplicado. Chegada à Anônima cruza imagem com OCR do local, tempo e HUD. Removido clique de teste na lápide sem ícone reconhecido; corrigida confirmação de saída da Anônima para o Boss e recuperação do menu de recompensas. Consulte [o patch de estabilidade](docs/PATCH_0.10.19.md).
 
 Atividade resumida por cliente e diagnóstico técnico completo para copiar. Capturas vinculadas à janela responsável, Diárias separadas do estado de farm, esperas preservadas após leituras inconclusivas, retomada após Boss e verificações adicionais de restauração. Mantém a interface arredondada, campos legíveis durante execução e resumo de início opcional.
 
