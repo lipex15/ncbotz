@@ -1001,30 +1001,7 @@ public sealed partial class BotAutomationEngine(
                 await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
                 return;
             }
-            session.SafeInRest = true;
-            session.IsFarmingTa = true;
-            if (WantsAbbey(session) && await IsAbbeyLocationVisibleAsync(cancellationToken))
-            {
-                session.AbbeyInside = true;
-                session.AbbeyActiveSinceUtc = DateTime.UtcNow;
-            }
-            if (WantsAnonymousDungeon(session) && await IsAnonymousDungeonLocationVisibleAsync(cancellationToken))
-                session.AnonymousDungeonInside = true;
-            session.Audio.Armed = true;
-            WriteLog(
-                session,
-                $"Bot iniciado com o farm já em descanso, confirmado por " +
-                $"'{RestStateDescription(currentRest.Value.ReferenceId)}' ({currentRest.Value.Result.Confidence:P0}); " +
-                $"mantendo o farm atual e seguindo diretamente para o monitoramento {context}.");
-            return;
-        }
-
-        if (!WantsAbbey(session) && !WantsAnonymousDungeon(session) &&
-            await IsConfiguredTaLocationVisibleAsync(session, cancellationToken))
-        {
-            WriteLog(session, $"O personagem já está na {TaName(EffectiveTaDestination(session))}; mantendo a área atual sem abrir uma nova entrada.");
-            await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
-            return;
+            WriteLog(session, "Caça automática visível, mas a localização ainda não foi confirmada; conferindo o seletor da T.A antes de assumir farm.");
         }
 
         await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: false);
@@ -2032,12 +2009,8 @@ public sealed partial class BotAutomationEngine(
         SetStatus(BotRunState.Running, $"{session.Options.Label}: entrando na {taName}", "Abrindo Terra Avassaladora");
         await ActivateGameAsync(session, cancellationToken);
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir a {taName}", cancellationToken);
-        if (await IsConfiguredTaLocationVisibleAsync(session, cancellationToken))
-        {
-            WriteLog(session, $"Chegada da {taName} já está visível; reutilizando a entrada atual.");
-            await ResumeCurrentTaWithoutReentryAsync(session, pause, cancellationToken);
-            return;
-        }
+        // Serviços/Artigos e caça automática também aparecem em cidades comuns.
+        // Só o seletor confirmado pode autorizar a adoção de uma T.A existente.
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
         await AbortWorkflowIfDeathDetectedAsync(session, $"antes de abrir o menu da {taName}", cancellationToken);
         if (session.AwaitingFavoriteSpotRecognition &&
@@ -2259,18 +2232,6 @@ public sealed partial class BotAutomationEngine(
         await TravelToFarmSpotAsync(session, pause, cancellationToken);
     }
 
-    private async Task<bool> IsConfiguredTaLocationVisibleAsync(
-        ClientSession session,
-        CancellationToken cancellationToken)
-    {
-        var destination = EffectiveTaDestination(session);
-        return (await FindReferenceOnClientAsync(
-            session,
-            ArrivalReference(destination),
-            cancellationToken,
-            requireObservable: true)).Found;
-    }
-
     private async Task<TaEntryButtonReading> WaitForDesiredTaEntryStateAsync(
         ClientSession session,
         TaDestination destination,
@@ -2363,6 +2324,13 @@ public sealed partial class BotAutomationEngine(
         // que o seletor informou que o personagem já estava dentro da T.A.
         var rest = await FindRestStateAsync(session, cancellationToken) ??
                    await TryOpenRestPanelAsync(session, pause, cancellationToken);
+        if (rest is not null && rest.Value.ReferenceId == "descanso_ponto_fixo")
+        {
+            WriteLog(session, "Ponto fixo não confirma chegada ao farm; preparando a rota ao spot da T.A, sem ativar Q neste local.");
+            await ExitRestIfNeededAsync(session, pause, cancellationToken);
+            await TravelToFarmSpotAsync(session, pause, cancellationToken);
+            return;
+        }
         if (rest is null || rest.Value.ReferenceId != "caca_automatica")
         {
             session.AwaitingHuntActivationAtSpot = true;
