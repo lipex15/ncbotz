@@ -87,6 +87,7 @@ public sealed partial class BotAutomationEngine(
     public event Action<string>? Log;
     public event Action<BotRunState, string, string>? StatusChanged;
     public event Action<AudioClientStatus>? AudioStatusChanged;
+    public event Action<string, string>? ClientActivityChanged;
     public event Action<string, string>? FarmScheduleProgressChanged;
 
     public string RuntimeLogPath => _runtimeLogPath;
@@ -822,6 +823,7 @@ public sealed partial class BotAutomationEngine(
                     }
 
                     await EnterSapherasAsync(session, sapheras, pause, cancellationToken);
+                    session.SapherasFarmConfirmed = true;
                     session.SafeInRest = true;
                 },
                 cancellationToken);
@@ -833,14 +835,15 @@ public sealed partial class BotAutomationEngine(
 
         var finishesAt = DateTime.Now + sapheras.Duration;
         WriteLog($"{sapherasSessions.Length} cliente(s) selecionado(s) entraram em Sapheras. Término previsto: {finishesAt:HH:mm:ss}.");
-        await MonitorDuringSapherasAsync(sessions, finishesAt, sapheras, antiOverkill, pause, cancellationToken);
+        await MonitorDuringSapherasAsync(sessions, finishesAt, sapheras, antiOverkill, dailyRoutines, pause, cancellationToken);
 
         WriteLog("Tempo de Sapheras concluído. Normalizando o estado dos dois clientes.");
         foreach (var session in sessions.OrderBy(session => session.Options.Priority))
         {
+            session.SapherasFarmConfirmed = false;
             if (!session.Options.UseSapheras)
             {
-                if (!session.InAgenda && !session.IsFarmingTa)
+                if (!session.InAgenda && !session.IsFarmingTa && !session.LoveBossInside && !session.LoveBossReturnToFarmPending)
                 {
                     WriteLog(session, $"Cliente sem passe não estava no farm; retomando {ConfiguredFarmName(session)}.");
                     await RunSessionActionSafelyAsync(
@@ -1195,6 +1198,7 @@ public sealed partial class BotAutomationEngine(
         DateTime finishesAt,
         SapherasOptions sapheras,
         AntiOverkillOptions antiOverkill,
+        DailyRoutineOptions dailyRoutines,
         PauseController pause,
         CancellationToken cancellationToken)
     {
@@ -1216,6 +1220,12 @@ public sealed partial class BotAutomationEngine(
             while (DateTime.Now < finishesAt)
             {
                 await CheckpointAsync(pause, cancellationToken);
+                if (!HumanOwnsInterface)
+                {
+                    foreach (var raidSession in protectedSessions.Where(s => !s.Options.UseSapheras))
+                        await RunLoveBossSafelyAsync(raidSession, sessions, dailyRoutines,
+                            pause, cancellationToken, null);
+                }
                 foreach (var session in protectedSessions)
                 {
                     if (session.InAgenda)
@@ -1273,7 +1283,7 @@ public sealed partial class BotAutomationEngine(
                         }
                     }
 
-                    if (session.NextRecoveryAttemptAt != default &&
+                    if (!HumanOwnsInterface && !session.LoveBossInside && session.NextRecoveryAttemptAt != default &&
                         DateTime.UtcNow >= session.NextRecoveryAttemptAt &&
                         !session.HandlingDeath)
                     {
@@ -5890,16 +5900,17 @@ public sealed partial class BotAutomationEngine(
                 var frame = await CaptureClientFrameAsync(session, cancellationToken);
                 session.LastWindowFrameAt = DateTime.UtcNow;
                 session.OpenHudHunt = await OpenHudHuntReader.ReadAsync(recognition, frame, cancellationToken);
+                session.RestHudVisible = (await recognition.FindAsync("tela_descanso", frame, cancellationToken)).Found ||
+                    (await recognition.FindAsync("caca_automatica", frame, cancellationToken)).Found;
                 if (_humanInteraction is { } human && human.LastWindow == session.Options.Target.Handle && human.LastAt != session.LastHumanObservation)
                 {
                     session.LastHumanObservation = human.LastAt;
                     session.UserInterfaceBusy = true;
                 }
                 if (session.UserInterfaceBusy && _humanInteraction?.IsBusy != true &&
-                    (session.OpenHudHunt != OpenHudHuntState.Unknown ||
-                     (await recognition.FindAsync("tela_descanso", frame, cancellationToken)).Found ||
-                     (await recognition.FindAsync("caca_automatica", frame, cancellationToken)).Found))
+                    (session.OpenHudHunt != OpenHudHuntState.Unknown || session.RestHudVisible))
                     session.UserInterfaceBusy = false;
+                PublishCurrentClientActivity(session);
                 await ObserveScheduleClockAsync(session, frame, pause, cancellationToken);
                 if (session.VisualCaptureFaulted)
                 {
@@ -6185,6 +6196,10 @@ public sealed partial class BotAutomationEngine(
     {
         if (exception is HumanInteractionException)
         {
+            // Preserve active farms. An unfinished preparation must remain eligible
+            // for automatic reconciliation once the user releases the interface.
+            if (!session.IsFarmingTa && !session.LoveBossInside && !session.InDailyCampaign && !session.InAgenda)
+                session.NextRecoveryAttemptAt = DateTime.UtcNow;
             WritePersistentOnly(session, "human_interaction: ação normal adiada; monitoramento e proteção continuam ativos.");
             return;
         }
@@ -7872,7 +7887,46 @@ public sealed partial class BotAutomationEngine(
         WritePersistentOnly(message);
         Log?.Invoke(message);
     }
-    private void SetStatus(BotRunState state, string title, string detail) => StatusChanged?.Invoke(state, title, detail);
+    private void SetStatus(BotRunState state, string title, string detail)
+    {
+        var session = _manualSessions.FirstOrDefault(s => title.StartsWith(s.Options.Label + ":", StringComparison.Ordinal));
+        if (session is not null)
+        {
+            session.CurrentAction = title[(session.Options.Label.Length + 1)..].Trim() + " · " + detail;
+            session.LastPublishedActivity = "";
+            ClientActivityChanged?.Invoke(session.Options.Label, session.CurrentAction);
+        }
+        StatusChanged?.Invoke(state, title, detail);
+    }
+
+    private void PublishCurrentClientActivity(ClientSession session)
+    {
+        var activity = DescribeCurrentClientActivity(session);
+        if (session.LastPublishedActivity == activity) return;
+        session.LastPublishedActivity = activity;
+        ClientActivityChanged?.Invoke(session.Options.Label, activity);
+    }
+
+    private static string DescribeCurrentClientActivity(ClientSession session)
+    {
+        var activity = session.HandlingDeath || Volatile.Read(ref session.PendingVisualDeath) != 0
+            ? "Morte detectada · recuperação prioritária"
+            : session.NeedsDeathRestoration ? "Restaurando EXP e equipamentos"
+            : session.LoveBossInside ? "Boss do Amor · acompanhando a sala e o resultado"
+            : session.LoveBossReturnToFarmPending ? "Boss do Amor · preparando retorno ao farm"
+            : session.NextRecoveryAttemptAt != default ? "Etapa pendente · monitoramento e proteção ativos"
+            : session.InDailyCampaign ? "Missões Diárias · acompanhando a campanha"
+            : session.InAgenda ? "Proteção Anti Over Kill · período seguro"
+            : session.SapherasFarmConfirmed ? "Farm em Sapheras"
+            : session.IsFarmingTa ? (session.FarmScheduleSteps.Count > 0 && IsScheduleFarmActive(session) ? "Farm na Agenda · " : "Farm · ") + ConfiguredFarmName(session)
+            : session.CurrentAction;
+        if (string.IsNullOrWhiteSpace(activity)) activity = "Monitoramento ativo · verificando o estado do cliente";
+        if (session.IsFarmingTa || session.SapherasFarmConfirmed)
+            activity += session.OpenHudHunt == OpenHudHuntState.Active ? " · Auto ligado, tela aberta"
+                : session.RestHudVisible ? " · modo descanso"
+                : session.UserInterfaceBusy ? " · uso manual, proteção ativa" : " · monitoramento ativo";
+        return activity;
+    }
 
     private static string CreateRuntimeLogPath()
     {
@@ -7908,6 +7962,10 @@ public sealed partial class BotAutomationEngine(
         public bool AwaitingHuntActivationAtSpot { get; set; }
         public bool AwaitingFavoriteSpotRecognition { get; set; }
         public bool SafeInRest { get; set; }
+        public bool SapherasFarmConfirmed { get; set; }
+        public bool RestHudVisible { get; set; }
+        public string CurrentAction { get; set; } = "";
+        public string LastPublishedActivity { get; set; } = "";
         public OpenHudHuntState OpenHudHunt { get; set; }
         public bool UserInterfaceBusy { get; set; }
         public long LastHumanObservation { get; set; }

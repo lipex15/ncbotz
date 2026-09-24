@@ -142,8 +142,32 @@ public sealed partial class BotAutomationEngine
 
     internal static void VerifyWorkflowStabilityPolicy()
     {
+        foreach (var firstState in Enum.GetValues<OpenHudHuntState>())
+        foreach (var secondState in Enum.GetValues<OpenHudHuntState>())
+        {
+            var expected = firstState == OpenHudHuntState.Inactive && secondState == OpenHudHuntState.Inactive;
+            if (ShouldEnableBossAuto(firstState, secondState, false) != expected ||
+                ShouldEnableBossAuto(firstState, secondState, true))
+                throw new InvalidOperationException("Auto do Boss só pode ser ligado com duas leituras de desligado e sem comando anterior.");
+        }
         var first = new ClientSession(new AutomationClientOptions("Cliente 1", new GameWindowTarget(0, "Teste 1", 1, false, true), TaDestination.Ta2, false, 1, null));
         var second = new ClientSession(new AutomationClientOptions("Cliente 2", new GameWindowTarget(0, "Teste 2", 2, false, true), TaDestination.Ta3, false, 2, null));
+        first.IsFarmingTa = true;
+        first.OpenHudHunt = OpenHudHuntState.Active;
+        second.LoveBossInside = true;
+        if (!DescribeCurrentClientActivity(first).Contains("Auto ligado") ||
+            !DescribeCurrentClientActivity(second).Contains("Boss do Amor"))
+            throw new InvalidOperationException("Atividades dos clientes não refletem farm aberto e Boss independentes.");
+        first.OpenHudHunt = OpenHudHuntState.Unknown;
+        first.UserInterfaceBusy = true;
+        if (!DescribeCurrentClientActivity(first).Contains("uso manual") || !first.IsFarmingTa)
+            throw new InvalidOperationException("Interação manual apagou o estado de farm.");
+        first.UserInterfaceBusy = false;
+        first.RestHudVisible = true;
+        if (!DescribeCurrentClientActivity(first).Contains("modo descanso"))
+            throw new InvalidOperationException("Descanso não representado no estado do farm.");
+        first.IsFarmingTa = false;
+        second.LoveBossInside = false;
         first.InDailyCampaign = true;
         second.DailyCompletedCycle = "2026-09-23";
         second.DirectiveCycle = "2026-09-23";

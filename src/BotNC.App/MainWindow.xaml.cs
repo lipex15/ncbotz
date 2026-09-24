@@ -71,6 +71,10 @@ public partial class MainWindow : Window
         _engine.Log += OnEngineLog;
         _engine.StatusChanged += OnEngineStatusChanged;
         _engine.AudioStatusChanged += OnEngineAudioStatusChanged;
+        _engine.ClientActivityChanged += (label, activity) => Dispatcher.BeginInvoke(() =>
+        {
+            (label == "Cliente 1" ? Client1ActivityText : Client2ActivityText).Text = activity;
+        });
         _engine.FarmScheduleProgressChanged += (label, text) => Dispatcher.InvokeAsync(() =>
         {
             if (label.EndsWith("2", StringComparison.Ordinal))
@@ -1457,8 +1461,6 @@ public partial class MainWindow : Window
     {
         var entry = UserActivityLog.Describe(message);
         if (entry is null) return;
-        var activity = entry.Client == "CLIENTE 1" ? Client1ActivityText : entry.Client == "CLIENTE 2" ? Client2ActivityText : null;
-        if (activity is not null) activity.Text = entry.Summary;
         var previous = LogListBox.Items.Cast<UserActivityEntry>().LastOrDefault(item => item.Client == entry.Client);
         if (previous?.Summary == entry.Summary) return;
         LogListBox.Items.Add(entry);

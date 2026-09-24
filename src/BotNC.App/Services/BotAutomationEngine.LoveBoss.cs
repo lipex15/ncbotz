@@ -17,9 +17,6 @@ public sealed partial class BotAutomationEngine
             session.InAgenda || DateTime.UtcNow < session.NextLoveBossAttemptAt)
             return false;
 
-        if (session.LoveBossReturnToFarmPending &&
-            allSessions.Any(other => other != session && other.LoveBossInside))
-            return false;
         if (session.LoveBossInside && DateTime.UtcNow < session.NextLoveBossRoomScanAt)
             return false;
 
@@ -61,7 +58,7 @@ public sealed partial class BotAutomationEngine
             {
                 await ResumeAfterLoveBossAsync(session, pause, cancellationToken);
                 session.LoveBossReturnToFarmPending = false;
-                WriteLog(session, "Raide encerrada nos clientes; farm retomado.");
+                WriteLog(session, "Raide encerrada neste cliente; farm retomado.");
                 return true;
             }
             await AbortWorkflowIfDeathDetectedAsync(session, "antes do Boss do Amor", cancellationToken);
@@ -96,6 +93,11 @@ public sealed partial class BotAutomationEngine
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (HumanInteractionException)
+        {
+            // Mouse ownership is not a failed raid and must not start recovery.
+            return false;
         }
         catch (Exception exception)
         {
@@ -168,6 +170,8 @@ public sealed partial class BotAutomationEngine
             session.LoveBossLastSlot);
         session.LoveBossInside = true;
         session.LoveBossAutoCommandSent = false;
+        session.LoveBossRoomDeadline = DateTime.UtcNow.AddMinutes(36);
+        session.NextLoveBossRoomScanAt = DateTime.UtcNow;
         WriteLog(session, "Entrada no Berço da Chama Vermelha confirmada.");
         session.LoveBossAutoConfirmed = await EnsureLoveBossAutoAsync(session, pause, cancellationToken);
         session.LoveBossRoomDeadline = DateTime.UtcNow.AddMinutes(36);
@@ -215,23 +219,25 @@ public sealed partial class BotAutomationEngine
         session.LoveBossAutoConfirmed = false;
         await ClaimLoveBossRewardsAsync(session, pause, cancellationToken, day);
         session.LoveBossReturnToFarmPending = true;
-        WriteLog(session, "Recompensa tratada; aguardando os outros clientes terminarem a raide antes de retomar o farm.");
+        WriteLog(session, "Recompensa tratada; retorno deste cliente ao farm preparado, sem depender da outra janela.");
     }
 
     private async Task<bool> EnsureLoveBossAutoAsync(
         ClientSession session, PauseController pause, CancellationToken cancellationToken)
     {
-        var first = await recognition.FindAsync("boss_auto_on", cancellationToken);
+        var first = await OpenHudHuntReader.ReadAsync(recognition,
+            await CaptureClientFrameAsync(session, cancellationToken), cancellationToken);
         await Task.Delay(350, cancellationToken);
-        var second = await recognition.FindAsync("boss_auto_on", cancellationToken);
-        if (first.Found && second.Found)
+        var second = await OpenHudHuntReader.ReadAsync(recognition,
+            await CaptureClientFrameAsync(session, cancellationToken), cancellationToken);
+        if (first == OpenHudHuntState.Active && second == OpenHudHuntState.Active)
         {
             WriteLog(session, "Auto já está ligado na sala do boss.");
             return true;
         }
         // A falta do template não prova Auto desligado. Nunca alternar novamente
         // um comando já enviado só porque uma animação prejudicou a confirmação.
-        if (session.LoveBossAutoCommandSent || first.Found || second.Found) return false;
+        if (!ShouldEnableBossAuto(first, second, session.LoveBossAutoCommandSent)) return false;
         await CheckpointAsync(pause, cancellationToken);
         var point = gameWindows.MapReferencePoint(session.Options.Target, 1875, 672);
         await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(300),
@@ -242,7 +248,8 @@ public sealed partial class BotAutomationEngine
         while (DateTime.UtcNow < deadline)
         {
             await CheckpointAsync(pause, cancellationToken);
-            hits = (await recognition.FindAsync("boss_auto_on", cancellationToken)).Found ? hits + 1 : 0;
+            hits = await OpenHudHuntReader.ReadAsync(recognition,
+                await CaptureClientFrameAsync(session, cancellationToken), cancellationToken) == OpenHudHuntState.Active ? hits + 1 : 0;
             if (hits >= 2)
             {
                 WriteLog(session, "Auto ligado e confirmado visualmente.");
@@ -253,6 +260,9 @@ public sealed partial class BotAutomationEngine
         WriteLog(session, "Auto do boss não confirmado após o comando; mantendo a leitura da sala, sem alternar o botão às cegas.");
         return false;
     }
+
+    internal static bool ShouldEnableBossAuto(OpenHudHuntState first, OpenHudHuntState second, bool commandSent) =>
+        !commandSent && first == OpenHudHuntState.Inactive && second == OpenHudHuntState.Inactive;
 
     private async Task LeaveFarmDungeonForLoveBossAsync(
         ClientSession session, PauseController pause, CancellationToken cancellationToken)
