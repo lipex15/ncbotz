@@ -950,6 +950,12 @@ public sealed partial class BotAutomationEngine(
         }
         catch (Exception exception)
         {
+            if (exception is HumanInteractionException)
+            {
+                session.NextRecoveryAttemptAt = DateTime.UtcNow;
+                WritePersistentOnly(session, "startup_interaction: checagem pendente; uso manual não representa falha de lápide.");
+                return true;
+            }
             WriteLog(session, $"Falha na checagem inicial da lápide; farm bloqueado até a recuperação: {exception.GetBaseException().Message}");
             WritePersistentOnly(session, exception.ToString());
             // Falha de captura não é prova de perda: mantenha a checagem inicial
@@ -2263,8 +2269,8 @@ public sealed partial class BotAutomationEngine(
         for (var sample = 0; sample < 4; sample++)
         {
             await CheckpointAsync(pause, cancellationToken);
-            var frame = VisualRecognitionService.NormalizeForReferenceMatching(
-                await CaptureClientFrameAsync(session, cancellationToken));
+            var sourceFrame = await CaptureClientFrameAsync(session, cancellationToken);
+            var frame = VisualRecognitionService.NormalizeForReferenceMatching(sourceFrame);
             // Localize the letters on the same normalized frame used to classify
             // brightness. Never mix desktop coordinates with window dimensions.
             var buttons = new RecognitionResult[3];
@@ -2272,6 +2278,17 @@ public sealed partial class BotAutomationEngine(
                 buttons[buttonIndex] = await recognition.FindAsync(
                     buttonIndex == 0 ? "ta1_entry_label" : "entrar_ta2_pronto", frame, 435 + buttonIndex * 272, 730, 135, 80, cancellationToken);
             var reading = TaEntryButtonAnalyzer.Read(frame, destination, buttons);
+            // A disabled label does not match the bright-button template.
+            // Permit only the non-clicking adoption branch, with independent
+            // card + OCR context and a relative dark/bright comparison.
+            if (reading.State == TaEntryButtonState.Unknown && destination == TaDestination.Ta1Codex)
+            {
+                var fixedReading = TaEntryButtonAnalyzer.Read(sourceFrame, destination);
+                if (fixedReading.State == TaEntryButtonState.Disabled &&
+                    (await recognition.FindAsync("ta1_primeiro_cartao", sourceFrame, cancellationToken)).Found &&
+                    await _taEntryTextReader.HasFirstEntryAsync(sourceFrame, cancellationToken))
+                    reading = fixedReading;
+            }
             if (sample == 0 && reading.State == TaEntryButtonState.Unknown)
                 WritePersistentOnly(session, "ta_entry_evidence " + string.Join("; ", buttons.Select((b, i) => $"card={i + 1},found={b.Found},score={b.Confidence:F3},xy={b.X},{b.Y}")));
             stableHits = reading.State != TaEntryButtonState.Unknown && reading.State == lastState
@@ -2465,7 +2482,8 @@ public sealed partial class BotAutomationEngine(
         // A correlação isolada muda com luz/cenário. Só aceitar a T.A 1 se
         // também houver seu ícone no lugar certo e o comando Entrar legível.
         // Nomes de mapas e disponibilidade da T.A 2 não entram na decisão.
-        if (first.Confidence < 0.58 || !card.Found)
+        var disabled = TaEntryButtonAnalyzer.Read(frame, TaDestination.Ta1Codex).State == TaEntryButtonState.Disabled;
+        if ((!disabled && first.Confidence < 0.58) || !card.Found)
         {
             return (false, first.Confidence, card.Confidence);
         }

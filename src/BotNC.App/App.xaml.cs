@@ -494,6 +494,11 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        var occupiedTa = LoadReferenceFrame(Path.Combine(referenceDirectory, "ta1_occupied_regression.png"));
+        if (TaEntryButtonAnalyzer.Read(occupiedTa, TaDestination.Ta1Codex).State != TaEntryButtonState.Disabled ||
+            !(await recognition.FindAsync("ta1_primeiro_cartao", occupiedTa, CancellationToken.None)).Found ||
+            !await new TaEntryTextReader().HasFirstEntryAsync(occupiedTa, CancellationToken.None))
+            throw new InvalidOperationException("Regressão: T.A 1 ocupada não reconhecida na captura real.");
         foreach (var (file, expected) in new[] { ("hud_auto_active.png", OpenHudHuntState.Active), ("hud_auto_inactive.png", OpenHudHuntState.Inactive), ("guild_treasure_empty.png", OpenHudHuntState.Unknown) })
         {
             var actual = await OpenHudHuntReader.ReadAsync(recognition, LoadReferenceFrame(Path.Combine(referenceDirectory, file)), CancellationToken.None);
