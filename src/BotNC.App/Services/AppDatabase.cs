@@ -366,6 +366,8 @@ public sealed class AppDatabase
             new("daily_shop_summon", "Categoria Invocação da Loja", "daily_shop_summon.png",
                 30, 296, 210, 50, 0, 268, 300, 110, 0.76),
             new("agenda_popup_ok", "Aviso central da Agenda", "aviso_agenda.png", 850, 585, 220, 85, 720, 500, 480, 250, 0.64),
+            new("ta1_entry_label", "Palavra Entrar T.A 1", "ta_selector_user_active.png", 462, 754, 82, 30, 435, 730, 135, 80, 0.78),
+            new("anonymous_map_heading", "Título estável Estreito", "anonymous_map.png", 1590, 107, 260, 34, 1520, 80, 390, 85, 0.85),
             new("entrar_ta1_pronto", "Entrar na T.A 1", "ta1_entry.png", 42, 495, 240, 65, 435, 730, 290, 90, 0.66),
             new("ta1_primeiro_cartao", "Ícone do primeiro cartão da T.A", "ta1_entry.png", 100, 30, 115, 120, 485, 245, 155, 155, 0.70),
             new("ta3_entry_disabled", "Entrar na T.A 3 indisponível", "ta3_entry_disabled.png",

@@ -128,7 +128,7 @@ public partial class MainWindow : Window
         Title = AppIdentity.DisplayName;
         AppNameText.Text = "PEXBOT";
         TestChannelBadge.Visibility = AppIdentity.IsTesting ? Visibility.Visible : Visibility.Collapsed;
-        StatisticsNavigationButton.Visibility = AppIdentity.IsTesting ? Visibility.Visible : Visibility.Collapsed;
+        StatisticsNavigationButton.Visibility = Visibility.Visible;
         if (AppIdentity.IsTesting)
         {
             UpdatesIntroText.Text = "Canal de testes: atualizações independentes da versão usada pelos demais.";
@@ -296,7 +296,6 @@ public partial class MainWindow : Window
 
     private void OnShowStatistics(object sender, RoutedEventArgs e)
     {
-        if (!AppIdentity.IsTesting) return;
         OnShowOverview(sender, e);
         OverviewPanel.Visibility = Visibility.Collapsed;
         OverviewNavigationButton.Background = Brushes.Transparent;

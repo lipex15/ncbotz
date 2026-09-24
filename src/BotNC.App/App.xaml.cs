@@ -479,6 +479,7 @@ public partial class App : Application
         BotAutomationEngine.VerifyStartupObservationPolicy();
         BotAutomationEngine.VerifyWorkflowStabilityPolicy();
         BotAutomationEngine.VerifyDeathPriorityPolicy();
+        BotAutomationEngine.VerifyScheduleClockPolicy();
         LoveBossSchedule.VerifyPolicy();
         var database = new AppDatabase(outputPath + ".data");
         await database.InitializeAsync();
@@ -572,8 +573,30 @@ public partial class App : Application
             var actual = TaEntryButtonAnalyzer.Read(normalized, TaDestination.Ta3, located);
             if (actual.State != TaEntryButtonState.Active)
                 throw new InvalidOperationException($"T.A 3 ativa não reconhecida: {actual}");
+            var ta1 = await recognition.FindAsync("ta1_entry_label", normalized,
+                435, 730, 135, 80, CancellationToken.None);
+            var isolated = Enumerable.Repeat(new RecognitionResult(false, 0, 0, 0), 3).ToArray();
+            isolated[0] = ta1;
+            if (!ta1.Found || TaEntryButtonAnalyzer.Read(normalized, TaDestination.Ta1Codex, isolated).State != TaEntryButtonState.Active)
+                throw new InvalidOperationException($"T.A 1 deve funcionar mesmo sem reconhecer os outros cartões: {ta1}");
+            isolated[0] = new RecognitionResult(false, 0, 0, 0);
+            if (TaEntryButtonAnalyzer.Read(normalized, TaDestination.Ta1Codex, isolated).State != TaEntryButtonState.Unknown)
+                throw new InvalidOperationException("T.A 1 não pode ser autorizada sem localizar seu próprio botão.");
         }
         var realButtons = LoadReferenceFrame(Path.Combine(referenceDirectory, "ta_entry_states_real.png"));
+        var disabledSelector = VisualRecognitionService.NormalizeForReferenceMatching(
+            LoadReferenceFrame(Path.Combine(referenceDirectory, "ta1_disabled_regression.png")));
+        var disabledLocated = new RecognitionResult[3];
+        for (var index = 0; index < 3; index++)
+            disabledLocated[index] = await recognition.FindAsync(index == 0 ? "ta1_entry_label" : "entrar_ta2_pronto",
+                disabledSelector, 435 + index * 272, 730, 135, 80, CancellationToken.None);
+        var disabledReading = TaEntryButtonAnalyzer.Read(disabledSelector, TaDestination.Ta1Codex, disabledLocated);
+        if (disabledReading.State != TaEntryButtonState.Disabled)
+            throw new InvalidOperationException($"T.A 1 indisponível no diagnóstico real: {disabledReading}");
+        var recoveryMap = VisualRecognitionService.NormalizeForReferenceMatching(
+            LoadReferenceFrame(Path.Combine(referenceDirectory, "anonymous_map_recovery_regression.png")));
+        if (!await BotAutomationEngine.ReadAnonymousFrameAsync(recognition, recoveryMap, CancellationToken.None))
+            throw new InvalidOperationException("Mapa real da Anônima foi confundido com cidade na recuperação de Artigos.");
         if (TaEntryButtonAnalyzer.MeasureLabelInk(realButtons, 28, 24, 75, 25) >= 155 ||
             TaEntryButtonAnalyzer.MeasureLabelInk(realButtons, 300, 24, 75, 25) < 180)
             throw new InvalidOperationException("Os estados reais de Entrar foram confundidos.");

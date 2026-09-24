@@ -24,7 +24,6 @@ public partial class StatisticsPanel : UserControl
 
     internal async Task ConfigureAsync(AppDatabase database, Func<string> session)
     {
-        if (!AppIdentity.IsTesting) return;
         _database = database;
         _session = session;
         _store = new StatisticsStore(Path.GetDirectoryName(database.DatabasePath)!);
@@ -100,7 +99,7 @@ public partial class StatisticsPanel : UserControl
                     (progress is { } value ? $" · semana: {value}/5 · faltam {5 - value}" : " · progresso semanal ainda não observado"));
             }
             BossProgress.Text = string.Join("\n", bossLines);
-            RefreshStatus.Text = $"Atualizado às {now:HH:mm:ss} · horário do PC · dados salvos no ambiente de testes";
+            RefreshStatus.Text = $"Atualizado às {now:HH:mm:ss} · horário do PC · dados salvos neste ambiente";
         }
         catch (Exception exception) { RefreshStatus.Text = $"Painel sem atualização: {exception.Message}. O bot continua independente."; }
         finally { _busy = false; }

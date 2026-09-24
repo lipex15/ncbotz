@@ -236,6 +236,7 @@ public sealed partial class BotAutomationEngine(
                 session.WindowWatchdogTask = MonitorClientWindowAsync(
                     session,
                     runOptions.Sapheras.EmergencyTeleportVirtualKey,
+                    pause,
                     watchdogCancellation.Token);
             }
 
@@ -303,6 +304,10 @@ public sealed partial class BotAutomationEngine(
 
             foreach (var session in sessions)
             {
+                var finalFarmSeconds = Math.Min(Math.Max(0, session.FarmScheduleRemaining.TotalSeconds),
+                    TimeSpan.FromTicks(Interlocked.Exchange(ref session.ObservedScheduleTicks, 0)).TotalSeconds);
+                session.FarmScheduleRemaining -= TimeSpan.FromSeconds(finalFarmSeconds);
+                session.StatisticsFarmSeconds += finalFarmSeconds;
                 if (session.StatisticsFarmSeconds > 0)
                 {
                     await RecordStatisticAsync(session, "farm", "Agenda", quantity: session.StatisticsFarmSeconds);
@@ -421,7 +426,7 @@ public sealed partial class BotAutomationEngine(
         await database.SaveSettingAsync($"{prefix}.index", session.FarmScheduleIndex.ToString(CultureInfo.InvariantCulture));
         await database.SaveSettingAsync(
             $"{prefix}.remainingSeconds",
-            session.FarmScheduleRemaining.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture));
+            Math.Max(0, (session.FarmScheduleRemaining - TimeSpan.FromTicks(Interlocked.Read(ref session.ObservedScheduleTicks))).TotalSeconds).ToString("F1", CultureInfo.InvariantCulture));
         await database.SaveSettingAsync($"{prefix}.signature", FarmScheduleSignature(session.FarmScheduleSteps));
         await database.SaveSettingAsync($"{prefix}.completed", session.FarmScheduleCompleted.ToString().ToLowerInvariant());
         await database.SaveSettingAsync(
@@ -442,14 +447,23 @@ public sealed partial class BotAutomationEngine(
         if (wasWaitingForReset && !session.FarmScheduleWaitingForWeeklyReset)
             session.FarmScheduleResumePending = true;
         var now = DateTime.UtcNow;
-        var elapsed = session.FarmScheduleLastTickUtc == default
-            ? TimeSpan.Zero
-            : now - session.FarmScheduleLastTickUtc;
+        var elapsed = TimeSpan.FromTicks(Interlocked.Exchange(ref session.ObservedScheduleTicks, 0));
         session.FarmScheduleLastTickUtc = now;
-        if (session.FarmSchedulePauseVersion != pause.PauseVersion)
+        if (elapsed > TimeSpan.Zero && session.FarmScheduleSteps.Count > 0 && !session.FarmScheduleCompleted)
         {
-            elapsed = TimeSpan.Zero;
-            session.FarmSchedulePauseVersion = pause.PauseVersion;
+            var consumed = Math.Min(elapsed.TotalSeconds, Math.Max(0, session.FarmScheduleRemaining.TotalSeconds));
+            session.FarmScheduleRemaining -= TimeSpan.FromSeconds(consumed);
+            session.StatisticsFarmSeconds += consumed;
+            if (session.StatisticsFarmSeconds >= 30)
+            {
+                await RecordStatisticAsync(session, "farm", ScheduleDestinationName(session.FarmScheduleSteps[session.FarmScheduleIndex].Destination), quantity: session.StatisticsFarmSeconds);
+                session.StatisticsFarmSeconds = 0;
+            }
+            if (now - session.FarmScheduleLastSaveUtc >= TimeSpan.FromSeconds(30) || session.FarmScheduleRemaining <= TimeSpan.Zero)
+            {
+                session.FarmScheduleLastSaveUtc = now;
+                await SaveFarmScheduleStateAsync(session);
+            }
         }
         PublishFarmScheduleProgress(session);
         if (session.InAgenda || session.HandlingDeath || session.InDailyCampaign || session.LoveBossInside ||
@@ -498,23 +512,6 @@ public sealed partial class BotAutomationEngine(
         }
 
         PublishFarmScheduleProgress(session);
-        if (IsScheduleFarmActive(session) && elapsed > TimeSpan.Zero && elapsed < TimeSpan.FromSeconds(30))
-        {
-            var statisticsSeconds = Math.Max(0, Math.Min(elapsed.TotalSeconds, session.FarmScheduleRemaining.TotalSeconds));
-            session.FarmScheduleRemaining -= elapsed;
-            session.StatisticsFarmSeconds += statisticsSeconds;
-            if (session.StatisticsFarmSeconds >= 30)
-            {
-                await RecordStatisticAsync(session, "farm", ScheduleDestinationName(session.FarmScheduleSteps[session.FarmScheduleIndex].Destination),
-                    quantity: session.StatisticsFarmSeconds);
-                session.StatisticsFarmSeconds = 0;
-            }
-            if (now - session.FarmScheduleLastSaveUtc >= TimeSpan.FromMinutes(1))
-            {
-                session.FarmScheduleLastSaveUtc = now;
-                await SaveFarmScheduleStateAsync(session);
-            }
-        }
 
         if (session.FarmScheduleRemaining > TimeSpan.Zero)
         {
@@ -2295,11 +2292,10 @@ public sealed partial class BotAutomationEngine(
             var buttons = new RecognitionResult[3];
             for (var buttonIndex = 0; buttonIndex < buttons.Length; buttonIndex++)
                 buttons[buttonIndex] = await recognition.FindAsync(
-                    "entrar_ta2_pronto", frame, 435 + buttonIndex * 272, 730, 135, 80, cancellationToken);
-            var context = buttons.All(button => button.Found);
-            var reading = context
-                ? TaEntryButtonAnalyzer.Read(frame, destination, buttons)
-                : new TaEntryButtonReading(TaEntryButtonState.Unknown, 0, 0);
+                    buttonIndex == 0 ? "ta1_entry_label" : "entrar_ta2_pronto", frame, 435 + buttonIndex * 272, 730, 135, 80, cancellationToken);
+            var reading = TaEntryButtonAnalyzer.Read(frame, destination, buttons);
+            if (sample == 0 && reading.State == TaEntryButtonState.Unknown)
+                WritePersistentOnly(session, "ta_entry_evidence " + string.Join("; ", buttons.Select((b, i) => $"card={i + 1},found={b.Found},score={b.Confidence:F3},xy={b.X},{b.Y}")));
             stableHits = reading.State != TaEntryButtonState.Unknown && reading.State == lastState
                 ? stableHits + 1 : reading.State == TaEntryButtonState.Unknown ? 0 : 1;
             lastState = reading.State;
@@ -2549,8 +2545,16 @@ public sealed partial class BotAutomationEngine(
         await AbortWorkflowIfDeathDetectedAsync(session, "antes de procurar Artigos", cancellationToken);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: compra preventiva", "Repondo Artigos antes de voltar à masmorra da Agenda");
         await ActivateGameAsync(session, cancellationToken);
-        if (!(await recognition.FindAsync("loja_artigos", cancellationToken)).Found &&
-            !session.SupplyCityTeleportAttempted)
+        await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        if (await IsMapOpenAsync(session, cancellationToken) ||
+            (await recognition.FindAsync("anonymous_map_heading", cancellationToken)).Found)
+        {
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+            if (await IsMapOpenAsync(session, cancellationToken) ||
+                (await recognition.FindAsync("anonymous_map_heading", cancellationToken)).Found)
+                throw new InvalidOperationException("Mapa ainda aberto; busca de Artigos bloqueada.");
+        }
+        if (!(await recognition.FindAsync("loja_artigos", cancellationToken)).Found)
         {
             WriteLog(session, "Usando uma vez o teleporte 7 para voltar à cidade antes de procurar Artigos.");
             session.SupplyCityTeleportAttempted = true;
@@ -2558,6 +2562,14 @@ public sealed partial class BotAutomationEngine(
             await ActionDelayAsync(cancellationToken, 4200, 5600);
         }
         await AbortWorkflowIfDeathDetectedAsync(session, "após o teleporte para Artigos", cancellationToken);
+        if ((await recognition.FindAsync("anonymous_exit_confirmation", cancellationToken)).Found)
+        {
+            await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
+            await WaitForReferenceToDisappearAsync("anonymous_exit_confirmation", TimeSpan.FromSeconds(8), pause, cancellationToken);
+        }
+        if (await ReadAnonymousLocationAsync(session, cancellationToken) ||
+            await FindRestStateAsync(session, cancellationToken) is not null || await IsMapOpenAsync(session, cancellationToken))
+            throw new InvalidOperationException("Retorno à cidade não confirmado: mapa, descanso ou Estreito ainda visível. Nenhum clique no NPC enviado.");
         if (!(await recognition.FindAsync("loja_artigos", cancellationToken)).Found)
         {
             await input.MoveAndClickAsync(189, 134, TimeSpan.FromMilliseconds(320), cancellationToken);
@@ -4111,7 +4123,6 @@ public sealed partial class BotAutomationEngine(
     {
         var currentCycle = DailyCycleKey(DateTime.Now);
         if (!options.EnableDailyMissions || !session.Options.EnableDailyMissions || session.InAgenda || session.HandlingDeath || session.LoveBossInside ||
-            session.DailyCompletedCycle == currentCycle ||
             session.InDailyCampaign || session.NextRecoveryAttemptAt != default ||
             DateTime.UtcNow < session.NextVisibleDailyScanAt)
         {
@@ -4146,7 +4157,8 @@ public sealed partial class BotAutomationEngine(
                 // adotar uma rotina desconhecida exigimos o bloco típico de
                 // várias Diárias; depois que este ciclo já começou, uma única
                 // missão restante é suficiente.
-                var requiredPurpleRows = session.DailyCycle == scanCycle || session.DailyStartedCycle == scanCycle ? 1 : 4;
+                var requiredPurpleRows = session.DailyCompletedCycle != scanCycle &&
+                    (session.DailyCycle == scanCycle || session.DailyStartedCycle == scanCycle) ? 1 : 4;
                 if (FindPurpleDailyMissionY(frame, requiredPurpleRows) is null)
                 {
                     return false;
@@ -4159,6 +4171,12 @@ public sealed partial class BotAutomationEngine(
             }
 
             var cycle = currentCycle;
+            if (session.DailyCompletedCycle == cycle)
+            {
+                session.DailyCompletedCycle = null;
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyCompletedCycle", "");
+                WriteLog(session, "Missões pendentes contradizem a conclusão salva; registro corrigido sem aceitar novamente.");
+            }
             WriteLog(session, pendingTeleportPopup
                 ? "Popup de teleporte da Diária pendente; confirmando agora, independentemente do horário programado."
                 : "Missões Diárias roxas já aceitas e visíveis; retomando agora, independentemente do horário programado.");
@@ -4333,10 +4351,9 @@ public sealed partial class BotAutomationEngine(
                 return true;
             }
 
-            await MarkDailyCampaignCompletedAsync(
-                session,
-                "Lista aberta e estável sem missão roxa: Diárias concluídas; seguindo para o farm.");
-            return false;
+            // A visible portion of the sidebar is not proof that all accepted quests ended.
+            await YieldUncertainDailyToFarmAsync(session, pause, cancellationToken);
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -5672,10 +5689,10 @@ public sealed partial class BotAutomationEngine(
         session.InDailyCampaign = false;
         session.DailyNeedsTeleport = false;
         session.NextRoutinePanelRecoveryAt = default;
-        session.NextDailyRoutineAttemptAt = DateTime.UtcNow.AddMinutes(10);
+        session.NextDailyRoutineAttemptAt = DateTime.UtcNow.AddSeconds(30);
         session.NextVisibleDailyScanAt = session.NextDailyRoutineAttemptAt;
         session.DailyNoMissionHits = 0;
-        WriteLog(session, "Não foi possível confirmar missões pendentes após as leituras limitadas. Retornando ao farm por 10 minutos; progresso preservado, sem aceitar novamente nem declarar conclusão.");
+        WriteLog(session, "Leitura de Diárias inconclusiva; retomando o farm com progresso preservado. Nova leitura passiva em 30 segundos, sem aceitar novamente nem declarar conclusão.");
         await ResumeStableFarmAsync(session, pause, cancellationToken);
     }
 
@@ -5819,6 +5836,7 @@ public sealed partial class BotAutomationEngine(
     private async Task MonitorClientWindowAsync(
         ClientSession session,
         int emergencyTeleportVirtualKey,
+        PauseController pause,
         CancellationToken cancellationToken)
     {
         var lastCaptureFailureLog = DateTime.MinValue;
@@ -5838,6 +5856,7 @@ public sealed partial class BotAutomationEngine(
 
                 var frame = await CaptureClientFrameAsync(session, cancellationToken);
                 session.LastWindowFrameAt = DateTime.UtcNow;
+                await ObserveScheduleClockAsync(session, frame, pause, cancellationToken);
                 if (session.VisualCaptureFaulted)
                 {
                     session.VisualCaptureFaulted = false;
@@ -6571,6 +6590,13 @@ public sealed partial class BotAutomationEngine(
         var fullDeath = await FindFullDeathOnClientAsync(session, cancellationToken);
         if (!fullDeath.Found && (await FindDeathOnClientAsync(session, cancellationToken)).Found)
         {
+            var deathFrame = await CaptureClientFrameAsync(session, cancellationToken);
+            if ((await recognition.FindAsync("descanso_morte", deathFrame, cancellationToken)).Found)
+            {
+                await ActivateGameForEmergencyAsync(session, cancellationToken);
+                WriteLog(session, "Morte no descanso: saindo com L para revelar Ressuscitar antes de verificar perdas.");
+                await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
+            }
             WriteLog(session, "Estado Morte reconhecido; aguardando a tela completa de Ressuscitar.");
             var transitionStartedAt = DateTime.UtcNow;
             var transitionDeadline = transitionStartedAt + TimeSpan.FromSeconds(12);
@@ -6594,6 +6620,8 @@ public sealed partial class BotAutomationEngine(
         }
 
         var confirmedDeathScreen = fullDeath.Found;
+        if (!fullDeath.Found && (await FindDeathOnClientAsync(session, cancellationToken)).Found)
+            throw new InvalidOperationException("Morte ainda visível sem botão Ressuscitar confirmado; restauração de perdas bloqueada até o renascimento.");
         if (fullDeath.Found)
         {
             WriteLog(
@@ -7847,6 +7875,9 @@ public sealed partial class BotAutomationEngine(
         public int FarmScheduleIndex { get; set; }
         public TimeSpan FarmScheduleRemaining { get; set; }
         public DateTime FarmScheduleLastTickUtc { get; set; }
+        public long ObservedScheduleTicks;
+        public DateTime ScheduleObservedAt;
+        public bool SchedulePreviousObservationActive;
         public long FarmSchedulePauseVersion { get; set; }
         public DateTime FarmScheduleLastSaveUtc { get; set; }
         public bool InDailyCampaign { get; set; }

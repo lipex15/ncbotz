@@ -28,13 +28,15 @@ public sealed partial class BotAutomationEngine
     internal static async Task<bool> ReadAnonymousFrameAsync(VisualRecognitionService recognition,
         PixelFrame frame, CancellationToken token, Action<string>? log = null)
     {
-        if ((await recognition.FindAsync("anonymous_map", frame, token)).Found) return true;
+        if ((await recognition.FindAsync("anonymous_map_heading", frame, token)).Found ||
+            (await recognition.FindAsync("anonymous_map", frame, token)).Found) return true;
         var reference = await recognition.FindAsync("anonymous_arrival", frame, token);
         if (reference.Found) return true;
         var text = (await new RestorationCounterReader().ReadClientFrameAsync(frame, token)).RawText;
         var time = await new AbbeyTimeReader().ReadAsync(frame, token);
         var hud = await recognition.FindAsync("game_hud_menu", frame, token);
-        var found = text.Contains("POSTO", StringComparison.Ordinal) && text.Contains("ILUSAO", StringComparison.Ordinal) &&
+        var found = (text.Contains("POSTO", StringComparison.Ordinal) && text.Contains("ILUSAO", StringComparison.Ordinal) ||
+            text.Contains("DESASTRE IMPREVISTO", StringComparison.Ordinal)) &&
             time.Remaining is not null && hud.Found;
         log?.Invoke($"anonymous_location reference={reference.Confidence:F3}; hud={hud.Found}; time={time.Remaining}; text={text}; confirmed={found}");
         return found;

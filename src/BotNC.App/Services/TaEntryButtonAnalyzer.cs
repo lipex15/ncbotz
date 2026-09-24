@@ -38,7 +38,10 @@ public static class TaEntryButtonAnalyzer
             : frame.Height;
         var scaleX = frame.Width / 1920d;
         var scaleY = referenceHeight / 1040d;
-        var values = LabelX.Select((x, buttonIndex) => locatedButtons is not null
+        if (locatedButtons is not null && !locatedButtons[index].Found)
+            return new(TaEntryButtonState.Unknown, 0, 0);
+        var values = LabelX.Select((x, buttonIndex) => locatedButtons is not null && !locatedButtons[buttonIndex].Found
+            ? 0 : locatedButtons is not null
             ? MeasureLabelInk(frame, locatedButtons[buttonIndex].X - 37, locatedButtons[buttonIndex].Y - 12, 75, 25)
             : MeasureLabelInk(
             frame,

@@ -10,7 +10,6 @@ public sealed partial class BotAutomationEngine
     private async Task RecordStatisticAsync(ClientSession session, string kind, string description,
         string? id = null, long? gold = null, double quantity = 1, string evidence = "")
     {
-        if (!AppIdentity.IsTesting) return;
         try
         {
             await _statistics.RecordAsync(new(id ?? Guid.NewGuid().ToString("N"), ActivationService.ProfileKey,
@@ -28,7 +27,6 @@ public sealed partial class BotAutomationEngine
     private async Task<GoldPriceReading> ReadStatisticsPriceAsync(ClientSession session,
         string layout, CancellationToken token)
     {
-        if (!AppIdentity.IsTesting) return new(null, "canal normal");
         try
         {
             var frame = VisualRecognitionService.NormalizeForReferenceMatching(await CaptureClientFrameAsync(session, token));
@@ -58,7 +56,7 @@ public sealed partial class BotAutomationEngine
 
     private async Task TryRecordDailyExpenseAsync(ClientSession session, CancellationToken token)
     {
-        if (!AppIdentity.IsTesting || session.StatisticsDailyPriceId is not { } id || session.StatisticsDailyPrice is not { } price) return;
+        if (session.StatisticsDailyPriceId is not { } id || session.StatisticsDailyPrice is not { } price) return;
         try
         {
             if (DateTime.UtcNow - session.StatisticsDailyPriceAt > TimeSpan.FromSeconds(60))

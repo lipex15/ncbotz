@@ -111,6 +111,7 @@ public sealed partial class BotAutomationEngine
                     session, "boss_room", cancellationToken, requireObservable: true)).Found;
                 if (!session.LoveBossInside)
                 {
+                    await ExitRestIfNeededAsync(session, pause, cancellationToken);
                     await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
                     await ResumeAfterLoveBossAsync(session, pause, cancellationToken);
                 }
@@ -118,6 +119,8 @@ public sealed partial class BotAutomationEngine
             catch (Exception recoveryException)
             {
                 WritePersistentOnly(session, $"Recuperação do Boss do Amor: {recoveryException}");
+                session.NextRecoveryAttemptAt = DateTime.UtcNow.AddSeconds(5);
+                session.RequiresHardFlowReset = true;
             }
             return true;
         }

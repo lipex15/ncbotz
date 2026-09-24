@@ -25,7 +25,7 @@
     </UserControl.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="0,0,4,0">
-            <TextBlock Text="ESTATÍSTICAS · AMBIENTE DE TESTES" FontSize="10" FontWeight="Bold" Foreground="#65CEFA"/>
+            <TextBlock Text="ESTATÍSTICAS · SEU PROGRESSO" FontSize="10" FontWeight="Bold" Foreground="#65CEFA"/>
             <TextBlock x:Name="Greeting" Text="Seu progresso, de perto" FontSize="28" FontWeight="Bold" Margin="0,6,0,6" TextWrapping="Wrap"/>
             <TextBlock Style="{StaticResource Hint}" Text="Resultados observados pelo bot. Cada cliente tem seu próprio histórico, salvo entre reinícios."/>
             <Border Background="#0F1D2F" CornerRadius="18" Padding="16,12" Margin="0,16,12,18">
