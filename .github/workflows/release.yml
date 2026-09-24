@@ -65,6 +65,7 @@ jobs:
             -ArgumentList @('--self-test', ('"' + $selfTest + '"')) `
             -PassThru -Wait -WindowStyle Hidden
           if ($selfTestProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $selfTest)) {
+            Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'pexbot-self-test.txt*.txt' | ForEach-Object { Get-Content -LiteralPath $_.FullName }
             throw 'Packaged visual self-test failed.'
           }
           $audioReference = (Resolve-Path 'publish/Assets/Audio/hp_alert_som2_full.wav').Path

@@ -1,0 +1,27 @@
+name: Verify packaged detectors before release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish and verify without installation
+        shell: pwsh
+        run: |
+          dotnet publish src/BotNC.App/BotNC.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o publish
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
+          $report = Join-Path $env:RUNNER_TEMP 'pexbot-self-test.txt'
+          $process = Start-Process -FilePath (Resolve-Path 'publish/PEXBOT.exe').Path -ArgumentList @('--self-test', ('"' + $report + '"')) -PassThru -Wait -WindowStyle Hidden
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'pexbot-self-test.txt*.txt' | ForEach-Object { Get-Content -LiteralPath $_.FullName }
+          if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $report)) { throw 'Packaged self-test failed.' }

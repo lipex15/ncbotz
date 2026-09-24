@@ -334,8 +334,17 @@ public partial class App : Application
         var selfTestIndex = Array.IndexOf(e.Args, "--self-test");
         if (selfTestIndex >= 0 && selfTestIndex + 1 < e.Args.Length)
         {
-            await RunSelfTestAsync(Path.GetFullPath(e.Args[selfTestIndex + 1]));
-            Shutdown();
+            var reportPath = Path.GetFullPath(e.Args[selfTestIndex + 1]);
+            try
+            {
+                await RunSelfTestAsync(reportPath);
+                Shutdown();
+            }
+            catch (Exception exception)
+            {
+                await File.WriteAllTextAsync(reportPath + ".error.txt", exception.ToString());
+                Shutdown(1);
+            }
             return;
         }
 
