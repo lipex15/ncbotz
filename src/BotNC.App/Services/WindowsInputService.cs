@@ -9,6 +9,8 @@ public sealed class WindowsInputService
 {
     public Action? ValidateWorkflowTarget { get; set; }
     public Action<string>? WorkflowTrace { get; set; }
+    internal Func<ReferenceViewport>? WorkflowViewport { get; set; }
+    internal Func<int, int, (int X, int Y)>? WorkflowReferenceAdjustment { get; set; }
     private static readonly TimeSpan CommandCooldown = TimeSpan.FromMilliseconds(1800);
     private const uint InputMouse = 0;
     private const uint InputKeyboard = 1;
@@ -115,9 +117,14 @@ public sealed class WindowsInputService
         int screenX,
         int screenY,
         CancellationToken cancellationToken,
-        TimeSpan? cooldown = null)
+        TimeSpan? cooldown = null,
+        bool useVisualAnchor = true)
     {
         ValidateWorkflowTarget?.Invoke();
+        var viewport = WorkflowViewport?.Invoke();
+        if (useVisualAnchor && WorkflowReferenceAdjustment is { } adjust) (screenX, screenY) = adjust(screenX, screenY);
+        if (viewport is { } clickViewport) WorkflowTrace?.Invoke($"input reference={screenX},{screenY}; viewport={clickViewport}");
+        if (viewport is { } map) (screenX, screenY) = map.ToScreen(screenX, screenY);
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
         var normalizedX = (int)Math.Round(screenX * 65535d / Math.Max(1, width - 1));
@@ -125,6 +132,7 @@ public sealed class WindowsInputService
         Send(CreateMouseInput(normalizedX, normalizedY, MouseMove | MouseAbsolute));
         await Task.Delay(80, cancellationToken);
         ValidateWorkflowTarget?.Invoke();
+        ValidateViewport(viewport);
         WorkflowTrace?.Invoke($"input click={screenX},{screenY}; target=verified");
         Send(CreateMouseInput(
             normalizedX,
@@ -140,9 +148,14 @@ public sealed class WindowsInputService
         int screenY,
         TimeSpan movementDuration,
         CancellationToken cancellationToken,
-        TimeSpan? cooldown = null)
+        TimeSpan? cooldown = null,
+        bool useVisualAnchor = true)
     {
         ValidateWorkflowTarget?.Invoke();
+        var viewport = WorkflowViewport?.Invoke();
+        if (useVisualAnchor && WorkflowReferenceAdjustment is { } adjust) (screenX, screenY) = adjust(screenX, screenY);
+        if (viewport is { } clickViewport) WorkflowTrace?.Invoke($"input reference={screenX},{screenY}; viewport={clickViewport}");
+        if (viewport is { } map) (screenX, screenY) = map.ToScreen(screenX, screenY);
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
         if (!NativeMethods.GetCursorPos(out var current))
@@ -170,6 +183,7 @@ public sealed class WindowsInputService
         var normalizedY = (int)Math.Round(screenY * 65535d / Math.Max(1, height - 1));
         await Task.Delay(140, cancellationToken);
         ValidateWorkflowTarget?.Invoke();
+        ValidateViewport(viewport);
         WorkflowTrace?.Invoke($"input click={screenX},{screenY}; movementMs={movementDuration.TotalMilliseconds:F0}; target=verified");
         Send(CreateMouseInput(
             normalizedX,
@@ -178,6 +192,12 @@ public sealed class WindowsInputService
         try { await Task.Delay(110, cancellationToken); }
         finally { Send(CreateMouseInput(normalizedX, normalizedY, MouseMove | MouseAbsolute | MouseLeftUp)); }
         await Task.Delay(cooldown ?? CommandCooldown, cancellationToken);
+    }
+
+    private void ValidateViewport(ReferenceViewport? before)
+    {
+        if (before is { } measured && WorkflowViewport?.Invoke() != measured)
+            throw new InvalidOperationException("A janela mudou de posição/tamanho durante o movimento; clique cancelado.");
     }
 
     public async Task ScrollAsync(int wheelDelta, int repetitions, CancellationToken cancellationToken)

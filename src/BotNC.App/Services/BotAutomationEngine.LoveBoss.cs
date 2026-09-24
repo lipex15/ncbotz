@@ -148,7 +148,7 @@ public sealed partial class BotAutomationEngine
             await Task.Delay(400, cancellationToken);
         }
         WriteLog(session, "Boss do Amor: abrindo a entrada pelo ícone ao lado do minimapa (413, 127).");
-        var entryPoint = gameWindows.MapReferencePoint(session.Options.Target, 413, 127);
+        var entryPoint = gameWindows.ResolveWorkflowPoint(session.Options.Target, 413, 127);
         await input.MoveAndClickAsync(entryPoint.X, entryPoint.Y, TimeSpan.FromMilliseconds(300),
             cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
         await WaitForReferenceAsync("boss_entry_panel", "convite da Raide de Chefe",
@@ -230,7 +230,7 @@ public sealed partial class BotAutomationEngine
         // um comando já enviado só porque uma animação prejudicou a confirmação.
         if (session.LoveBossAutoCommandSent || first.Found || second.Found) return false;
         await CheckpointAsync(pause, cancellationToken);
-        var point = gameWindows.MapReferencePoint(session.Options.Target, 1875, 672);
+        var point = gameWindows.ResolveWorkflowPoint(session.Options.Target, 1875, 672);
         await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(300),
             cancellationToken, cooldown: TimeSpan.FromMilliseconds(170));
         session.LoveBossAutoCommandSent = true;

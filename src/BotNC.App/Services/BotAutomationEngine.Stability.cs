@@ -15,6 +15,10 @@ public sealed partial class BotAutomationEngine
         recognition.WorkflowContextId = $"{session.Options.Priority}:{session.Options.Target.Handle}";
         recognition.WorkflowTrace = message => WritePersistentOnly(session, message);
         input.WorkflowTrace = message => WritePersistentOnly(session, message);
+        input.WorkflowViewport = AppIdentity.IsTesting ? () => GameWindowService.GetViewport(session.Options.Target) : null;
+        input.WorkflowReferenceAdjustment = AppIdentity.IsTesting ? (x, y) =>
+            session.LatestResolutionFrame is { } frame && frame.Viewport == GameWindowService.GetViewport(session.Options.Target)
+                ? frame.AdjustReferencePoint(x, y) : (x, y) : null;
         input.ValidateWorkflowTarget = () =>
         {
             ThrowIfDeathPending(session);

@@ -1039,7 +1039,7 @@ public sealed partial class BotAutomationEngine(
             // consultada é, de fato, a janela em primeiro plano.
             if (gameWindows.IsForeground(session.Options.Target))
             {
-                return await FindDeathInFrameAsync(capture.CapturePrimaryScreen(), cancellationToken);
+                return await FindDeathInFrameAsync(CaptureForegroundClientFrame(session), cancellationToken);
             }
 
             return new RecognitionResult(false, 0, 0, 0);
@@ -1111,7 +1111,7 @@ public sealed partial class BotAutomationEngine(
         {
             if (gameWindows.IsForeground(session.Options.Target))
             {
-                return await FindFullDeathInFrameAsync(capture.CapturePrimaryScreen(), cancellationToken);
+                return await FindFullDeathInFrameAsync(CaptureForegroundClientFrame(session), cancellationToken);
             }
 
             throw new InvalidOperationException(
@@ -1172,6 +1172,18 @@ public sealed partial class BotAutomationEngine(
         return false;
     }
 
+    private PixelFrame CaptureForegroundClientFrame(ClientSession session)
+    {
+        if (!gameWindows.IsForeground(session.Options.Target))
+            throw new InvalidOperationException("Captura de fallback recusada: cliente sem foco.");
+        var screen = capture.CapturePrimaryScreen();
+        if (!AppIdentity.IsTesting) return screen;
+        var viewport = GameWindowService.GetViewport(session.Options.Target);
+        var frame = viewport.Normalize(screen, viewport.Left, viewport.Top);
+        session.LatestResolutionFrame = frame;
+        return frame;
+    }
+
     private static async Task<PixelFrame> CaptureClientFrameAsync(
         ClientSession session,
         CancellationToken cancellationToken)
@@ -1181,7 +1193,9 @@ public sealed partial class BotAutomationEngine(
         {
             var windowCapture = session.WindowCapture ??
                 throw new InvalidOperationException("A captura visual da janela não está conectada.");
-            return await windowCapture.CaptureAsync(cancellationToken);
+            var frame = await windowCapture.CaptureAsync(cancellationToken);
+            session.LatestResolutionFrame = frame;
+            return frame;
         }
         finally
         {
@@ -1959,7 +1973,7 @@ public sealed partial class BotAutomationEngine(
         var coordinate = session.Options.AbbeyCustomFarmCoordinate;
         var point = coordinate is null
             ? AbbeySpots[ChooseNextSpot(session, -2, AbbeySpots.Length)]
-            : gameWindows.MapReferencePoint(session.Options.Target, coordinate.X, coordinate.Y);
+            : gameWindows.ResolveWorkflowPoint(session.Options.Target, coordinate.X, coordinate.Y);
         WriteLog(session, coordinate is null
             ? $"Selecionando um dos quatro pontos da Abadia: ({point.X}, {point.Y})."
             : $"Usando ponto personalizado da Abadia: ({point.X}, {point.Y}).");
@@ -1970,7 +1984,8 @@ public sealed partial class BotAutomationEngine(
         RecognitionResult? goButton = null;
         for (var attempt = 1; attempt <= 3; attempt++)
         {
-            await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(340), cancellationToken);
+            await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(340), cancellationToken,
+                useVisualAnchor: coordinate is null);
             goButton = await WaitForAnyReferenceInRegionAsync(
                 goReferences, searchX, searchY, 470, 230,
                 TimeSpan.FromSeconds(7), pause, cancellationToken);
@@ -2156,7 +2171,7 @@ public sealed partial class BotAutomationEngine(
             if (entryState.State != TaEntryButtonState.Active)
                 throw new InvalidOperationException(
                     $"{session.Options.Label}: Entrar da {taName} deixou de estar ativo; sem novo clique.");
-            var mappedEntry = gameWindows.MapReferencePoint(
+            var mappedEntry = gameWindows.ResolveWorkflowPoint(
                 session.Options.Target,
                 entry.X,
                 entry.Y);
@@ -2718,7 +2733,7 @@ public sealed partial class BotAutomationEngine(
         (int X, int Y) spot;
         if (EffectiveCustomFarmCoordinate(session) is { } customCoordinate)
         {
-            spot = gameWindows.MapReferencePoint(
+            spot = gameWindows.ResolveWorkflowPoint(
                 session.Options.Target,
                 customCoordinate.X,
                 customCoordinate.Y);
@@ -2748,7 +2763,7 @@ public sealed partial class BotAutomationEngine(
         var searchY = Math.Max(0, spot.Y - 210);
         for (var attempt = 1; attempt <= 3; attempt++)
         {
-            await input.ClickAsync(spot.X, spot.Y, cancellationToken);
+            await input.ClickAsync(spot.X, spot.Y, cancellationToken, useVisualAnchor: false);
             goButton = await WaitForAnyReferenceInRegionAsync(
                 goReferences, searchX, searchY, 470, 230,
                 TimeSpan.FromSeconds(7), pause, cancellationToken);
@@ -2800,9 +2815,9 @@ public sealed partial class BotAutomationEngine(
         await input.ScrollAsync(-120, 12, cancellationToken);
         await WaitForReferenceAsync("mapa_ta1_zoom_max", "mapa de Kildebat no zoom mínimo", TimeSpan.FromSeconds(12), pause, cancellationToken);
 
-        var spot = gameWindows.MapReferencePoint(session.Options.Target, custom.X, custom.Y);
+        var spot = gameWindows.ResolveWorkflowPoint(session.Options.Target, custom.X, custom.Y);
         WriteLog(session, $"T.A 1 no zoom mínimo confirmada; selecionando o ponto Codex ({custom.X}, {custom.Y}).");
-        await input.ClickAsync(spot.X, spot.Y, cancellationToken);
+        await input.ClickAsync(spot.X, spot.Y, cancellationToken, useVisualAnchor: false);
         var goReferences = new[] { "botao_ir", "botao_ir_legado", "botao_ir_ta2" };
         var searchX = Math.Max(0, spot.X - 220);
         var searchY = Math.Max(0, spot.Y - 210);
@@ -4355,7 +4370,7 @@ public sealed partial class BotAutomationEngine(
 
         if (sidebar.State == GuildDirectiveSidebarState.Available)
         {
-        var sidebarShortcut = gameWindows.MapReferencePoint(session.Options.Target, 1628, 210);
+        var sidebarShortcut = gameWindows.ResolveWorkflowPoint(session.Options.Target, 1628, 210);
         await input.MoveAndClickAsync(
             sidebarShortcut.X,
             sidebarShortcut.Y,
@@ -5030,7 +5045,7 @@ public sealed partial class BotAutomationEngine(
         {
             if (gameWindows.IsForeground(session.Options.Target))
             {
-                return capture.CapturePrimaryScreen();
+                return CaptureForegroundClientFrame(session);
             }
 
             throw new InvalidOperationException(
@@ -6702,7 +6717,7 @@ public sealed partial class BotAutomationEngine(
                 if (!currentIcon.AgreesWith(previousIcon))
                     break;
                 WriteLog(session, $"Clicando na lápide reconhecida — tentativa {attempt}/3.");
-                var tombstonePoint = gameWindows.MapReferencePoint(session.Options.Target,
+                var tombstonePoint = gameWindows.ResolveWorkflowPoint(session.Options.Target,
                     currentIcon.ClickReferenceX, currentIcon.ClickReferenceY);
                 await input.MoveAndClickAsync(tombstonePoint.X, tombstonePoint.Y, TimeSpan.FromMilliseconds(450), cancellationToken);
                 panelCounter = await WaitForRestorationCounterAsync(
@@ -6750,7 +6765,7 @@ public sealed partial class BotAutomationEngine(
             for (var attempt = 1; attempt <= 3; attempt++)
             {
                 await EnsureGameForegroundAsync(session, cancellationToken);
-                var equipmentTab = gameWindows.MapReferencePoint(session.Options.Target, 47, 275);
+                var equipmentTab = gameWindows.ResolveWorkflowPoint(session.Options.Target, 47, 275);
                 await input.ClickAsync(equipmentTab.X, equipmentTab.Y, cancellationToken);
                 panelCounter = await WaitForRestorationCounterAsync(
                     session, TimeSpan.FromSeconds(5), pause, cancellationToken,
@@ -6778,7 +6793,7 @@ public sealed partial class BotAutomationEngine(
             for (var attempt = 1; attempt <= 3; attempt++)
             {
                 await EnsureGameForegroundAsync(session, cancellationToken);
-                var experienceTab = gameWindows.MapReferencePoint(session.Options.Target, 47, 190);
+                var experienceTab = gameWindows.ResolveWorkflowPoint(session.Options.Target, 47, 190);
                 await input.ClickAsync(experienceTab.X, experienceTab.Y, cancellationToken);
                 panelCounter = await WaitForRestorationCounterAsync(
                     session, TimeSpan.FromSeconds(5), pause, cancellationToken,
@@ -6902,7 +6917,7 @@ public sealed partial class BotAutomationEngine(
             previousCount = current.Count;
             WriteLog(session, $"Restaurando {tabName} {current.Count}/{current.Capacity?.ToString() ?? "?"} " +
                 $"em ({clickX}, {clickY}) — clique {attempt}.");
-            var restorePoint = gameWindows.MapReferencePoint(session.Options.Target, clickX, clickY);
+            var restorePoint = gameWindows.ResolveWorkflowPoint(session.Options.Target, clickX, clickY);
             await input.ClickAsync(restorePoint.X, restorePoint.Y, cancellationToken);
             var afterClick = await WaitForRestorationCounterAsync(
                 session, TimeSpan.FromSeconds(8), pause, cancellationToken, expectedTab);
@@ -6941,7 +6956,7 @@ public sealed partial class BotAutomationEngine(
                     exception);
             }
 
-            frame = capture.CapturePrimaryScreen();
+            frame = CaptureForegroundClientFrame(session);
         }
 
         return await _restorationCounterReader.ReadClientFrameAsync(
@@ -7405,7 +7420,8 @@ public sealed partial class BotAutomationEngine(
             // a prioridade de fechar um aviso que esteja por cima dele.
             var frame = _workflowClient is { } owner
                 ? await CaptureClientFrameAsync(owner, cancellationToken)
-                : capture.CapturePrimaryScreen();
+                : AppIdentity.IsTesting ? throw new InvalidOperationException("Reconhecimento sem cliente associado.")
+                    : capture.CapturePrimaryScreen();
             var targetTask = recognition.FindAsync(referenceId, frame, cancellationToken);
             var agendaTask = referenceId == "aviso_agenda"
                 ? targetTask
@@ -7674,9 +7690,9 @@ public sealed partial class BotAutomationEngine(
     private void EnsureResolution()
     {
         var (width, height) = capture.GetPrimaryScreenSize();
-        if (width != 1920 || height != 1080)
+        if (!ReferenceViewport.IsSupportedDisplay(width, height))
         {
-            throw new InvalidOperationException($"O monitor principal precisa estar em 1920×1080. Detectado: {width}×{height}.");
+            throw new InvalidOperationException($"Resoluções suportadas: {ReferenceViewport.SupportedDisplays}. Detectado: {width}×{height}.");
         }
     }
 
@@ -7758,6 +7774,7 @@ public sealed partial class BotAutomationEngine(
 
     private sealed class ClientSession(AutomationClientOptions options)
     {
+        public PixelFrame? LatestResolutionFrame;
         public AutomationClientOptions Options { get; set; } = options;
         public HpAudioAlertService Audio { get; } = new();
         public SemaphoreSlim WindowCaptureGate { get; } = new(1, 1);

@@ -59,7 +59,7 @@ public sealed partial class BotAutomationEngine
                 if (reading.State == GuildTreasureState.Reward)
                 {
                     await EnsureGameForegroundAsync(session, token);
-                    var point = gameWindows.MapReferencePoint(session.Options.Target, 957, 440);
+                    var point = gameWindows.ResolveWorkflowPoint(session.Options.Target, 957, 440);
                     await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(300), token,
                         cooldown: TimeSpan.FromMilliseconds(200));
                     await WaitForReferenceToDisappearAsync("guild_treasure_reward", TimeSpan.FromSeconds(8), pause, token);
@@ -83,7 +83,7 @@ public sealed partial class BotAutomationEngine
                 if (reading.State != GuildTreasureState.Available) throw new InvalidOperationException("Estado do baú não confirmado.");
                 awaitingDecreaseFrom = reading.Count;
                 await EnsureGameForegroundAsync(session, token);
-                var open = gameWindows.MapReferencePoint(session.Options.Target, 1627, 942);
+                var open = gameWindows.ResolveWorkflowPoint(session.Options.Target, 1627, 942);
                 await input.MoveAndClickAsync(open.X, open.Y, TimeSpan.FromMilliseconds(320), token,
                     cooldown: TimeSpan.FromMilliseconds(200));
                 await WaitForReferenceAsync("guild_treasure_reward", "Item Obtido do baú da Guilda",
@@ -100,7 +100,7 @@ public sealed partial class BotAutomationEngine
             // Safely dismiss a known reward before continuing the original Guild routine.
             if ((await recognition.FindAsync("guild_treasure_reward", token)).Found)
             {
-                var point = gameWindows.MapReferencePoint(session.Options.Target, 957, 440);
+                var point = gameWindows.ResolveWorkflowPoint(session.Options.Target, 957, 440);
                 await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(300), token);
                 await WaitForReferenceToDisappearAsync("guild_treasure_reward", TimeSpan.FromSeconds(8), pause, token);
             }
@@ -133,13 +133,13 @@ public sealed partial class BotAutomationEngine
                     await input.PressKeyAsync(KeyEquals, cancellationToken: token);
                     await WaitForReferenceAsync("menu_guild", "menu da Guilda", TimeSpan.FromSeconds(8), pause, token);
                 }
-                var guild = gameWindows.MapReferencePoint(session.Options.Target, 1600, 340);
+                var guild = gameWindows.ResolveWorkflowPoint(session.Options.Target, 1600, 340);
                 await input.MoveAndClickAsync(guild.X, guild.Y, TimeSpan.FromMilliseconds(300), token);
                 await WaitForReferenceAsync("guild_page", "Guilda", TimeSpan.FromSeconds(12), pause, token);
             }
             if (!(await recognition.FindAsync("guild_treasure_panel", token)).Found)
             {
-                var info = gameWindows.MapReferencePoint(session.Options.Target, 135, 138);
+                var info = gameWindows.ResolveWorkflowPoint(session.Options.Target, 135, 138);
                 await input.ClickAsync(info.X, info.Y, token);
                 await WaitForReferenceAsync("guild_treasure_panel", "Baú do Tesouro", TimeSpan.FromSeconds(8), pause, token);
             }

@@ -87,6 +87,8 @@
                     </StackPanel>
                 </Border>
                 <StackPanel Grid.Row="4">
+                    <TextBlock x:Name="ResolutionModeText" Visibility="Collapsed" Foreground="#8299B7"
+                               FontSize="10" Margin="2,0,0,6" TextWrapping="Wrap"/>
                     <TextBlock x:Name="ApplicationVersionText" Text="PEXBOT" Foreground="#52647A"
                                FontSize="10" Margin="2,0,0,0" />
                 </StackPanel>

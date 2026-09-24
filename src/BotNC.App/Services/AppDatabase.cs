@@ -242,6 +242,9 @@ public sealed class AppDatabase
         await command.ExecuteNonQueryAsync();
     }
 
+    internal static IEnumerable<(string Id, string FileName)> ResolutionFixtures =>
+        ReferenceDefinitions.All.Select(item => (item.Id, item.FileName));
+
     private sealed record ReferenceDefinition(
         string Id,
         string DisplayName,

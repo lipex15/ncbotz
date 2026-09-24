@@ -439,6 +439,12 @@ public partial class App : Application
         }
 
         await Task.Delay(e.Args.Contains("--statistics-tab", StringComparer.Ordinal) ? 5000 : 1600);
+        if (AppIdentity.IsTesting && e.Args.Contains("--compact-preview", StringComparer.Ordinal))
+        {
+            window.MinHeight = 680;
+            window.Height = 728;
+            window.Width = 1320;
+        }
         if (e.Args.Contains("--execution-view", StringComparer.Ordinal))
             window.ShowExecutionPreviewForScreenshot();
         if (e.Args.Contains("--start-preview", StringComparer.Ordinal))
@@ -491,6 +497,8 @@ public partial class App : Application
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
         await StatisticsRegression.VerifyAsync(outputPath + ".statistics.txt", recognition,
+            name => LoadReferenceFrame(Path.Combine(referenceDirectory, name)));
+        await ResolutionRegression.VerifyAsync(outputPath + ".resolution.txt", recognition, database,
             name => LoadReferenceFrame(Path.Combine(referenceDirectory, name)));
         var treasureChecks = await GuildTreasureRegression.VerifyAsync(recognition, database,
             name => LoadReferenceFrame(Path.Combine(referenceDirectory, name)));

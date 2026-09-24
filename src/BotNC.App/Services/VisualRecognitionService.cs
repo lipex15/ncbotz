@@ -31,10 +31,12 @@ public sealed class VisualRecognitionService(
         var key = $"{WorkflowContextId}|{id}";
         if (_traceStates.TryGetValue(key, out var last) && last.Found == result.Found && DateTime.UtcNow - last.At < TimeSpan.FromMinutes(1)) return;
         _traceStates[key] = (result.Found, DateTime.UtcNow);
-        WorkflowTrace?.Invoke($"recognition ref={id}; found={result.Found}; confidence={result.Confidence:F4}; xy={result.X},{result.Y}; frame={frame.Width}x{frame.Height}");
+        WorkflowTrace?.Invoke($"recognition ref={id}; found={result.Found}; confidence={result.Confidence:F4}; xy={result.X},{result.Y}; frame={frame.Width}x{frame.Height}; viewport={frame.Viewport}");
     }
     private Task<PixelFrame> CaptureWorkflowAsync(CancellationToken token) =>
-        WorkflowFrameProvider is { } provider ? provider(token) : Task.FromResult(capture.CapturePrimaryScreen());
+        WorkflowFrameProvider is { } provider ? provider(token) : AppIdentity.IsTesting
+            ? throw new InvalidOperationException("Captura sem cliente associado; não será usada a imagem de outra janela.")
+            : Task.FromResult(capture.CapturePrimaryScreen());
 
     private Task<VisualReference> GetReferenceAsync(string referenceId)
     {
@@ -350,16 +352,99 @@ public sealed class VisualRecognitionService(
     }
 
     private static RecognitionResult Match(
+        PixelFrame screen, VisualReference reference, CancellationToken token, bool normalizeScreen = true)
+    {
+        var normalized = normalizeScreen ? NormalizeForReferenceMatching(screen) : screen;
+        var result = MatchCore(normalized, reference, token, normalizeScreen: false);
+        if (result.Found) RememberLandmark(normalized, reference, result, 1, 1);
+        if (!AppIdentity.IsTesting || normalized.NativeContent is not { } native ||
+            normalized.Viewport is not { } viewport ||
+            viewport.Width == ReferenceViewport.ReferenceWidth && viewport.Height == ReferenceViewport.ContentHeight ||
+            result.Found && result.Confidence >= .94) return result;
+
+        // Native-scale comparisons avoid inventing detail by upscaling tiny glyphs.
+        // Uniform candidates also handle 16:10 UI elements anchored to edges/centre.
+        // All results are returned in the SAME canonical space as every other reader.
+        var original = DecodedReferences.GetValue(reference.Image, Decode);
+        ValidateSource(reference, original);
+        var crop = new PixelFrame(reference.SourceWidth, reference.SourceHeight, reference.SourceWidth * 4,
+            new byte[reference.SourceWidth * reference.SourceHeight * 4]);
+        for (var row = 0; row < crop.Height; row++)
+            Buffer.BlockCopy(original.Pixels, (reference.SourceY + row) * original.Stride + reference.SourceX * 4,
+                crop.Pixels, row * crop.Stride, crop.Stride);
+
+        var sx = viewport.ScaleX; var sy = viewport.ScaleY;
+        var scales = new[] { (sx, sy), (Math.Min(sx, sy), Math.Min(sx, sy)), (1d, 1d) }.Distinct();
+        foreach (var (tx, ty) in scales)
+        {
+            token.ThrowIfCancellationRequested();
+            var template = ReferenceViewport.Resize(crop, Math.Max(3, (int)Math.Round(crop.Width * tx)),
+                Math.Max(3, (int)Math.Round(crop.Height * ty)));
+            var centerX = reference.SearchX + reference.SearchWidth / 2d;
+            var centerY = reference.SearchY - ReferenceViewport.TitleHeight + reference.SearchHeight / 2d;
+            var anchorX = centerX < 640 ? 0 : centerX > 1280 ? 1920 : 960;
+            var anchorY = centerY < 339 ? 0 : centerY > 678 ? 1017 : 508.5;
+            var locations = new[]
+            {
+                (reference.SearchX * sx, (reference.SearchY - ReferenceViewport.TitleHeight) * sy,
+                    reference.SearchWidth * sx, reference.SearchHeight * sy),
+                (anchorX * sx + (reference.SearchX - anchorX) * tx,
+                    anchorY * sy + (reference.SearchY - ReferenceViewport.TitleHeight - anchorY) * ty,
+                    reference.SearchWidth * tx, reference.SearchHeight * ty)
+            }.Distinct();
+            foreach (var (left, top, width, height) in locations)
+            {
+                var x = Math.Max(0, (int)Math.Floor(left) - 3);
+                var y = Math.Max(0, (int)Math.Floor(top) - 3);
+                var right = Math.Min(native.Width, (int)Math.Ceiling(left + width) + 3);
+                var bottom = Math.Min(native.Height, (int)Math.Ceiling(top + height) + 3);
+                if (right - x < template.Width || bottom - y < template.Height) continue;
+                var candidate = MatchCore(native, reference with
+                {
+                    SourceX = 0, SourceY = 0, SourceWidth = template.Width, SourceHeight = template.Height,
+                    SearchX = x, SearchY = y, SearchWidth = right - x, SearchHeight = bottom - y,
+                    Threshold = Math.Max(reference.Threshold, .85)
+                }, token, false, template);
+                var improved = candidate.Confidence > result.Confidence && (candidate.Found || !result.Found);
+                if (improved)
+                {
+                    var point = viewport.ToReference(viewport.Left + candidate.X, viewport.Top + candidate.Y);
+                    result = candidate with { X = point.X, Y = point.Y };
+                }
+                if (candidate.Found && improved)
+                {
+                    RememberLandmark(normalized, reference, result, tx / sx, ty / sy);
+                    return result;
+                }
+            }
+        }
+        return result;
+    }
+
+    private static void RememberLandmark(PixelFrame frame, VisualReference reference,
+        RecognitionResult result, double scaleX, double scaleY)
+    {
+        if (frame.NativeContent is null || !result.Found) return;
+        var source = DecodedReferences.GetValue(reference.Image, Decode);
+        // Cropped reference images do not encode their original screen location.
+        if (source.Width < 1918 || source.Height < 1038 || reference.SourceWidth > 500 || reference.SourceHeight > 250)
+            return;
+        frame.Landmarks.Add(new(reference.SourceX, reference.SourceY, reference.SourceWidth, reference.SourceHeight,
+            result.X, result.Y, scaleX, scaleY));
+    }
+
+    private static RecognitionResult MatchCore(
         PixelFrame screen,
         VisualReference reference,
         CancellationToken cancellationToken,
-        bool normalizeScreen = true)
+        bool normalizeScreen = true,
+        PixelFrame? templateOverride = null)
     {
         if (normalizeScreen)
         {
             screen = NormalizeForReferenceMatching(screen);
         }
-        var template = DecodedReferences.GetValue(reference.Image, Decode);
+        var template = templateOverride ?? DecodedReferences.GetValue(reference.Image, Decode);
         ValidateSource(reference, template);
 
         var sourceX = reference.SourceX;
@@ -393,7 +478,8 @@ public sealed class VisualRecognitionService(
             return new RecognitionResult(false, 0, 0, 0);
         }
 
-        var positionStep = templateWidth > 400 || templateHeight > 300 ? 3 : 2;
+        var positionStep = templateOverride is not null && templateWidth <= 100 && templateHeight <= 100
+            ? 1 : templateWidth > 400 || templateHeight > 300 ? 3 : 2;
         var bestScore = double.NegativeInfinity;
         var bestX = 0;
         var bestY = 0;

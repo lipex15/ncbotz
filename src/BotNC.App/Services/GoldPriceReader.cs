@@ -51,6 +51,16 @@ internal static class GoldPriceReader
     internal static async Task<GoldPriceReading> ReadCropAsync(PixelFrame frame,
         int x, int y, int width, int height, CancellationToken token)
     {
+        if (frame.NativeContent is { } native && frame.Viewport is { } viewport && viewport.Width < 1920)
+        {
+            // OCR directly from original pixels: normalizing and then enlarging
+            // again blurs small digits. Keep the canonical crop for coordinates only.
+            var nativeX = Math.Max(0, (int)Math.Floor(x * viewport.ScaleX));
+            var nativeY = Math.Max(0, (int)Math.Floor((y - ReferenceViewport.TitleHeight) * viewport.ScaleY));
+            var nativeRight = Math.Min(native.Width, (int)Math.Ceiling((x + width) * viewport.ScaleX));
+            var nativeBottom = Math.Min(native.Height, (int)Math.Ceiling((y + height - ReferenceViewport.TitleHeight) * viewport.ScaleY));
+            return await ReadCropAsync(native, nativeX, nativeY, nativeRight - nativeX, nativeBottom - nativeY, token);
+        }
         if (x < 0 || y < 0 || x + width > frame.Width || y + height > frame.Height)
             return new(null, "região indisponível");
         var pixels = new byte[width * height * 4];

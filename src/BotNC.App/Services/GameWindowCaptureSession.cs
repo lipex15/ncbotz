@@ -27,11 +27,13 @@ public sealed class GameWindowCaptureSession : IAsyncDisposable
     private readonly object _frameSync = new();
     private bool _disposed;
     private Windows.Graphics.SizeInt32 _captureSize;
+    private readonly GameWindowTarget _target;
 
     public static bool IsCaptureSupported => GraphicsCaptureSession.IsSupported();
 
     public GameWindowCaptureSession(GameWindowTarget target)
     {
+        _target = target;
         if (!IsCaptureSupported)
         {
             throw new PlatformNotSupportedException(
@@ -123,7 +125,11 @@ public sealed class GameWindowCaptureSession : IAsyncDisposable
             converted.CopyToBuffer(buffer);
             using var reader = DataReader.FromBuffer(buffer);
             reader.ReadBytes(pixels);
-            return new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
+            var frame = new PixelFrame(converted.PixelWidth, converted.PixelHeight, stride, pixels);
+            if (!AppIdentity.IsTesting) return frame;
+            var viewport = GameWindowService.GetViewport(_target);
+            var offset = GameWindowService.GetCaptureContentOffset(_target, frame, viewport);
+            return viewport.Normalize(frame, offset.X, offset.Y);
         }
     }
 

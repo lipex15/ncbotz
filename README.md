@@ -6,6 +6,10 @@ Aplicativo modular de automação visual para Night Crows.
 
 O PEXBOT Teste é instalado em paralelo à versão estável, usa dados e atualização próprios e recebe versões pelo repositório [ncbotz-testing](https://github.com/lipex15/ncbotz-testing). As mudanças passam por esse canal antes de uma promoção explícita para a versão usada pelos demais. Consulte [o procedimento do canal de testes](docs/TEST_CHANNEL.md).
 
+## Resoluções automáticas — somente testes v0.10.23
+
+Suporte experimental a 1920×1080, 1366×768 e 1440×900 em escala 100%, com captura e coordenadas por janela, referências reaproveitadas e validação automatizada das três resoluções. Consulte [o roteiro, detalhes e limites do teste](docs/PATCH_0.10.23.md). O canal normal não foi alterado.
+
 ## Painel experimental — somente testes v0.10.22
 
 A branch `testing` inclui Estatísticas, com nicks visuais, histórico de gastos confirmados, proteções, baús, Boss, rotinas e tempo da Agenda. Consulte [o roteiro de testes e as limitações](docs/PATCH_0.10.22.md). O canal normal permanece na v0.10.21; a promoção do painel depende de autorização explícita.

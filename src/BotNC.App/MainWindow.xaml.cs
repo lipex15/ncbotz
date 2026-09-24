@@ -536,6 +536,13 @@ public partial class MainWindow : Window
             AddLog("PEXBOT iniciado.");
             AddLog("Banco de imagens carregado com sucesso.");
             AddLog("Ambiente validado: Windows, captura visual e resolução compatíveis.");
+            if (AppIdentity.IsTesting)
+            {
+                var display = _capture.GetPrimaryScreenSize();
+                ResolutionModeText.Text = $"Automático · {display.Width}×{display.Height} · 100%";
+                ResolutionModeText.Visibility = Visibility.Visible;
+                AddLog($"Adaptação automática ativa: {display.Width}×{display.Height}, escala 100%. Cada cliente usa sua própria área de jogo.");
+            }
             AddLog("O instalador do PEXBOT já inclui o runtime necessário; nenhuma instalação adicional é exigida.");
             _ = CheckForUpdatesAsync(userInitiated: false);
             _updateCheckTimer.Start();
@@ -1397,10 +1404,17 @@ public partial class MainWindow : Window
         }
 
         var (width, height) = _capture.GetPrimaryScreenSize();
-        if (width != 1920 || height != 1080)
+        if (!ReferenceViewport.IsSupportedDisplay(width, height))
         {
             throw new InvalidOperationException(
-                $"A resolução precisa ser 1920×1080. Detectado: {width}×{height}. Ajuste a tela do Windows antes de iniciar o bot.");
+                $"Resoluções suportadas: {ReferenceViewport.SupportedDisplays}. Detectado: {width}×{height}.");
+        }
+
+        if (AppIdentity.IsTesting)
+        {
+            MinHeight = Math.Min(680, SystemParameters.WorkArea.Height);
+            Height = Math.Min(850, SystemParameters.WorkArea.Height);
+            Width = Math.Min(1320, SystemParameters.WorkArea.Width);
         }
 
         var scale = GameWindowService.GetSystemScalePercent();

@@ -146,6 +146,7 @@ public sealed class GameWindowService
         int referenceX,
         int referenceY)
     {
+        if (AppIdentity.IsTesting) return GetViewport(target).ToScreen(referenceX, referenceY);
         if (!NativeMethods.IsWindow(target.Handle) ||
             !NativeMethods.GetWindowRect(target.Handle, out var rectangle))
         {
@@ -185,6 +186,7 @@ public sealed class GameWindowService
         int screenX,
         int screenY)
     {
+        if (AppIdentity.IsTesting) return GetViewport(target).ToReference(screenX, screenY);
         if (!NativeMethods.IsWindow(target.Handle) ||
             !NativeMethods.GetWindowRect(target.Handle, out var rectangle))
         {
@@ -206,6 +208,40 @@ public sealed class GameWindowService
             Math.Clamp(y, 0, ReferenceWindowHeight - 1));
     }
 
+    // Testing input converts at the last responsible moment, not at callers.
+    // Stable retains the legacy behavior until this experiment is approved.
+    public (int X, int Y) ResolveWorkflowPoint(GameWindowTarget target, int x, int y) =>
+        AppIdentity.IsTesting ? (x, y) : MapReferencePoint(target, x, y);
+
+    internal static ReferenceViewport GetViewport(GameWindowTarget target)
+    {
+        if (!NativeMethods.IsWindow(target.Handle) || NativeMethods.IsIconic(target.Handle) ||
+            !NativeMethods.GetClientRect(target.Handle, out var client))
+            throw new InvalidOperationException("Janela do jogo indisponível para medir a área útil.");
+        var origin = new NativeMethods.Point();
+        if (!NativeMethods.ClientToScreen(target.Handle, ref origin))
+            throw new InvalidOperationException("Não foi possível localizar a área útil do jogo.");
+        if (NativeMethods.GetDpiForWindow(target.Handle) != 96)
+            throw new InvalidOperationException("A janela do jogo precisa estar em um monitor com escala de 100%.");
+        var viewport = new ReferenceViewport(origin.X, origin.Y, client.Right, client.Bottom);
+        viewport.Validate();
+        return viewport;
+    }
+
+    internal static (int X, int Y) GetCaptureContentOffset(GameWindowTarget target, PixelFrame frame, ReferenceViewport viewport)
+    {
+        // WGC normally uses DWM extended bounds. Check dimensions rather than
+        // assuming GetWindowRect (which can include invisible resize borders).
+        if (frame.Width == viewport.Width && frame.Height == viewport.Height) return (0, 0);
+        if (NativeMethods.DwmGetWindowAttribute(target.Handle, 9, out var bounds, 16) == 0 &&
+            bounds.Right - bounds.Left == frame.Width && bounds.Bottom - bounds.Top == frame.Height)
+            return (viewport.Left - bounds.Left, viewport.Top - bounds.Top);
+        if (NativeMethods.GetWindowRect(target.Handle, out bounds) &&
+            bounds.Right - bounds.Left == frame.Width && bounds.Bottom - bounds.Top == frame.Height)
+            return (viewport.Left - bounds.Left, viewport.Top - bounds.Top);
+        throw new InvalidOperationException($"Geometria WGC divergente: captura={frame.Width}×{frame.Height}; jogo={viewport.Width}×{viewport.Height}.");
+    }
+
     private static string ReadTitle(IntPtr handle)
     {
         var length = NativeMethods.GetWindowTextLength(handle);
@@ -221,6 +257,16 @@ public sealed class GameWindowService
 
     private static class NativeMethods
     {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct Point { public int X; public int Y; }
+        [DllImport("user32.dll")]
+        public static extern bool GetClientRect(IntPtr window, out WindowRectangle rectangle);
+        [DllImport("user32.dll")]
+        public static extern bool ClientToScreen(IntPtr window, ref Point point);
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr window);
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out WindowRectangle rectangle, int size);
         public const int SwRestore = 9;
         public const int SwMaximize = 3;
 

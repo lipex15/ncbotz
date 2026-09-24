@@ -2,7 +2,33 @@ using System.Runtime.InteropServices;
 
 namespace BotNC.App.Services;
 
-public sealed record PixelFrame(int Width, int Height, int Stride, byte[] Pixels);
+public sealed record PixelFrame(int Width, int Height, int Stride, byte[] Pixels)
+{
+    internal PixelFrame? NativeContent { get; init; }
+    internal ReferenceViewport? Viewport { get; init; }
+    internal System.Collections.Concurrent.ConcurrentBag<ReferenceLandmark> Landmarks { get; } = new();
+    internal DateTime CapturedAt { get; init; } = DateTime.UtcNow;
+
+    internal (int X, int Y) AdjustReferencePoint(int x, int y)
+    {
+        // Only local evidence from this fresh frame; never infer a whole-screen
+        // offset from one unrelated icon, or carry anchors across menu changes.
+        if (Viewport is { Width: 1920, Height: 1017 } || DateTime.UtcNow - CapturedAt > TimeSpan.FromSeconds(2)) return (x, y);
+        foreach (var landmark in Landmarks.OrderBy(item => item.Width * item.Height))
+        {
+            if (x < landmark.SourceX || x >= landmark.SourceX + landmark.Width ||
+                y < landmark.SourceY || y >= landmark.SourceY + landmark.Height) continue;
+            if (Math.Abs(x - landmark.FoundX) <= landmark.Width * landmark.ScaleX / 2 &&
+                Math.Abs(y - landmark.FoundY) <= landmark.Height * landmark.ScaleY / 2) return (x, y);
+            return ((int)Math.Round(landmark.FoundX + (x - landmark.SourceX - landmark.Width / 2d) * landmark.ScaleX),
+                (int)Math.Round(landmark.FoundY + (y - landmark.SourceY - landmark.Height / 2d) * landmark.ScaleY));
+        }
+        return (x, y);
+    }
+}
+
+internal sealed record ReferenceLandmark(int SourceX, int SourceY, int Width, int Height,
+    int FoundX, int FoundY, double ScaleX, double ScaleY);
 
 public sealed class ScreenCaptureService
 {
