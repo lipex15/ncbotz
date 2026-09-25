@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using BotNC.App.Models;
 
 namespace BotNC.App.Services;
@@ -380,6 +381,15 @@ public sealed partial class BotAutomationEngine(
         var savedSignature = await database.GetSettingAsync($"{prefix}.signature");
         var savedCompleted = await database.GetSettingAsync($"{prefix}.completed");
         var savedWaitingForWeeklyReset = await database.GetSettingAsync($"{prefix}.waitingForWeeklyReset");
+        var checkpointText = await database.GetSettingAsync($"{prefix}.checkpoint");
+        if (FarmScheduleCheckpoint.TryRead(checkpointText) is { } checkpoint)
+        {
+            index = checkpoint.Index;
+            savedSecondsText = checkpoint.RemainingSeconds.ToString(CultureInfo.InvariantCulture);
+            savedSignature = checkpoint.Signature;
+            savedCompleted = checkpoint.Completed.ToString();
+            savedWaitingForWeeklyReset = checkpoint.Waiting.ToString();
+        }
         var signature = FarmScheduleSignature(configured);
         var samePlan = string.Equals(savedSignature, signature, StringComparison.Ordinal);
         session.FarmScheduleCompleted = samePlan &&
@@ -392,7 +402,7 @@ public sealed partial class BotAutomationEngine(
         {
             session.FarmScheduleCompleted = false;
             session.FarmScheduleWaitingForWeeklyReset = false;
-            samePlan = false;
+            // Clearing an obsolete entry-budget wait must not refund farm time.
         }
         session.FarmScheduleIndex = samePlan ? Math.Clamp(index, 0, configured.Count - 1) : 0;
         var savedSeconds = 0d;
@@ -437,6 +447,10 @@ public sealed partial class BotAutomationEngine(
         await database.SaveSettingAsync(
             $"{prefix}.waitingForWeeklyReset",
             session.FarmScheduleWaitingForWeeklyReset.ToString().ToLowerInvariant());
+        await database.SaveSettingAsync($"{prefix}.checkpoint", JsonSerializer.Serialize(new FarmScheduleCheckpoint(
+            FarmScheduleSignature(session.FarmScheduleSteps), session.FarmScheduleIndex,
+            Math.Max(0, (session.FarmScheduleRemaining - TimeSpan.FromTicks(Interlocked.Read(ref session.ObservedScheduleTicks))).TotalSeconds),
+            session.FarmScheduleCompleted, session.FarmScheduleWaitingForWeeklyReset)));
     }
 
     private static string FarmScheduleSignature(IReadOnlyList<FarmScheduleStep> steps) =>
@@ -464,7 +478,7 @@ public sealed partial class BotAutomationEngine(
                 await RecordStatisticAsync(session, "farm", ScheduleDestinationName(session.FarmScheduleSteps[session.FarmScheduleIndex].Destination), quantity: session.StatisticsFarmSeconds);
                 session.StatisticsFarmSeconds = 0;
             }
-            if (now - session.FarmScheduleLastSaveUtc >= TimeSpan.FromSeconds(30) || session.FarmScheduleRemaining <= TimeSpan.Zero)
+            if (now - session.FarmScheduleLastSaveUtc >= TimeSpan.FromSeconds(10) || session.FarmScheduleRemaining <= TimeSpan.Zero)
             {
                 session.FarmScheduleLastSaveUtc = now;
                 await SaveFarmScheduleStateAsync(session);
@@ -751,11 +765,12 @@ public sealed partial class BotAutomationEngine(
         }
 
         var untilSapheras = sapheras.ScheduledAt - DateTime.Now;
+        var preparationAt = sapheras.ScheduledAt.AddSeconds(-90 * sapherasSessions.Length);
         if (untilSapheras > sapheras.DirectSapherasWindow)
         {
             WriteLog($"Sapheras está a {FormatDuration(untilSapheras)}. Preparando os clientes para farmar antes do horário.");
             using var sapherasPriority = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            sapherasPriority.CancelAfter(untilSapheras);
+            sapherasPriority.CancelAfter(preparationAt > DateTime.Now ? preparationAt - DateTime.Now : TimeSpan.Zero);
             try
             {
                 foreach (var session in sessions)
@@ -764,15 +779,15 @@ public sealed partial class BotAutomationEngine(
                         session,
                         "preparação do farm antes de Sapheras",
                         () => InitializeClientActivityAsync(sessions, session, sapheras, antiOverkill,
-                            dailyRoutines, pause, sapherasPriority.Token, sapheras.ScheduledAt),
+                            dailyRoutines, pause, sapherasPriority.Token, preparationAt),
                         sapherasPriority.Token);
                 }
 
-                await MonitorFarmsAsync(sessions, sapheras, antiOverkill, dailyRoutines, pause, sapherasPriority.Token, sapheras.ScheduledAt);
+                await MonitorFarmsAsync(sessions, sapheras, antiOverkill, dailyRoutines, pause, sapherasPriority.Token, preparationAt);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && sapherasPriority.IsCancellationRequested)
             {
-                WriteLog("PRIORIDADE MÁXIMA: horário de Sapheras alcançado. A ação atual foi interrompida imediatamente.");
+                WriteLog("PRIORIDADE MÁXIMA: preparação antecipada de Sapheras para absorver carregamento e deslocamento dos clientes.");
                 foreach (var session in sessions.Where(session => !session.Options.UseSapheras && !session.InAgenda))
                 {
                     session.Audio.Armed = session.NextRecoveryAttemptAt == default && session.IsFarmingTa;
@@ -786,7 +801,7 @@ public sealed partial class BotAutomationEngine(
             foreach (var session in sessions)
                 await RunStartupRestorationSafelyAsync(
                     session, sapheras, antiOverkill, pause, cancellationToken);
-            await WaitForScheduleAsync(sapheras.ScheduledAt, pause, cancellationToken);
+            await WaitForScheduleAsync(preparationAt, pause, cancellationToken);
         }
 
         foreach (var session in sapherasSessions)
@@ -832,12 +847,14 @@ public sealed partial class BotAutomationEngine(
                 cancellationToken);
             if (!entered)
             {
+                if (!session.NeedsDeathRestoration)
+                    session.NextRecoveryAttemptAt = DateTime.UtcNow.AddSeconds(2);
                 continue;
             }
         }
 
-        var finishesAt = DateTime.Now + sapheras.Duration;
-        WriteLog($"{sapherasSessions.Length} cliente(s) selecionado(s) entraram em Sapheras. Término previsto: {finishesAt:HH:mm:ss}.");
+        var finishesAt = (DateTime.Now > sapheras.ScheduledAt ? DateTime.Now : sapheras.ScheduledAt) + sapheras.Duration;
+        WriteLog($"Sapheras: {sapherasSessions.Count(s => s.SapherasFarmConfirmed)}/{sapherasSessions.Length} cliente(s) com farm confirmado; demais seguem em recuperação. Término previsto: {finishesAt:HH:mm:ss}.");
         await MonitorDuringSapherasAsync(sessions, finishesAt, sapheras, antiOverkill, dailyRoutines, pause, cancellationToken);
 
         WriteLog("Tempo de Sapheras concluído. Normalizando o estado dos dois clientes.");
@@ -1537,6 +1554,8 @@ public sealed partial class BotAutomationEngine(
     {
         session.AwaitingHuntActivationAtSpot = false;
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        if (!(await recognition.FindAsync("atalaia_erodida", cancellationToken)).Found)
+        {
         await OpenDungeonMenuAsync(session, pause, cancellationToken);
         await input.ClickAsync(1744, 273, cancellationToken);
         await WaitForReferenceAsync("tela_masmorras", "página Masmorra", TimeSpan.FromSeconds(12), pause, cancellationToken);
@@ -1545,10 +1564,18 @@ public sealed partial class BotAutomationEngine(
         await WaitForReferenceAsync("confirmar_sepheras", "confirmação de Ruínas de Sapheras", TimeSpan.FromSeconds(10), pause, cancellationToken);
         await input.PressKeyAsync(KeyY, cancellationToken: cancellationToken);
         await WaitForReferenceAsync("atalaia_erodida", "mapa Atalaia Erodida", TimeSpan.FromSeconds(50), pause, cancellationToken);
+        }
 
         WriteLog(session, "Atalaia Erodida reconhecida; aguardando o mapa carregar por completo.");
-        await ActionDelayAsync(cancellationToken, 5500, 7000);
-        await input.HoldKeyAsync(KeyW, TimeSpan.FromMilliseconds(3500), cancellationToken);
+        await Task.Delay(750, cancellationToken);
+        await LeaveSapherasSpawnAsync(session, pause, cancellationToken);
+
+        if (session.Options.SapherasCustomFarmCoordinate is { } customPoint)
+        {
+            await TravelToSapherasPointAsync(session, customPoint, pause, cancellationToken);
+        }
+        else
+        {
 
         var teleportCount = _random.Next(1, 6);
         WriteLog(session, $"Usando teleporte aleatório {teleportCount} vez(es) pela tecla {options.TeleportKeyName}.");
@@ -1556,9 +1583,11 @@ public sealed partial class BotAutomationEngine(
         {
             await input.PressKeyAsync(options.TeleportVirtualKey, cancellationToken: cancellationToken);
         }
+        }
 
         session.AwaitingHuntActivationAtSpot = true;
         await StartAutomaticHuntAsync(session, pause, cancellationToken);
+        session.SapherasFarmConfirmed = true;
         session.ConsecutiveRecoveryFailures = 0;
         session.RequiresHardFlowReset = false;
     }
@@ -1579,6 +1608,7 @@ public sealed partial class BotAutomationEngine(
             }
 
             var overlayOpen = (await recognition.FindAsync("mapa_aberto", cancellationToken)).Found ||
+                              (await recognition.FindAsync("sapheras_map", cancellationToken)).Found ||
                               (await recognition.FindAsync("loja_artigos", cancellationToken)).Found ||
                               (await recognition.FindAsync("seletor_ta", cancellationToken)).Found;
             if (overlayOpen)
@@ -5204,6 +5234,8 @@ public sealed partial class BotAutomationEngine(
         NoMission,
         Inconclusive
     }
+
+    internal static bool HasPurpleDailyMission(PixelFrame frame) => FindPurpleDailyMissionY(frame) is not null;
 
     private static int? FindPurpleDailyMissionY(PixelFrame frame, int minimumMissionClusters = 1)
     {

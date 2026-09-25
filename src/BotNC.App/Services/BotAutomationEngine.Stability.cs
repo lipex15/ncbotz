@@ -40,6 +40,7 @@ public sealed partial class BotAutomationEngine
         CancellationToken token, DateTime? nextSapheras)
     {
         if (await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, token)) return;
+        if (await TryAdoptScheduledDungeonFarmAsync(session, pause, token)) return;
         // Adopt an existing automatic campaign BEFORE opening mail, guild or the TA selector.
         if (await RunLoveBossSafelyAsync(session, sessions, routines, pause, token, nextSapheras)) return;
         if (session.ResumeDailyAfterLoveBoss)
@@ -66,7 +67,7 @@ public sealed partial class BotAutomationEngine
             return false;
         var frame = await CaptureDailyMissionFrameAsync(session, token);
         if (!(await recognition.FindAsync("daily_automatic", frame, token)).Found ||
-            session.DailyCycle != cycle && FindPurpleDailyMissionY(frame, 2) is null)
+            FindPurpleDailyMissionY(frame) is null && !(session.InDailyCampaign && session.DailyStartedCycle == cycle))
             return false;
         session.DailyCycle = cycle;
         session.DailyStartedCycle = cycle;

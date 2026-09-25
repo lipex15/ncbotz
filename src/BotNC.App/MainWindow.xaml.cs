@@ -42,6 +42,8 @@ public partial class MainWindow : Window
     private readonly HashSet<TaDestination> _client1TaCoordinatesEnabled = [];
     private readonly HashSet<TaDestination> _client2TaCoordinatesEnabled = [];
     private FarmCoordinate? _client1AbbeyCoordinate;
+    private FarmCoordinate? _client1SapherasCoordinate;
+    private FarmCoordinate? _client2SapherasCoordinate;
     private FarmCoordinate? _client2AbbeyCoordinate;
     private bool _capturingCustomCoordinate;
     private string? _lastSeenUpdateVersion;
@@ -691,7 +693,13 @@ public partial class MainWindow : Window
     private async void OnCaptureClient2AbbeyCoordinate(object sender, RoutedEventArgs e) =>
         await CaptureCustomCoordinateAsync(2, abbey: true);
 
-    private async Task CaptureCustomCoordinateAsync(int clientNumber, bool abbey = false)
+    private async void OnCaptureClient1SapherasCoordinate(object sender, RoutedEventArgs e) =>
+        await CaptureCustomCoordinateAsync(1, sapheras: true);
+
+    private async void OnCaptureClient2SapherasCoordinate(object sender, RoutedEventArgs e) =>
+        await CaptureCustomCoordinateAsync(2, sapheras: true);
+
+    private async Task CaptureCustomCoordinateAsync(int clientNumber, bool abbey = false, bool sapheras = false)
     {
         if (_capturingCustomCoordinate || _runCancellation is not null)
         {
@@ -732,7 +740,14 @@ public partial class MainWindow : Window
                 CancellationToken.None);
             var mapped = _gameWindows.MapScreenPointToReference(target, clicked.X, clicked.Y);
             var coordinate = new FarmCoordinate(mapped.X, mapped.Y);
-            if (abbey && clientNumber == 1)
+            if (sapheras)
+            {
+                if (coordinate.X < 440 || coordinate.X > 1480 || coordinate.Y < 180 || coordinate.Y > 930)
+                    throw new InvalidOperationException("Selecione um ponto dentro do mapa, não nas abas laterais.");
+                if (clientNumber == 1) { _client1SapherasCoordinate = coordinate; Client1SapherasCustomCheckBox.IsChecked = true; }
+                else { _client2SapherasCoordinate = coordinate; Client2SapherasCustomCheckBox.IsChecked = true; }
+            }
+            else if (abbey && clientNumber == 1)
             {
                 _client1AbbeyCoordinate = coordinate;
                 Client1AbbeyCustomCheckBox.IsChecked = true;
@@ -755,7 +770,10 @@ public partial class MainWindow : Window
                 Client2CustomCoordinateCheckBox.IsChecked = true;
             }
 
-            await SaveCustomCoordinateAsync(clientNumber, coordinate, enabled: true, abbey: abbey);
+            if (sapheras)
+                await SaveSapherasCoordinateAsync(clientNumber, coordinate, true);
+            else
+                await SaveCustomCoordinateAsync(clientNumber, coordinate, enabled: true, abbey: abbey);
             UpdateCustomCoordinateLabels();
             AddLog($"Cliente {clientNumber}: coordenada personalizada salva em ({coordinate.X}, {coordinate.Y}).");
         }
@@ -790,6 +808,11 @@ public partial class MainWindow : Window
 
     private void UpdateCustomCoordinateLabels()
     {
+        if (Client1SapherasCoordinateText is not null && Client2SapherasCoordinateText is not null)
+        {
+            Client1SapherasCoordinateText.Text = _client1SapherasCoordinate is { } s1 ? $"({s1.X}, {s1.Y})" : "Não definida";
+            Client2SapherasCoordinateText.Text = _client2SapherasCoordinate is { } s2 ? $"({s2.X}, {s2.Y})" : "Não definida";
+        }
         if (Client1CustomCoordinateText is null || Client2CustomCoordinateText is null)
         {
             return;
@@ -816,6 +839,14 @@ public partial class MainWindow : Window
         }
 
         var editable = _runCancellation is null && !_capturingCustomCoordinate;
+        if (Client1SapherasCustomCheckBox is not null && Client2SapherasCustomCheckBox is not null &&
+            CaptureClient1SapherasButton is not null && CaptureClient2SapherasButton is not null)
+        {
+            Client1SapherasCustomCheckBox.IsEnabled = editable;
+            Client2SapherasCustomCheckBox.IsEnabled = editable;
+            CaptureClient1SapherasButton.IsEnabled = editable;
+            CaptureClient2SapherasButton.IsEnabled = editable;
+        }
         var client1Enabled = EnableClient1CheckBox?.IsChecked == true;
         var client2Enabled = EnableClient2CheckBox?.IsChecked == true;
         Client1CustomCoordinateCheckBox.IsEnabled = editable && client1Enabled;
@@ -998,6 +1029,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (client1 is not null && Client1SapherasCheckBox.IsChecked == true && Client1SapherasCustomCheckBox.IsChecked == true && _client1SapherasCoordinate is null ||
+            client2 is not null && Client2SapherasCheckBox.IsChecked == true && Client2SapherasCustomCheckBox.IsChecked == true && _client2SapherasCoordinate is null)
+        {
+            ShowValidation("Capture o ponto personalizado de Sapheras ou desmarque a opção para usar TP aleatório.");
+            return;
+        }
+
         if (client1 is not null && Client1AbbeyCheckBox.IsChecked == true &&
             Client1AbbeyCustomCheckBox.IsChecked == true && _client1AbbeyCoordinate is null)
         {
@@ -1149,7 +1187,8 @@ public partial class MainWindow : Window
                 ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 1),
                 ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 1),
                 Client1AnonymousCheckBox.IsChecked == true,
-                IndividualDungeonLevel(Client1IndividualDungeonComboBox.SelectedIndex), anonymousLimit1));
+                IndividualDungeonLevel(Client1IndividualDungeonComboBox.SelectedIndex), anonymousLimit1,
+                Client1SapherasCustomCheckBox.IsChecked == true ? _client1SapherasCoordinate : null));
         }
 
         if (client2 is not null)
@@ -1178,7 +1217,8 @@ public partial class MainWindow : Window
                     ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 2),
                     ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 2),
                     Client2AnonymousCheckBox.IsChecked == true,
-                    IndividualDungeonLevel(Client2IndividualDungeonComboBox.SelectedIndex), anonymousLimit2));
+                    IndividualDungeonLevel(Client2IndividualDungeonComboBox.SelectedIndex), anonymousLimit2,
+                    Client2SapherasCustomCheckBox.IsChecked == true ? _client2SapherasCoordinate : null));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -1772,6 +1812,10 @@ public partial class MainWindow : Window
         Client1AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey1Limit) ? "1" : abbey1Limit;
         Client2AbbeyLimitTextBox.Text = string.IsNullOrWhiteSpace(abbey2Limit) ? "1" : abbey2Limit;
         _client1AbbeyCoordinate = ParseFarmCoordinate(abbey1X, abbey1Y);
+        _client1SapherasCoordinate = ParseFarmCoordinate(await _database.GetSettingAsync("client1.sapheras.point.x"), await _database.GetSettingAsync("client1.sapheras.point.y"));
+        _client2SapherasCoordinate = ParseFarmCoordinate(await _database.GetSettingAsync("client2.sapheras.point.x"), await _database.GetSettingAsync("client2.sapheras.point.y"));
+        Client1SapherasCustomCheckBox.IsChecked = _client1SapherasCoordinate is not null && await _database.GetSettingAsync("client1.sapheras.point.enabled") == "true";
+        Client2SapherasCustomCheckBox.IsChecked = _client2SapherasCoordinate is not null && await _database.GetSettingAsync("client2.sapheras.point.enabled") == "true";
         _client2AbbeyCoordinate = ParseFarmCoordinate(abbey2X, abbey2Y);
         Client1AbbeyCustomCheckBox.IsChecked = _client1AbbeyCoordinate is not null &&
             string.Equals(abbey1CustomEnabled, "true", StringComparison.OrdinalIgnoreCase);
@@ -1797,12 +1841,28 @@ public partial class MainWindow : Window
         FarmScheduleScopeComboBox.SelectedItem = farmScheduleScope ?? (string.Equals(farmScheduleEnabled, "true", StringComparison.OrdinalIgnoreCase) ? "Ambos" : "Nenhum");
         LoadScheduleSteps(Client1ScheduleSteps, client1FarmSchedule);
         LoadScheduleSteps(Client2ScheduleSteps, client2FarmSchedule);
+        await LoadSavedScheduleBalanceAsync(1, Client1ScheduleSteps);
+        await LoadSavedScheduleBalanceAsync(2, Client2ScheduleSteps);
         UpdateCustomCoordinateLabels();
         UpdateCustomCoordinateControls();
     }
 
+    private async Task LoadSavedScheduleBalanceAsync(int clientNumber, IEnumerable<FarmScheduleStepEditor> editors)
+    {
+        var steps = editors.Select(e => e.ToModel()).ToArray();
+        var signature = string.Join("|", steps.Select(s => $"{s.Destination}:{s.Duration.Ticks}:{s.AnonymousDungeonLevel}"));
+        var prefix = $"users.{ActivationService.ProfileKey}.client{clientNumber}.farmSchedule";
+        var saved = FarmScheduleCheckpoint.TryRead(await _database.GetSettingAsync($"{prefix}.checkpoint"));
+        if (saved is null || saved.Signature != signature) return;
+        var text = saved.Completed ? "Agenda concluída" : $"Saldo salvo · etapa {saved.Index + 1} · {Math.Ceiling(saved.RemainingSeconds / 60):0} min restantes. Retomada automática ao iniciar.";
+        if (clientNumber == 1) Client1AgendaLiveText.Text = Client1ScheduleLiveText.Text = text;
+        else Client2AgendaLiveText.Text = Client2ScheduleLiveText.Text = text;
+    }
+
     private async Task SaveSettingsAsync(BotRunOptions runOptions)
     {
+        await SaveSapherasCoordinateAsync(1, _client1SapherasCoordinate, Client1SapherasCustomCheckBox.IsChecked == true);
+        await SaveSapherasCoordinateAsync(2, _client2SapherasCoordinate, Client2SapherasCustomCheckBox.IsChecked == true);
         var options = runOptions.Sapheras;
         var client1 = runOptions.Clients.FirstOrDefault(client => client.Label == "Cliente 1");
         var client2 = runOptions.Clients.FirstOrDefault(client => client.Label == "Cliente 2");
@@ -1940,6 +2000,15 @@ public partial class MainWindow : Window
                     enabled.Add(destination);
             }
         }
+    }
+
+    private async Task SaveSapherasCoordinateAsync(int clientNumber, FarmCoordinate? point, bool enabled)
+    {
+        var prefix = $"client{clientNumber}.sapheras.point";
+        await _database.SaveSettingAsync($"{prefix}.enabled", (enabled && point is not null).ToString().ToLowerInvariant());
+        if (point is null) return;
+        await _database.SaveSettingAsync($"{prefix}.x", point.X.ToString(CultureInfo.InvariantCulture));
+        await _database.SaveSettingAsync($"{prefix}.y", point.Y.ToString(CultureInfo.InvariantCulture));
     }
 
     private async Task SaveClientAbbeySettingsAsync(int clientNumber, AutomationClientOptions client)

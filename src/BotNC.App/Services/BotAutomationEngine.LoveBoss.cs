@@ -142,8 +142,8 @@ public sealed partial class BotAutomationEngine
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
         // A entrada começa pelo ícone ao lado do minimapa. O menu (=) serve
         // apenas para ler 1/5...5/5 e resgatar prêmios após a luta.
-        if (session.AbbeyInside || session.AnonymousDungeonInside)
-            await LeaveFarmDungeonForLoveBossAsync(session, pause, cancellationToken);
+        // The raid icon can coexist with the dungeon exit. Locate the raid
+        // itself, without leaving a paid dungeon to probe a fixed coordinate.
 
         if (LoveBossSchedule.EntrySlot(DateTimeOffset.UtcNow) != slot)
         {
@@ -159,8 +159,10 @@ public sealed partial class BotAutomationEngine
             await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
             await Task.Delay(400, cancellationToken);
         }
-        WriteLog(session, "Boss do Amor: abrindo a entrada pelo ícone ao lado do minimapa (413, 127).");
-        var entryPoint = gameWindows.MapReferencePoint(session.Options.Target, 413, 127);
+        var raidIcon = await WaitForReferenceAsync("boss_entry_icon", "ícone da Raide ao lado do minimapa",
+            TimeSpan.FromSeconds(8), pause, cancellationToken);
+        WriteLog(session, $"Boss do Amor: ícone da Raide localizado em {raidIcon.X},{raidIcon.Y}; sem usar a coordenada da saída.");
+        var entryPoint = gameWindows.MapReferencePoint(session.Options.Target, raidIcon.X, raidIcon.Y);
         await input.MoveAndClickAsync(entryPoint.X, entryPoint.Y, TimeSpan.FromMilliseconds(300),
             cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
         await WaitForReferenceAsync("boss_entry_panel", "convite da Raide de Chefe",
@@ -171,6 +173,8 @@ public sealed partial class BotAutomationEngine
             cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
         await WaitForReferenceAsync("boss_room", "Berço da Chama Vermelha",
             TimeSpan.FromSeconds(55), pause, cancellationToken);
+        await RecordAbbeyExitAsync(session);
+        await RecordAnonymousDungeonExitAsync(session);
         session.LoveBossLastSlot = LoveBossSchedule.SlotKey(slot);
         await database.SaveSettingAsync(
             $"{SessionSettingPrefix(session)}.routines.loveBoss.lastSlot",

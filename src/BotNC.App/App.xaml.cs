@@ -260,6 +260,27 @@ public partial class App : Application
         }
 
         var imageProbeIndex = Array.IndexOf(e.Args, "--image-probe");
+        var flowProbeIndex = Array.IndexOf(e.Args, "--flow-probe");
+        if (flowProbeIndex >= 0 && flowProbeIndex + 2 < e.Args.Length)
+        {
+            var output = Path.GetFullPath(e.Args[flowProbeIndex + 2]);
+            var db = new AppDatabase(output + ".data");
+            await db.InitializeAsync();
+            var service = new VisualRecognitionService(db, new ScreenCaptureService());
+            var frame = LoadReferenceFrame(Path.GetFullPath(e.Args[flowProbeIndex + 1]));
+            var lines = new List<string>();
+            foreach (var id in new[] { "hud_auto_label", "hud_auto_active", "hud_auto_inactive", "lapide_vermelha", "boss_entry_icon", "sapheras_map" })
+            {
+                var r = await service.FindAsync(id, frame);
+                lines.Add($"{id}: found={r.Found}; confidence={r.Confidence:F4}; x={r.X}; y={r.Y}");
+            }
+            lines.Add($"auto={await OpenHudHuntReader.ReadAsync(service, frame, CancellationToken.None)}");
+            lines.Add($"tombstone={await TombstoneIconReader.ReadAsync(service, frame, CancellationToken.None)}");
+            lines.Add($"purpleDaily={BotAutomationEngine.HasPurpleDailyMission(frame)}");
+            await File.WriteAllLinesAsync(output, lines);
+            Shutdown();
+            return;
+        }
         if (imageProbeIndex >= 0 && imageProbeIndex + 2 < e.Args.Length)
         {
             var imagePath = Path.GetFullPath(e.Args[imageProbeIndex + 1]);
@@ -498,6 +519,7 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        await FlowVisualRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         foreach (var loadingFixture in new[] { "regression_loading_city.png", "regression_loading_landscape.png" })
             if (!await LoadingScreenReader.IsLoadingAsync(LoadReferenceFrame(Path.Combine(referenceDirectory, loadingFixture)), CancellationToken.None))
                 throw new InvalidOperationException($"Tela real de carregamento não reconhecida: {loadingFixture}");

@@ -84,7 +84,8 @@ public sealed record AutomationClientOptions(
     bool EnableGuildCheckin = false,
     bool UseAnonymousDungeon = false,
     int IndividualAnonymousDungeonLevel = 97,
-    int WeeklyAnonymousEntryLimit = 1);
+    int WeeklyAnonymousEntryLimit = 1,
+    FarmCoordinate? SapherasCustomFarmCoordinate = null);
 
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,

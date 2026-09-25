@@ -236,6 +236,21 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
+                            <StackPanel Margin="0,0,0,14">
+                                <TextBlock Text="PONTO PERSONALIZADO — SAPHERAS" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="Abra o mapa de Sapheras com as abas laterais abertas, capture seu ponto e mantenha o mesmo zoom. Desmarcado: usa o TP aleatório."
+                                           TextWrapping="Wrap" Foreground="#9CB0C3" Margin="0,5,0,8" />
+                                <WrapPanel>
+                                    <CheckBox x:Name="Client1SapherasCustomCheckBox" Content="Cliente 1" />
+                                    <Button x:Name="CaptureClient1SapherasButton" Content="Capturar ponto" Click="OnCaptureClient1SapherasCoordinate" />
+                                    <TextBlock x:Name="Client1SapherasCoordinateText" Margin="8,7" />
+                                </WrapPanel>
+                                <WrapPanel>
+                                    <CheckBox x:Name="Client2SapherasCustomCheckBox" Content="Cliente 2" />
+                                    <Button x:Name="CaptureClient2SapherasButton" Content="Capturar ponto" Click="OnCaptureClient2SapherasCoordinate" />
+                                    <TextBlock x:Name="Client2SapherasCoordinateText" Margin="8,7" />
+                                </WrapPanel>
+                            </StackPanel>
                             <Grid x:Name="SapherasSettingsSection">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
