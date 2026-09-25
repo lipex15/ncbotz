@@ -22,10 +22,21 @@ public sealed partial class BotAutomationEngine
         var previous = StartupRestorationObservation.Unknown;
         var hits = 0;
         TombstoneIconReading? previousIcon = null;
+        var loadingDeadline = DateTime.UtcNow.AddSeconds(60);
         for (var sample = 0; sample < 3; sample++)
         {
             await CheckpointAsync(pause, token);
             var frame = VisualRecognitionService.NormalizeForReferenceMatching(await CaptureClientFrameAsync(session, token));
+            if (await LoadingScreenReader.IsLoadingAsync(frame, token))
+            {
+                WritePersistentOnly(session, $"restoration_loading elapsedMs={elapsed.ElapsedMilliseconds}; decision=wait; noInput=true; frame={frame.Width}x{frame.Height}");
+                if (DateTime.UtcNow >= loadingDeadline) break;
+                previous = StartupRestorationObservation.Unknown;
+                hits = 0;
+                sample--;
+                await Task.Delay(1000, token);
+                continue;
+            }
             var hud = await recognition.FindAsync("game_hud_menu", frame, token);
             var hp = HpBarAnalyzer.Measure(frame);
             var icon = await TombstoneIconReader.ReadAsync(recognition, frame, token);

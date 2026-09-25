@@ -33,6 +33,21 @@ internal static class StatisticsRegression
             if (reading.Value != expected) throw new InvalidOperationException(lines[^1]);
         }
         var articleSource = load("statistics_article_purchase.png");
+        foreach (var offsetY in new[] { -100, 0, 100 })
+        {
+            var degraded = new PixelFrame(1920, 1040, 7680, new byte[1920 * 1040 * 4]);
+            for (var y = 0; y < Math.Min(1040, articleSource.Height); y++)
+                if (y + offsetY >= 0 && y + offsetY < 1040)
+                    Buffer.BlockCopy(articleSource.Pixels, y * articleSource.Stride, degraded.Pixels, (y + offsetY) * degraded.Stride, 7680);
+            // Simulate an unreadable coin without changing the total or its label.
+            for (var y = 674 + offsetY; y < 708 + offsetY; y++)
+                Array.Clear(degraded.Pixels, y * degraded.Stride + 994 * 4, 33 * 4);
+            var reading = await GoldPriceReader.ReadAsync(recognition, degraded, "articles", CancellationToken.None);
+            lines.Add($"gold coin_degraded offsetY={offsetY}; expected=244100; actual={reading.Value}; {reading.Evidence}");
+            await System.IO.File.WriteAllLinesAsync(output, lines);
+            if (reading.Value != 244100 || !reading.Evidence.Contains("verified_article_total_fallback", StringComparison.Ordinal))
+                throw new InvalidOperationException(lines[^1]);
+        }
         foreach (var offsetY in new[] { -100, 100 })
         {
             var shifted = new PixelFrame(1920, 1040, 7680, new byte[1920 * 1040 * 4]);

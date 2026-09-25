@@ -27,19 +27,45 @@ public sealed partial class BotAutomationEngine
     private async Task<GoldPriceReading> ReadStatisticsPriceAsync(ClientSession session,
         string layout, CancellationToken token)
     {
+        PixelFrame? frame = null;
         try
         {
-            var frame = VisualRecognitionService.NormalizeForReferenceMatching(await CaptureClientFrameAsync(session, token));
-            if (layout == "articles" && !(await recognition.FindAsync("statistics_article_title", frame, token)).Found)
-                return new(null, "popup de preço não confirmado");
+            frame = VisualRecognitionService.NormalizeForReferenceMatching(await CaptureClientFrameAsync(session, token));
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeout.CancelAfter(TimeSpan.FromSeconds(2));
-            var reading = await GoldPriceReader.ReadAsync(recognition, frame, layout, timeout.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(6));
+            var reading = layout == "articles" && !(await recognition.FindAsync("statistics_article_title", frame, timeout.Token)).Found
+                ? new GoldPriceReading(null, "popup de preço não confirmado")
+                : await GoldPriceReader.ReadAsync(recognition, frame, layout, timeout.Token);
             WritePersistentOnly(session, $"statistics_price layout={layout}; value={reading.Value}; {reading.Evidence}");
+            if (reading.Value is null)
+            {
+                await SavePriceEvidenceAsync(session, layout, frame, reading.Evidence);
+            }
             return reading;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-        catch (Exception exception) { return new(null, $"preço não apurado: {exception.Message}"); }
+        catch (Exception exception)
+        {
+            WritePersistentOnly(session, $"statistics_price_failed layout={layout}; error={exception.GetType().Name}; detail={exception.Message}; valueNotInvented=true");
+            if (frame is not null) await SavePriceEvidenceAsync(session, layout, frame, exception.Message);
+            return new(null, $"preço não apurado: {exception.Message}");
+        }
+    }
+
+    private async Task SavePriceEvidenceAsync(ClientSession session, string layout, PixelFrame frame, string evidence)
+    {
+        try
+        {
+            if (DateTime.UtcNow - session.LastPriceDiagnosticAt < TimeSpan.FromSeconds(5))
+            {
+                WritePersistentOnly(session, $"statistics_price_unresolved layout={layout}; diagnosticSkipped=rate_limit_5s; {evidence}");
+                return;
+            }
+            session.LastPriceDiagnosticAt = DateTime.UtcNow;
+            var diagnostic = await recognition.SaveDiagnosticAsync($"price_{layout}_client{session.Options.Priority}", frame, DiagnosticState(session));
+            WritePersistentOnly(session, $"statistics_price_unresolved layout={layout}; diagnostic={diagnostic}; frame={frame.Width}x{frame.Height}; {evidence}");
+        }
+        catch (Exception error) { WritePersistentOnly(session, $"statistics_price_diagnostic_failed: {error.Message}"); }
     }
 
     private Task RecordExpenseAsync(ClientSession session, string description, GoldPriceReading reading, string? id = null) =>

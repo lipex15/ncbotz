@@ -24,14 +24,23 @@ public sealed class VisualRecognitionService(
     // Only the sequential workflow binds this provider; watchdogs pass explicit frames.
     public Func<CancellationToken, Task<PixelFrame>>? WorkflowFrameProvider { get; set; }
     public Action<string>? WorkflowTrace { get; set; }
+    public Func<object>? WorkflowDiagnosticContext { get; set; }
     public string WorkflowContextId { get; set; } = "offline";
-    private readonly Dictionary<string, (bool Found, DateTime At)> _traceStates = new();
-    internal void TraceWorkflowResult(string id, PixelFrame frame, RecognitionResult result)
+    private readonly Dictionary<string, (bool Found, double Confidence, DateTime At)> _traceStates = new();
+    internal void TraceWorkflowResult(string id, PixelFrame frame, RecognitionResult result, VisualReference? reference = null)
     {
         var key = $"{WorkflowContextId}|{id}";
-        if (_traceStates.TryGetValue(key, out var last) && last.Found == result.Found && DateTime.UtcNow - last.At < TimeSpan.FromMinutes(1)) return;
-        _traceStates[key] = (result.Found, DateTime.UtcNow);
-        WorkflowTrace?.Invoke($"recognition ref={id}; found={result.Found}; confidence={result.Confidence:F4}; xy={result.X},{result.Y}; frame={frame.Width}x{frame.Height}");
+        if (_traceStates.TryGetValue(key, out var last) && last.Found == result.Found &&
+            Math.Abs(last.Confidence - result.Confidence) < 0.05 && DateTime.UtcNow - last.At < TimeSpan.FromMinutes(1)) return;
+        _traceStates[key] = (result.Found, result.Confidence, DateTime.UtcNow);
+        if (reference is null)
+        {
+            lock (_referenceCacheSync)
+                if (_referenceCache.TryGetValue(id, out var cached) && cached.Value.IsCompletedSuccessfully)
+                    reference = cached.Value.Result;
+        }
+        var normalized = NormalizeForReferenceMatching(frame);
+        WorkflowTrace?.Invoke($"recognition ref={id}; found={result.Found}; confidence={result.Confidence:F4}; threshold={reference?.Threshold:F4}; xy={result.X},{result.Y}; frame={frame.Width}x{frame.Height}; normalized={normalized.Width}x{normalized.Height}; search={reference?.SearchX},{reference?.SearchY},{reference?.SearchWidth},{reference?.SearchHeight}; template={reference?.SourceWidth}x{reference?.SourceHeight}");
     }
     private Task<PixelFrame> CaptureWorkflowAsync(CancellationToken token) =>
         WorkflowFrameProvider is { } provider ? provider(token) : Task.FromResult(capture.CapturePrimaryScreen());
@@ -59,7 +68,7 @@ public sealed class VisualRecognitionService(
         var reference = await GetReferenceAsync(referenceId);
         var screen = await CaptureWorkflowAsync(cancellationToken);
         var result = await Task.Run(() => Match(screen, reference, cancellationToken), cancellationToken);
-        TraceWorkflowResult(referenceId, screen, result);
+        TraceWorkflowResult(referenceId, screen, result, reference);
         return result;
     }
 
@@ -94,7 +103,7 @@ public sealed class VisualRecognitionService(
         var result = await Task.Run(
             () => Match(screen, regionalReference, cancellationToken),
             cancellationToken);
-        TraceWorkflowResult($"{referenceId}@{searchX},{searchY},{searchWidth},{searchHeight}", screen, result);
+        TraceWorkflowResult($"{referenceId}@{searchX},{searchY},{searchWidth},{searchHeight}", screen, result, regionalReference);
         return result;
     }
 
@@ -323,7 +332,7 @@ public sealed class VisualRecognitionService(
         return await SaveDiagnosticAsync(name, frame);
     }
 
-    public async Task<string> SaveDiagnosticAsync(string name, PixelFrame frame)
+    public async Task<string> SaveDiagnosticAsync(string name, PixelFrame frame, object? diagnosticState = null)
     {
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -332,7 +341,7 @@ public sealed class VisualRecognitionService(
         Directory.CreateDirectory(directory);
         var safeName = string.Concat(name.Select(character =>
             Path.GetInvalidFileNameChars().Contains(character) ? '-' : character));
-        var path = Path.Combine(directory, $"{DateTime.Now:yyyyMMdd-HHmmss}-{safeName}.png");
+        var path = Path.Combine(directory, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid():N}-{safeName}.png");
         var bitmap = BitmapSource.Create(
             frame.Width,
             frame.Height,
@@ -346,6 +355,23 @@ public sealed class VisualRecognitionService(
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         await using var stream = File.Create(path);
         encoder.Save(stream);
+        var metadata = new
+        {
+            capturedAt = DateTimeOffset.Now, reason = name, workflowContext = WorkflowContextId,
+            state = diagnosticState ?? WorkflowDiagnosticContext?.Invoke(),
+            frame.Width, frame.Height, frame.Stride,
+            version = typeof(VisualRecognitionService).Assembly.GetName().Version?.ToString(),
+            image = path
+        };
+        try
+        {
+            await File.WriteAllTextAsync(path + ".json", System.Text.Json.JsonSerializer.Serialize(metadata));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            WorkflowTrace?.Invoke($"diagnostic_metadata_failed image={path}; error={error.Message}");
+        }
+        WorkflowTrace?.Invoke($"diagnostic_saved reason={name}; image={path}; metadata={path}.json; frame={frame.Width}x{frame.Height}; context={WorkflowContextId}");
         return path;
     }
 

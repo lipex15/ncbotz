@@ -33,7 +33,18 @@ internal static class GoldPriceReader
             layout == "daily-shop" ? "statistics_shop_gold_coin" : "statistics_gold_coin";
         var coin = await recognition.FindAsync(coinReference, frame,
             region.Item1, region.Item2, region.Item3, region.Item4, token);
-        if (!coin.Found) return new(null, $"moeda de ouro não confirmada: {coin.Confidence:F3}");
+        if (!coin.Found)
+        {
+            if (layout == "articles" &&
+                (await recognition.FindAsync("statistics_article_title", frame, token)).Found)
+            {
+                // Anchor to the verified Preço label, never the uncertain coin.
+                // Keep the same numeric total crop when the popup moves vertically.
+                var price = await ReadCropAsync(frame, region.Item1 + 60, region.Item2 + 13, 132, 34, token);
+                return new(price.Value, $"verified_article_total_fallback; coin={coin.Confidence:F3}; {price.Evidence}");
+            }
+            return new(null, $"moeda de ouro não confirmada: {coin.Confidence:F3}");
+        }
         return await ReadCropAsync(frame, coin.X + 18, coin.Y - 17, 132, 34, token);
     }
 

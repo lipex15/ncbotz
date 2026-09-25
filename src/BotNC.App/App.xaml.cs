@@ -498,6 +498,11 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        foreach (var loadingFixture in new[] { "regression_loading_city.png", "regression_loading_landscape.png" })
+            if (!await LoadingScreenReader.IsLoadingAsync(LoadReferenceFrame(Path.Combine(referenceDirectory, loadingFixture)), CancellationToken.None))
+                throw new InvalidOperationException($"Tela real de carregamento não reconhecida: {loadingFixture}");
+        if (await LoadingScreenReader.IsLoadingAsync(LoadReferenceFrame(Path.Combine(referenceDirectory, "hud_auto_active.png")), CancellationToken.None))
+            throw new InvalidOperationException("HUD de farm confundido com carregamento.");
         var occupiedTa = LoadReferenceFrame(Path.Combine(referenceDirectory, "ta1_occupied_regression.png"));
         if (TaEntryButtonAnalyzer.Read(occupiedTa, TaDestination.Ta1Codex).State != TaEntryButtonState.Disabled ||
             !(await recognition.FindAsync("ta1_primeiro_cartao", occupiedTa, CancellationToken.None)).Found ||

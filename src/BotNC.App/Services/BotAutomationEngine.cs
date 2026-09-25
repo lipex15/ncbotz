@@ -1206,13 +1206,13 @@ public sealed partial class BotAutomationEngine(
             while (DateTime.Now < finishesAt)
             {
                 await CheckpointAsync(pause, cancellationToken);
-                if (!HumanOwnsInterface)
+                if (!HumanOwnsInterface && !HasPendingProtection)
                 {
                     foreach (var raidSession in protectedSessions.Where(s => !s.Options.UseSapheras))
                         await RunLoveBossSafelyAsync(raidSession, sessions, dailyRoutines,
                             pause, cancellationToken, null);
                 }
-                foreach (var session in protectedSessions)
+                foreach (var session in protectedSessions.OrderByDescending(s => Volatile.Read(ref s.PendingVisualDeath) != 0))
                 {
                     if (session.InAgenda)
                     {
@@ -1269,7 +1269,7 @@ public sealed partial class BotAutomationEngine(
                         }
                     }
 
-                    if (!HumanOwnsInterface && !session.LoveBossInside && session.NextRecoveryAttemptAt != default &&
+                    if (!HumanOwnsInterface && !HasPendingProtection && !session.LoveBossInside && session.NextRecoveryAttemptAt != default &&
                         DateTime.UtcNow >= session.NextRecoveryAttemptAt &&
                         !session.HandlingDeath)
                     {
@@ -1330,7 +1330,7 @@ public sealed partial class BotAutomationEngine(
                         session.Audio.Armed = true;
                     }
 
-                    if (session.NextRecoveryAttemptAt != default)
+                    if (session.NextRecoveryAttemptAt != default && Volatile.Read(ref session.PendingVisualLowHp) == 0)
                     {
                         continue;
                     }
@@ -3222,7 +3222,34 @@ public sealed partial class BotAutomationEngine(
                 }
             }
 
-            WriteLog(session, $"Ativando caça automática com Q — ciclo {attempt}/3.");
+            // Q is a toggle. Re-read after closing rest, rather than using the
+            // stale state that originally brought this workflow here.
+            var inactiveHits = 0;
+            var autoDeadline = DateTime.UtcNow.AddSeconds(8);
+            while (DateTime.UtcNow < autoDeadline && inactiveHits < 2)
+            {
+                await CheckpointAsync(pause, cancellationToken);
+                var currentAuto = await OpenHudHuntReader.ReadAsync(recognition,
+                    await CaptureClientFrameAsync(session, cancellationToken), cancellationToken);
+                WritePersistentOnly(session, $"hunt_toggle_guard state={currentAuto}; inactiveHits={inactiveHits}; attempt={attempt}; decision={(currentAuto == OpenHudHuntState.Active ? "preserve" : "observe")}");
+                if (currentAuto == OpenHudHuntState.Active)
+                {
+                    session.SafeInRest = false;
+                    session.AwaitingHuntActivationAtSpot = false;
+                    if (restState is not null)
+                        await TryOpenRestPanelAsync(session, pause, cancellationToken);
+                    WriteLog(session, "Caça já ativa após conferir o HUD; Q não foi enviado.");
+                    return;
+                }
+                inactiveHits = currentAuto == OpenHudHuntState.Inactive ? inactiveHits + 1 : 0;
+                if (inactiveHits < 2) await Task.Delay(250, cancellationToken);
+            }
+            if (inactiveHits < 2)
+            {
+                var autoDiagnostic = await recognition.SaveDiagnosticAsync($"auto_inconclusivo_{session.Options.Priority}");
+                throw new InvalidOperationException($"Auto sem duas leituras desligadas; preservando Q. Diagnóstico: {autoDiagnostic}");
+            }
+            WriteLog(session, $"Auto desligado confirmado duas vezes; ativando com Q — ciclo {attempt}/3.");
             await EnsureGameForegroundAsync(session, cancellationToken);
             await input.PressKeyAsync(
                 KeyQ,
@@ -4391,6 +4418,16 @@ public sealed partial class BotAutomationEngine(
         {
             throw;
         }
+        catch (HumanInteractionException)
+        {
+            WritePersistentOnly(session, "daily_observation_deferred reason=human_interaction; preserveFarm=true; preserveProgress=true; failure=false");
+            return true;
+        }
+        catch (ProtectionTransitionException exception)
+        {
+            RecoverSessionAfterActionFailure(session, exception, "leitura inicial de diárias");
+            return true;
+        }
         catch (Exception exception)
         {
             session.NextRoutinePanelRecoveryAt = default;
@@ -5333,6 +5370,9 @@ public sealed partial class BotAutomationEngine(
                     return;
                 }
 
+                if (await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, cancellationToken))
+                    continue;
+
                 if (HumanOwnsInterface)
                 {
                     foreach (var scheduledSession in sessions.Where(s => s.FarmScheduleSteps.Count > 0))
@@ -5340,6 +5380,7 @@ public sealed partial class BotAutomationEngine(
                 }
                 if (!HumanOwnsInterface)
                 {
+                if (HasPendingProtection) { await Task.Delay(100, cancellationToken); continue; }
                 var handledLoveBoss = false;
                 foreach (var raidSession in sessions
                              .OrderBy(item => item.LoveBossInside)
@@ -5424,7 +5465,7 @@ public sealed partial class BotAutomationEngine(
                 }
                 foreach (var session in sessions.OrderBy(session => session.Options.Priority))
                 {
-                    if (!HumanOwnsInterface && session.InDailyCampaign && !session.LoveBossInside && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
+                    if (!HumanOwnsInterface && !HasPendingProtection && session.InDailyCampaign && !session.LoveBossInside && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
                     {
                         try
                         {
@@ -5503,6 +5544,14 @@ public sealed partial class BotAutomationEngine(
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                         {
                             throw;
+                        }
+                        catch (HumanInteractionException)
+                        {
+                            WritePersistentOnly(session, "daily_monitor_deferred reason=human_interaction; preserveFarm=true; preserveProgress=true; failure=false");
+                        }
+                        catch (ProtectionTransitionException exception)
+                        {
+                            RecoverSessionAfterActionFailure(session, exception, "acompanhamento de diárias");
                         }
                         catch (Exception exception)
                         {
@@ -5885,6 +5934,12 @@ public sealed partial class BotAutomationEngine(
 
                 var frame = await CaptureClientFrameAsync(session, cancellationToken);
                 session.LastWindowFrameAt = DateTime.UtcNow;
+                if (DateTime.UtcNow >= session.NextDiagnosticHeartbeatAt)
+                {
+                    session.NextDiagnosticHeartbeatAt = DateTime.UtcNow.AddSeconds(30);
+                    var queuedAt = Interlocked.Read(ref session.ProtectionQueuedAtTicks);
+                    WritePersistentOnly(session, $"monitor_heartbeat paused={pause.IsPaused}; pauseVersion={pause.PauseVersion}; pendingAgeMs={(queuedAt == 0 ? 0 : (DateTime.UtcNow.Ticks - queuedAt) / TimeSpan.TicksPerMillisecond)}; state={System.Text.Json.JsonSerializer.Serialize(DiagnosticState(session))}");
+                }
                 session.OpenHudHunt = await OpenHudHuntReader.ReadAsync(recognition, frame, cancellationToken);
                 session.RestHudVisible = (await recognition.FindAsync("tela_descanso", frame, cancellationToken)).Found ||
                     (await recognition.FindAsync("caca_automatica", frame, cancellationToken)).Found;
@@ -5925,6 +5980,7 @@ public sealed partial class BotAutomationEngine(
                     session.DeathVisualHits++;
                     if (session.DeathVisualHits >= 2 && Interlocked.Exchange(ref session.PendingVisualDeath, 1) == 0)
                     {
+                        Interlocked.CompareExchange(ref session.ProtectionQueuedAtTicks, DateTime.UtcNow.Ticks, 0);
                         WriteLog(session, $"Morte confirmada na janela em segundo plano ({death.Confidence:P0}; 2 quadros consecutivos).");
                         CancelRecoveryActionForDeath(session);
                     }
@@ -6065,6 +6121,9 @@ public sealed partial class BotAutomationEngine(
         try
         {
             if (Volatile.Read(ref session.PendingVisualDeath) != 0) return;
+            Interlocked.Exchange(ref session.EmergencyTeleportInFlight, 1);
+            Interlocked.CompareExchange(ref session.ProtectionQueuedAtTicks, DateTime.UtcNow.Ticks, 0);
+            WritePersistentOnly(session, "protection_transition event=background_tp; oldWorkflowInvalidated=true; pending=true");
             await input.PressKeyToWindowAsync(
                 session.Options.Target.Handle,
                 emergencyTeleportVirtualKey,
@@ -6099,6 +6158,7 @@ public sealed partial class BotAutomationEngine(
         finally
         {
             Interlocked.Exchange(ref session.PendingVisualLowHp, 1);
+            Interlocked.Exchange(ref session.EmergencyTeleportInFlight, 0);
         }
     }
 
@@ -6180,6 +6240,11 @@ public sealed partial class BotAutomationEngine(
         Exception exception,
         string action)
     {
+        if (exception is ProtectionTransitionException)
+        {
+            WritePersistentOnly(session, $"workflow_interrupted action={action}; reason=background_tp; retryPenalty=false; locationRequiresVerification=true");
+            return;
+        }
         if (exception is HumanInteractionException)
         {
             // Preserve active farms. An unfinished preparation must remain eligible
@@ -6234,6 +6299,10 @@ public sealed partial class BotAutomationEngine(
                 $"{session.Options.Label}: morte detectada antes do reset da rota; a ressurreição terá prioridade.");
         }
 
+        if (await FindRestStateAsync(session, cancellationToken) is not null &&
+            !await TryCloseRestPanelAsync(session, pause, "recuperar a interface", cancellationToken))
+            throw new InvalidOperationException("Descanso permaneceu aberto durante a recuperação; não reabrir o menu por cima dele.");
+
         for (var attempt = 1; attempt <= 5; attempt++)
         {
             await CheckpointAsync(pause, cancellationToken);
@@ -6260,8 +6329,18 @@ public sealed partial class BotAutomationEngine(
                 $"{session.Options.Label}: morte detectada durante o reset da rota; a ressurreição terá prioridade.");
         }
 
+        var recoveredFrame = await CaptureClientFrameAsync(session, cancellationToken);
+        var recoveredHud = await recognition.FindAsync("game_hud_menu", recoveredFrame, cancellationToken);
+        var blocked = await IsKnownBlockingOverlayVisibleAsync(cancellationToken);
+        var loading = await LoadingScreenReader.IsLoadingAsync(recoveredFrame, cancellationToken);
+        WritePersistentOnly(session, $"interface_recovery hud={recoveredHud.Found}/{recoveredHud.Confidence:F3}; overlay={blocked}; loading={loading}; failures={session.ConsecutiveRecoveryFailures}; frame={recoveredFrame.Width}x{recoveredFrame.Height}; verified={recoveredHud.Found && !blocked && !loading}");
+        if (!recoveredHud.Found || blocked || loading)
+        {
+            var diagnostic = await recognition.SaveDiagnosticAsync($"interface_recovery_unconfirmed_{session.Options.Priority}", recoveredFrame);
+            throw new InvalidOperationException($"Interface ainda não confirmou retorno ao jogo; sem reabrir a T.A nesta tentativa. Diagnóstico: {diagnostic}");
+        }
         session.RequiresHardFlowReset = false;
-        WriteLog(session, "Interface recuperada sem teleporte; o destino configurado será reaberto e validado na próxima tentativa.");
+        WriteLog(session, "Retorno ao jogo confirmado sem teleporte; o destino configurado será validado na próxima tentativa.");
     }
 
     private async Task ResumeHuntAtCurrentSpotAsync(
@@ -6311,6 +6390,10 @@ public sealed partial class BotAutomationEngine(
             "menu_masmorra",
             "daily_shop_page",
             "daily_shop_bulk_popup",
+            "statistics_article_title",
+            "boss_reward_received",
+            "boss_reward_panel",
+            "compra_concluida",
             "guild_page",
             "guild_directive_page",
             "campaign_page",
@@ -6334,9 +6417,14 @@ public sealed partial class BotAutomationEngine(
         Func<Task> operation,
         CancellationToken cancellationToken)
     {
+        var previousAction = session.DiagnosticActionId;
+        session.DiagnosticActionId = Guid.NewGuid().ToString("N")[..12];
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        WritePersistentOnly(session, $"action_begin name={action}; state={System.Text.Json.JsonSerializer.Serialize(DiagnosticState(session))}");
         try
         {
             await operation();
+            WritePersistentOnly(session, $"action_success name={action}; elapsedMs={elapsed.ElapsedMilliseconds}");
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -6345,8 +6433,14 @@ public sealed partial class BotAutomationEngine(
         }
         catch (Exception exception)
         {
+            await SaveActionFailureEvidenceAsync(session, action, exception, cancellationToken);
             RecoverSessionAfterActionFailure(session, exception, action);
             return false;
+        }
+        finally
+        {
+            WritePersistentOnly(session, $"action_end name={action}; elapsedMs={elapsed.ElapsedMilliseconds}");
+            session.DiagnosticActionId = previousAction;
         }
     }
 
@@ -6358,9 +6452,14 @@ public sealed partial class BotAutomationEngine(
     {
         using var actionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Interlocked.Exchange(ref session.RecoveryActionCancellation, actionCancellation);
+        var previousAction = session.DiagnosticActionId;
+        session.DiagnosticActionId = Guid.NewGuid().ToString("N")[..12];
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        WritePersistentOnly(session, $"action_begin name={action}; recovery=true; state={System.Text.Json.JsonSerializer.Serialize(DiagnosticState(session))}");
         try
         {
             await operation(actionCancellation.Token);
+            WritePersistentOnly(session, $"action_success name={action}; elapsedMs={elapsed.ElapsedMilliseconds}");
             return true;
         }
         catch (OperationCanceledException) when (
@@ -6377,11 +6476,14 @@ public sealed partial class BotAutomationEngine(
         }
         catch (Exception exception)
         {
+            await SaveActionFailureEvidenceAsync(session, action, exception, cancellationToken);
             RecoverSessionAfterActionFailure(session, exception, action);
             return false;
         }
         finally
         {
+            WritePersistentOnly(session, $"action_end name={action}; recovery=true; elapsedMs={elapsed.ElapsedMilliseconds}");
+            session.DiagnosticActionId = previousAction;
             Interlocked.CompareExchange(ref session.RecoveryActionCancellation, null, actionCancellation);
         }
     }
@@ -7877,7 +7979,7 @@ public sealed partial class BotAutomationEngine(
     }
 
     private void WritePersistentOnly(ClientSession session, string message) =>
-        WritePersistentOnly($"{session.Options.Label}: {message}");
+        WritePersistentOnly($"{session.Options.Label}: {message} | trace[run={StatisticsSessionId}; action={session.DiagnosticActionId}]");
 
     private void WritePersistentOnly(string message)
     {
@@ -7914,6 +8016,7 @@ public sealed partial class BotAutomationEngine(
         if (session is not null)
         {
             session.CurrentAction = title[(session.Options.Label.Length + 1)..].Trim() + " · " + detail;
+            WritePersistentOnly(session, $"workflow_step title={title}; detail={detail}; state={System.Text.Json.JsonSerializer.Serialize(DiagnosticState(session))}");
             session.LastPublishedActivity = "";
             ClientActivityChanged?.Invoke(session.Options.Label, session.CurrentAction);
         }
@@ -7976,6 +8079,13 @@ public sealed partial class BotAutomationEngine(
         public DateTime NextDailyListToggleAt { get; set; }
         public int LastFarmSpotLevel { get; set; } = -1;
         public int PendingVisualDeath;
+        public string DiagnosticActionId { get; set; } = "monitor";
+        public DateTime LastFailureDiagnosticAt { get; set; }
+        public DateTime LastPriceDiagnosticAt { get; set; }
+        public DateTime NextDiagnosticHeartbeatAt { get; set; }
+        public int EmergencyTeleportInFlight;
+        public long ProtectionQueuedAtTicks;
+        public bool HandlingProtection { get; set; }
         public long EmergencyClaimUntilTicks;
         public int DeathVisualHits { get; set; }
         public int ConsecutiveRecoveryFailures { get; set; }

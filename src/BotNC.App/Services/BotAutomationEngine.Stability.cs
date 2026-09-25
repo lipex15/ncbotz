@@ -10,7 +10,8 @@ public sealed partial class BotAutomationEngine
     private bool HumanOwnsInterface => _humanInteraction?.IsBusy == true || _manualSessions.Any(s => s.UserInterfaceBusy);
     private void RespectHumanInteraction(ClientSession session)
     {
-        if (!session.HandlingDeath && HumanOwnsInterface)
+        ThrowIfDeathPending(session);
+        if (!session.HandlingDeath && !session.HandlingProtection && HumanOwnsInterface)
             throw new HumanInteractionException();
     }
 
@@ -22,6 +23,7 @@ public sealed partial class BotAutomationEngine
         recognition.WorkflowFrameProvider = token => CaptureClientFrameAsync(session, token);
         recognition.WorkflowContextId = $"{session.Options.Priority}:{session.Options.Target.Handle}";
         recognition.WorkflowTrace = message => WritePersistentOnly(session, message);
+        recognition.WorkflowDiagnosticContext = () => DiagnosticState(session);
         input.WorkflowTrace = message => WritePersistentOnly(session, message);
         input.ValidateNormalInteraction = () => RespectHumanInteraction(session);
         input.ValidateWorkflowTarget = () =>

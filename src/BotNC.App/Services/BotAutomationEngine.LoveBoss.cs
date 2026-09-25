@@ -99,6 +99,11 @@ public sealed partial class BotAutomationEngine
             // Mouse ownership is not a failed raid and must not start recovery.
             return false;
         }
+        catch (ProtectionTransitionException exception)
+        {
+            RecoverSessionAfterActionFailure(session, exception, "Boss do Amor");
+            return false;
+        }
         catch (Exception exception)
         {
             session.NextLoveBossAttemptAt = DateTime.UtcNow.Add(session.LoveBossInside
@@ -113,6 +118,8 @@ public sealed partial class BotAutomationEngine
                     session, "boss_room", cancellationToken, requireObservable: true)).Found;
                 if (!session.LoveBossInside)
                 {
+                    if ((await recognition.FindAsync("boss_reward_received", cancellationToken)).Found)
+                        await DismissLoveBossRewardAsync(session, pause, cancellationToken);
                     await ExitRestIfNeededAsync(session, pause, cancellationToken);
                     await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
                     await ResumeAfterLoveBossAsync(session, pause, cancellationToken);
@@ -340,15 +347,20 @@ public sealed partial class BotAutomationEngine
     }
 
     private async Task CloseLoveBossMissionPanelAsync(
-        PauseController pause, CancellationToken cancellationToken)
+        ClientSession session, PauseController pause, CancellationToken cancellationToken)
     {
-        for (var attempt = 0; attempt < 2 &&
+        if ((await recognition.FindAsync("boss_reward_received", cancellationToken)).Found)
+            await DismissLoveBossRewardAsync(session, pause, cancellationToken);
+        for (var attempt = 0; attempt < 4 &&
              (await recognition.FindAsync("boss_reward_panel", cancellationToken)).Found; attempt++)
         {
             await CheckpointAsync(pause, cancellationToken);
             await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
-            await Task.Delay(300, cancellationToken);
+            await Task.Delay(700, cancellationToken);
         }
+        if ((await recognition.FindAsync("boss_reward_panel", cancellationToken)).Found ||
+            (await recognition.FindAsync("boss_reward_received", cancellationToken)).Found)
+            throw new InvalidOperationException("Painel de recompensa ainda aberto; retorno ao farm adiado até fechar a interface.");
     }
 
     private async Task<LoveBossMissionStatus> ReadLoveBossMissionStableAsync(
@@ -376,6 +388,8 @@ public sealed partial class BotAutomationEngine
         ClientSession session, PauseController pause, CancellationToken cancellationToken,
         string day)
     {
+        if ((await recognition.FindAsync("boss_reward_received", cancellationToken)).Found)
+            await DismissLoveBossRewardAsync(session, pause, cancellationToken);
         await OpenLoveBossMissionPanelAsync(session, pause, cancellationToken);
         try
         {
@@ -390,7 +404,7 @@ public sealed partial class BotAutomationEngine
         }
         finally
         {
-            await CloseLoveBossMissionPanelAsync(pause, cancellationToken);
+            await CloseLoveBossMissionPanelAsync(session, pause, cancellationToken);
         }
     }
 
@@ -402,41 +416,82 @@ public sealed partial class BotAutomationEngine
             throw new InvalidOperationException(
                 $"Vitória sem contador diário 1/1 no painel da Raide: {mission.Evidence}.");
 
-        if (await WaitForLoveBossRewardStateAsync(session, false, pause, cancellationToken))
+        var dailyAlreadyConfirmed = await database.GetSettingAsync(
+            $"{SessionSettingPrefix(session)}.routines.loveBoss.dailyRewardConfirmed") == day;
+        if (!dailyAlreadyConfirmed && await WaitForLoveBossRewardStateAsync(session, false, pause, cancellationToken))
         {
             await input.MoveAndClickAsync(1350, 391, TimeSpan.FromMilliseconds(300),
                 cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
             await WaitForReferenceAsync("boss_reward_received", "recompensa diária obtida",
                 TimeSpan.FromSeconds(10), pause, cancellationToken);
-            await input.MoveAndClickAsync(955, 328, TimeSpan.FromMilliseconds(290),
-                cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
-            await WaitForReferenceToDisappearAsync("boss_reward_received",
-                TimeSpan.FromSeconds(8), pause, cancellationToken);
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.loveBoss.dailyRewardConfirmed", day);
+            WritePersistentOnly(session, $"boss_reward_confirmed kind=daily; cycle={day}; evidence=item_obtained; dismissal=pending; weeklyCompleted={mission.WeeklyCompleted}");
+            await DismissLoveBossRewardAsync(session, pause, cancellationToken);
             WriteLog(session, "Recompensa diária do Boss do Amor recebida.");
         }
         else
         {
             WriteLog(session, "Recompensa diária da Raide confirmada como já recebida.");
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.loveBoss.dailyRewardConfirmed", day);
         }
 
+        if (mission.WeeklyCompleted is null)
+            throw new InvalidOperationException("Recompensa diária resolvida; contador semanal incerto. Conferência semanal mantida pendente, sem repetir a diária.");
         if (mission.WeeklyCompleted == 5)
         {
-            if (await WaitForLoveBossRewardStateAsync(session, true, pause, cancellationToken))
+            var weeklyAlreadyConfirmed = await database.GetSettingAsync(
+                $"{SessionSettingPrefix(session)}.routines.loveBoss.weeklyRewardConfirmed") == LoveBossSchedule.WeeklyKey(DateTimeOffset.UtcNow);
+            if (!weeklyAlreadyConfirmed && await WaitForLoveBossRewardStateAsync(session, true, pause, cancellationToken))
             {
                 await input.MoveAndClickAsync(1350, 609, TimeSpan.FromMilliseconds(300),
                     cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
                 await WaitForReferenceAsync("boss_reward_received", "recompensa semanal obtida",
                     TimeSpan.FromSeconds(10), pause, cancellationToken);
-                await input.MoveAndClickAsync(955, 328, TimeSpan.FromMilliseconds(290),
-                    cancellationToken, cooldown: TimeSpan.FromMilliseconds(160));
-                await WaitForReferenceToDisappearAsync("boss_reward_received",
-                    TimeSpan.FromSeconds(8), pause, cancellationToken);
+                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.loveBoss.weeklyRewardConfirmed", LoveBossSchedule.WeeklyKey(DateTimeOffset.UtcNow));
+                WritePersistentOnly(session, $"boss_reward_confirmed kind=weekly; cycle={day}; evidence=item_obtained; dismissal=pending");
+                await DismissLoveBossRewardAsync(session, pause, cancellationToken);
                 WriteLog(session, "Recompensa semanal de 5/5 Raides recebida.");
             }
         }
         session.LoveBossRewardCycle = day;
         await database.SaveSettingAsync(
             $"{SessionSettingPrefix(session)}.routines.loveBoss.rewardCycle", day);
+    }
+
+    private async Task DismissLoveBossRewardAsync(ClientSession session, PauseController pause, CancellationToken token)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(18);
+        var nextClick = DateTime.MinValue;
+        var absentHits = 0;
+        var clicks = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            await CheckpointAsync(pause, token);
+            var popup = await recognition.FindAsync("boss_reward_received", token);
+            if (!popup.Found)
+            {
+                if (++absentHits >= 2)
+                {
+                    WritePersistentOnly(session, $"boss_reward_dismissed clicks={clicks}; absentFrames={absentHits}; claimed=true");
+                    return;
+                }
+            }
+            else
+            {
+                absentHits = 0;
+                if (clicks < 4 && DateTime.UtcNow >= nextClick)
+                {
+                    WritePersistentOnly(session, $"boss_reward_dismiss attempt={clicks + 1}; confidence={popup.Confidence:F3}; xy={popup.X},{popup.Y}; action=click_recognized_popup; rewardNotRepeated=true");
+                    await input.MoveAndClickAsync(popup.X, popup.Y, TimeSpan.FromMilliseconds(290), token,
+                        cooldown: TimeSpan.FromMilliseconds(160));
+                    clicks++;
+                    nextClick = DateTime.UtcNow.AddSeconds(3);
+                }
+            }
+            await Task.Delay(300, token);
+        }
+        var diagnostic = await recognition.SaveDiagnosticAsync($"boss_reward_dismiss_{session.Options.Priority}");
+        throw new TimeoutException($"Recompensa já confirmada, mas aviso ainda aberto; não repetir a coleta. Diagnóstico: {diagnostic}");
     }
 
     private async Task<bool> WaitForLoveBossRewardStateAsync(

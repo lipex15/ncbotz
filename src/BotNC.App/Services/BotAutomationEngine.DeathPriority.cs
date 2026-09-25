@@ -8,6 +8,44 @@ public sealed partial class BotAutomationEngine
     {
         if (!session.HandlingDeath && Volatile.Read(ref session.PendingVisualDeath) != 0)
             throw new InvalidOperationException($"{session.Options.Label}: morte confirmada; comando normal bloqueado para priorizar Ressuscitar.");
+        if (!session.HandlingDeath &&
+            (Volatile.Read(ref session.PendingVisualLowHp) != 0 || Volatile.Read(ref session.EmergencyTeleportInFlight) != 0))
+            throw new ProtectionTransitionException();
+    }
+
+    private sealed class ProtectionTransitionException : InvalidOperationException
+    {
+        public ProtectionTransitionException() : base("TP de proteção alterou o contexto; etapa antiga interrompida para observar a nova localização.") { }
+    }
+
+    private bool HasPendingProtection => _manualSessions.Any(s => !s.HandlingDeath && !s.InAgenda &&
+        (Volatile.Read(ref s.PendingVisualDeath) != 0 || Volatile.Read(ref s.PendingVisualLowHp) != 0 ||
+         Volatile.Read(ref s.EmergencyTeleportInFlight) != 0));
+
+    private async Task<bool> ServicePendingProtectionAsync(IReadOnlyList<ClientSession> sessions,
+        SapherasOptions sapheras, AntiOverkillOptions antiOverkill, PauseController pause, CancellationToken token)
+    {
+        // Death first across both clients, before mail, bosses, daily quests or retries.
+        var pending = sessions.Where(s => !s.HandlingDeath && !s.InAgenda)
+            .OrderByDescending(s => Volatile.Read(ref s.PendingVisualDeath) != 0)
+            .ThenBy(s => s.Options.Priority)
+            .FirstOrDefault(s => Volatile.Read(ref s.PendingVisualDeath) != 0 ||
+                Volatile.Read(ref s.PendingVisualLowHp) != 0 && Volatile.Read(ref s.EmergencyTeleportInFlight) == 0);
+        if (pending is null) return false;
+        var death = Interlocked.Exchange(ref pending.PendingVisualDeath, 0) != 0;
+        Interlocked.Exchange(ref pending.PendingVisualLowHp, 0);
+        pending.NextRecoveryAttemptAt = default;
+        pending.HandlingProtection = true;
+        var queuedAt = Interlocked.Exchange(ref pending.ProtectionQueuedAtTicks, 0);
+        WritePersistentOnly(pending, $"protection_service kind={(death ? "death" : "teleport")}; queueMs={(queuedAt == 0 ? -1 : TimeSpan.FromTicks(DateTime.UtcNow.Ticks - queuedAt).TotalMilliseconds):F0}; humanBusy={HumanOwnsInterface}; retryBypassed=true");
+        try
+        {
+            await RunSessionActionSafelyAsync(pending, death ? "morte prioritária" : "TP prioritário",
+                () => death ? HandleDeathAsync(pending, sapheras, antiOverkill, pause, token) :
+                    RecoverAfterBackgroundEmergencyAsync(pending, sapheras, antiOverkill, pause, token), token);
+        }
+        finally { pending.HandlingProtection = false; }
+        return true;
     }
 
     private static bool TryClaimEmergency(ClientSession session)
@@ -50,6 +88,22 @@ public sealed partial class BotAutomationEngine
         var blocked = false;
         try { ThrowIfDeathPending(first); } catch (InvalidOperationException) { blocked = true; }
         if (!blocked) throw new InvalidOperationException("Morte não bloqueou o fluxo normal.");
+        ThrowIfDeathPending(second);
+        second.PendingVisualLowHp = 1;
+        blocked = false;
+        try { ThrowIfDeathPending(second); } catch (ProtectionTransitionException) { blocked = true; }
+        if (!blocked) throw new InvalidOperationException("TP não invalidou a etapa antiga.");
+        second.PendingVisualLowHp = 0;
+        second.EmergencyTeleportInFlight = 1;
+        blocked = false;
+        try { ThrowIfDeathPending(second); } catch (ProtectionTransitionException) { blocked = true; }
+        if (!blocked) throw new InvalidOperationException("Comando normal permitido durante TP.");
+        second.HandlingProtection = true;
+        blocked = false;
+        try { ThrowIfDeathPending(second); } catch (ProtectionTransitionException) { blocked = true; }
+        if (!blocked) throw new InvalidOperationException("Novo TP durante recuperação não invalidou a rota.");
+        second.EmergencyTeleportInFlight = 0;
+        second.HandlingProtection = false;
         ThrowIfDeathPending(second);
         first.HandlingDeath = true;
         ThrowIfDeathPending(first);
