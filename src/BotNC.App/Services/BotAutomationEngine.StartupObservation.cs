@@ -6,9 +6,10 @@ public sealed partial class BotAutomationEngine
 
     internal static StartupRestorationObservation ClassifyStartupRestoration(
         bool hud, bool redIcon, bool iconTemplate, bool readableCounter, bool panelHeading,
-        bool strongUnconfirmedShape = false)
+        bool strongUnconfirmedShape = false, bool restorationPending = false)
     {
         if (readableCounter || redIcon && iconTemplate) return StartupRestorationObservation.Present;
+        if (restorationPending && redIcon) return StartupRestorationObservation.Unknown;
         // Red decoration alone is not a pending restoration and must not start a hunt.
         if (hud && !(redIcon && iconTemplate) && !panelHeading && !strongUnconfirmedShape)
             return StartupRestorationObservation.Absent;
@@ -39,12 +40,14 @@ public sealed partial class BotAutomationEngine
             }
             var hud = await recognition.FindAsync("game_hud_menu", frame, token);
             var hp = HpBarAnalyzer.Measure(frame);
-            var icon = await TombstoneIconReader.ReadAsync(recognition, frame, token);
+            var icon = await TombstoneIconReader.ReadAsync(recognition, frame, token, session.NeedsDeathRestoration);
             var counter = await _restorationCounterReader.ReadClientFrameAsync(frame, token);
             var red = icon.HasRedSignal;
             var heading = RestorationCounterReader.HasRestorationHeading(counter.RawText);
             var current = ClassifyStartupRestoration(hud.Found || hp.Found, red, icon.Found,
-                counter.State != RestorationCountState.Unknown, heading, icon.Confidence >= 0.90 && !icon.Found);
+                counter.State != RestorationCountState.Unknown, heading, icon.Confidence >= 0.90 && !icon.Found,
+                session.NeedsDeathRestoration);
+            WritePersistentOnly(session, $"restoration_context pending={session.NeedsDeathRestoration}; red={red}; icon={icon.Found}; confidence={icon.Confidence:F3}; contextualInspection={session.NeedsDeathRestoration && icon.Found && icon.Confidence < 0.78}; panelVerificationRequired=true");
             var positionStable = current != StartupRestorationObservation.Present ||
                 counter.State != RestorationCountState.Unknown || icon.AgreesWith(previousIcon);
             hits = current == previous && positionStable ? hits + 1 : 1;
@@ -66,6 +69,13 @@ public sealed partial class BotAutomationEngine
 
     internal static void VerifyStartupObservationPolicy()
     {
+        if (ClassifyStartupRestoration(true, true, false, false, false, false, true) != StartupRestorationObservation.Unknown ||
+            !TombstoneIconReader.MayInspectAfterDeath(true, true, 0.617, 1535, 63) ||
+            TombstoneIconReader.MayInspectAfterDeath(false, true, 0.625, 1535, 63) ||
+            TombstoneIconReader.MayInspectAfterDeath(true, false, 0.625, 1535, 63) ||
+            TombstoneIconReader.MayInspectAfterDeath(true, true, 0.59, 1535, 63) ||
+            TombstoneIconReader.MayInspectAfterDeath(true, true, 0.625, 1700, 63))
+            throw new InvalidOperationException("Perda após morte foi ignorada ou inspeção liberada sem contexto.");
         if (ClassifyStartupRestoration(true, false, true, false, false) != StartupRestorationObservation.Absent ||
             ClassifyStartupRestoration(true, false, false, false, false) != StartupRestorationObservation.Absent ||
             ClassifyStartupRestoration(true, true, false, false, false) != StartupRestorationObservation.Absent ||

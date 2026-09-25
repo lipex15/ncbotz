@@ -13,14 +13,18 @@ internal sealed record TombstoneIconReading(
 
 internal static class TombstoneIconReader
 {
+    internal static bool MayInspectAfterDeath(bool pending, bool red, double confidence, int x, int y) =>
+        pending && red && confidence >= 0.60 && x >= 1477 && x <= 1578 && y >= 35 && y <= 95;
+
     public static async Task<TombstoneIconReading> ReadAsync(
-        VisualRecognitionService recognition, PixelFrame source, CancellationToken token)
+        VisualRecognitionService recognition, PixelFrame source, CancellationToken token, bool restorationPending = false)
     {
         var frame = VisualRecognitionService.NormalizeForReferenceMatching(source);
         // Keep the search around the restoration shortcut, not Guild/shop badges.
         var icon = await recognition.FindAsync("lapide_nucleo", frame, token);
         var candidateRed = TombstoneIconAnalyzer.HasRedAt(frame, icon.X, icon.Y);
-        return new(icon.Found && candidateRed, candidateRed, icon.Confidence,
+        var contextual = MayInspectAfterDeath(restorationPending, candidateRed, icon.Confidence, icon.X, icon.Y);
+        return new((icon.Found || contextual) && candidateRed, candidateRed, icon.Confidence,
             icon.X, icon.Y, frame.Height);
     }
 }

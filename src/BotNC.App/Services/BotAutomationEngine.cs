@@ -6883,7 +6883,7 @@ public sealed partial class BotAutomationEngine(
             {
                 await CheckpointAsync(pause, cancellationToken);
                 var iconFrame = await CaptureClientFrameAsync(session, cancellationToken);
-                var icon = await TombstoneIconReader.ReadAsync(recognition, iconFrame, cancellationToken);
+                var icon = await TombstoneIconReader.ReadAsync(recognition, iconFrame, cancellationToken, session.NeedsDeathRestoration);
                 if (icon.Found)
                 {
                     iconConfirmations = icon.AgreesWith(previousIcon) ? iconConfirmations + 1 : 1;
@@ -6927,7 +6927,7 @@ public sealed partial class BotAutomationEngine(
             {
                 await EnsureGameForegroundAsync(session, cancellationToken);
                 var currentIconFrame = await CaptureClientFrameAsync(session, cancellationToken);
-                var currentIcon = await TombstoneIconReader.ReadAsync(recognition, currentIconFrame, cancellationToken);
+                var currentIcon = await TombstoneIconReader.ReadAsync(recognition, currentIconFrame, cancellationToken, session.NeedsDeathRestoration);
                 if (!currentIcon.AgreesWith(previousIcon))
                     break;
                 WriteLog(session, $"Clicando na lápide reconhecida — tentativa {attempt}/3.");
