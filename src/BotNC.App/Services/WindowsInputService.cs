@@ -9,6 +9,7 @@ public sealed class WindowsInputService
 {
     public Action? ValidateWorkflowTarget { get; set; }
     public Action? ValidateNormalInteraction { get; set; }
+    public Func<CancellationToken, Task>? PrepareWorkflowTargetAsync { get; set; }
     public Action<string>? WorkflowTrace { get; set; }
     private static readonly TimeSpan CommandCooldown = TimeSpan.FromMilliseconds(1800);
     private const uint InputMouse = 0;
@@ -26,14 +27,68 @@ public sealed class WindowsInputService
     private const int SmCxScreen = 0;
     private const int SmCyScreen = 1;
 
+    internal async Task PrepareNormalCommandAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var guard = ValidateWorkflowTarget;
+        var normal = ValidateNormalInteraction;
+        normal?.Invoke();
+        if (PrepareWorkflowTargetAsync is { } prepare) await prepare(token);
+        token.ThrowIfCancellationRequested();
+        if (guard != ValidateWorkflowTarget || normal != ValidateNormalInteraction)
+            throw new InvalidOperationException("O cliente do fluxo mudou antes do comando; entrada cancelada.");
+        normal?.Invoke();
+        guard?.Invoke();
+    }
+
+    internal static async Task VerifyDeferredFocusAsync()
+    {
+        var service = new WindowsInputService();
+        var focused = false;
+        var focusRequests = 0;
+        service.ValidateNormalInteraction = () => { };
+        service.ValidateWorkflowTarget = () =>
+        {
+            if (!focused) throw new InvalidOperationException("Comando sem alvo confirmado.");
+        };
+        service.PrepareWorkflowTargetAsync = _ =>
+        {
+            if (!focused) { focusRequests++; focused = true; }
+            return Task.CompletedTask;
+        };
+        if (focusRequests != 0) throw new InvalidOperationException("Configurar alvo tomou foco.");
+        await service.PrepareNormalCommandAsync(CancellationToken.None);
+        await service.PrepareNormalCommandAsync(CancellationToken.None);
+        if (focusRequests != 1) throw new InvalidOperationException("Foco repetido sem troca de janela.");
+        focused = false;
+        service.ValidateNormalInteraction = () => throw new OperationCanceledException();
+        try { await service.PrepareNormalCommandAsync(CancellationToken.None); }
+        catch (OperationCanceledException) { }
+        if (focusRequests != 1) throw new InvalidOperationException("Ação bloqueada tomou foco.");
+        service.ValidateNormalInteraction = () => { };
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        try { await service.PrepareNormalCommandAsync(canceled.Token); }
+        catch (OperationCanceledException) { }
+        if (focusRequests != 1) throw new InvalidOperationException("Ação cancelada tomou foco.");
+        service.PrepareWorkflowTargetAsync = _ =>
+        {
+            service.ValidateWorkflowTarget = () => { };
+            return Task.CompletedTask;
+        };
+        var blocked = false;
+        try { await service.PrepareNormalCommandAsync(CancellationToken.None); }
+        catch (InvalidOperationException) { blocked = true; }
+        if (!blocked) throw new InvalidOperationException("Troca de cliente não bloqueou o comando.");
+    }
+
     public async Task PressKeyAsync(
         int virtualKey,
         TimeSpan? hold = null,
         CancellationToken cancellationToken = default,
         TimeSpan? cooldown = null)
     {
-        ValidateNormalInteraction?.Invoke();
-        ValidateWorkflowTarget?.Invoke();
+        await PrepareNormalCommandAsync(cancellationToken);
         WorkflowTrace?.Invoke($"input key=0x{virtualKey:X2}; target=verified");
         KeyDown(virtualKey);
         try
@@ -98,8 +153,7 @@ public sealed class WindowsInputService
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
-        ValidateNormalInteraction?.Invoke();
-        ValidateWorkflowTarget?.Invoke();
+        await PrepareNormalCommandAsync(cancellationToken);
         WorkflowTrace?.Invoke($"input holdKey=0x{virtualKey:X2}; durationMs={duration.TotalMilliseconds:F0}; target=verified");
         KeyDown(virtualKey);
         try
@@ -120,8 +174,7 @@ public sealed class WindowsInputService
         CancellationToken cancellationToken,
         TimeSpan? cooldown = null)
     {
-        ValidateNormalInteraction?.Invoke();
-        ValidateWorkflowTarget?.Invoke();
+        await PrepareNormalCommandAsync(cancellationToken);
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
         var normalizedX = (int)Math.Round(screenX * 65535d / Math.Max(1, width - 1));
@@ -147,8 +200,7 @@ public sealed class WindowsInputService
         CancellationToken cancellationToken,
         TimeSpan? cooldown = null)
     {
-        ValidateNormalInteraction?.Invoke();
-        ValidateWorkflowTarget?.Invoke();
+        await PrepareNormalCommandAsync(cancellationToken);
         var width = NativeMethods.GetSystemMetrics(SmCxScreen);
         var height = NativeMethods.GetSystemMetrics(SmCyScreen);
         if (!NativeMethods.GetCursorPos(out var current))
@@ -163,6 +215,7 @@ public sealed class WindowsInputService
         {
             cancellationToken.ThrowIfCancellationRequested();
             ValidateNormalInteraction?.Invoke();
+            ValidateWorkflowTarget?.Invoke();
             var progress = step / (double)steps;
             // Curva suave: começa e termina devagar, evitando que o jogo perca
             // um salto instantâneo do ponteiro em máquinas mais lentas.
@@ -190,8 +243,7 @@ public sealed class WindowsInputService
 
     public async Task MovePointerAsync(int screenX, int screenY, CancellationToken cancellationToken)
     {
-        ValidateNormalInteraction?.Invoke();
-        ValidateWorkflowTarget?.Invoke();
+        await PrepareNormalCommandAsync(cancellationToken);
         Send(CreateAbsoluteMouseMove(screenX, screenY,
             NativeMethods.GetSystemMetrics(SmCxScreen), NativeMethods.GetSystemMetrics(SmCyScreen)));
         WorkflowTrace?.Invoke($"input pointerOnly={screenX},{screenY}; noClick=true");
@@ -202,6 +254,7 @@ public sealed class WindowsInputService
 
     public async Task ScrollAsync(int wheelDelta, int repetitions, CancellationToken cancellationToken)
     {
+        if (repetitions > 0) await PrepareNormalCommandAsync(cancellationToken);
         for (var index = 0; index < repetitions; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();

@@ -915,7 +915,7 @@ public sealed partial class BotAutomationEngine(
         {
             // A restauração precede Correio, Diretivas e Diárias: essas rotinas
             // podem assumir o controle do cliente e pular a preparação do farm.
-            await ActivateGameForEmergencyAsync(session, cancellationToken);
+            BindWorkflowClient(session);
             var death = await FindDeathOnClientAsync(session, cancellationToken);
             if (death.Found)
             {
@@ -5129,7 +5129,8 @@ public sealed partial class BotAutomationEngine(
     private async Task<DailyMissionListReading> ReadDailyMissionListAsync(
         ClientSession session,
         PauseController pause,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowPanelActions = true)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
         var visibleConfirmations = 0;
@@ -5154,7 +5155,7 @@ public sealed partial class BotAutomationEngine(
             {
                 var hud = (await recognition.FindAsync("game_hud_menu", frame, cancellationToken)).Found;
                 if (hud) return new DailyMissionListReading(true, null);
-                if (!restRechecked && await FindRestStateAsync(session, cancellationToken) is not null)
+                if (allowPanelActions && !restRechecked && await FindRestStateAsync(session, cancellationToken) is not null)
                 {
                     // Rest may show a shortened quest list, not proof of completion.
                     restRechecked = true;
@@ -5516,13 +5517,18 @@ public sealed partial class BotAutomationEngine(
                 {
                     if (!HumanOwnsInterface && !HasPendingProtection && session.InDailyCampaign && !session.LoveBossInside && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
                     {
+                        var dailyActionStarted = false;
                         try
                         {
                             var normalHunt = await FindReferenceOnClientAsync(
                                 session, "caca_automatica", cancellationToken, requireObservable: true);
                             var dailyHunt = await FindReferenceOnClientAsync(
                                 session, "daily_automatic", cancellationToken, requireObservable: true);
-                            session.DailyNormalHuntHits = normalHunt.Found && !dailyHunt.Found
+                            var idleRest = !dailyHunt.Found && !normalHunt.Found
+                                ? await FindRestStateAsync(session, cancellationToken) : null;
+                            var needsMissionAction = !dailyHunt.Found && (normalHunt.Found ||
+                                idleRest?.ReferenceId is "descanso_aguardando_spot" or "descanso_ponto_fixo");
+                            session.DailyNormalHuntHits = needsMissionAction
                                 ? session.DailyNormalHuntHits + 1
                                 : 0;
                             if (session.DailyNormalHuntHits >= 2)
@@ -5530,12 +5536,13 @@ public sealed partial class BotAutomationEngine(
                                 // Caça comum não comprova término: a campanha pode ter parado.
                                 session.DailyNeedsTeleport = true;
                                 session.DailyNormalHuntHits = 0;
-                                WriteLog(session, "Caça comum detectada durante as Diárias; conferindo missões restantes para retomar.");
+                                WriteLog(session, "Diária automática interrompida em duas observações; conferindo missões restantes para retomar.");
                             }
 
                             if (session.DailyNeedsTeleport)
                             {
                                 session.NextDailyMissionCheckAt = DateTime.UtcNow.AddSeconds(15);
+                                dailyActionStarted = true;
                                 var resumeResult = await ResumeDailyCampaignAsync(session, pause, cancellationToken);
                                 session.DailyNeedsTeleport = false;
                                 if (resumeResult == DailyResumeResult.Started)
@@ -5568,8 +5575,10 @@ public sealed partial class BotAutomationEngine(
                                 var missionList = await CheckDailyMissionListAsync(session, pause, cancellationToken);
                                 if (!missionList.ListVisible)
                                 {
-                                    await YieldUncertainDailyToFarmAsync(session, pause, cancellationToken);
-                                    break;
+                                    session.DailyNoMissionHits = 0;
+                                    session.NextDailyMissionCheckAt = DateTime.UtcNow.AddSeconds(30);
+                                    WritePersistentOnly(session, "daily_monitor passive=true; list=unknown; preserveCampaign=true; focusRequested=false");
+                                    continue;
                                 }
                                 session.DailyNoMissionHits = missionList.MissionY is not null
                                     ? 0
@@ -5582,6 +5591,7 @@ public sealed partial class BotAutomationEngine(
                                         : TimeSpan.FromSeconds(15));
                                 if (session.DailyNoMissionHits >= 3)
                                 {
+                                    dailyActionStarted = true;
                                     await MarkDailyCampaignCompletedAsync(
                                         session,
                                         "Missões roxas ausentes por três verificações da lista; Diárias concluídas. Retornando ao farm anterior.");
@@ -5601,6 +5611,14 @@ public sealed partial class BotAutomationEngine(
                         catch (ProtectionTransitionException exception)
                         {
                             RecoverSessionAfterActionFailure(session, exception, "acompanhamento de diárias");
+                        }
+                        catch (Exception exception) when (!dailyActionStarted)
+                        {
+                            session.NextDailyMissionCheckAt = DateTime.UtcNow.AddSeconds(30);
+                            session.DailyNoMissionHits = 0;
+                            WritePersistentOnly(session, $"daily_monitor passive=true; captureUnavailable=true; preserveCampaign=true; focusRequested=false; error={exception.GetBaseException().Message}");
+                            // Capture monitoring reconnects independently. A failed read
+                            // must not start a foreground recovery/travel flow.
                         }
                         catch (Exception exception)
                         {
@@ -5901,14 +5919,9 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        await ActivateGameAsync(session, cancellationToken);
-        var missionList = await ReadDailyMissionListAsync(session, pause, cancellationToken);
-        if (!missionList.ListVisible)
-        {
-            await ExitRestIfNeededAsync(session, pause, cancellationToken);
-            missionList = await EnsureDailyMissionListAsync(session, pause, cancellationToken);
-            session.SafeInRest = await TryEnterDailyRestModeAsync(session, pause, cancellationToken);
-        }
+        // Periodic observation never changes focus, opens a panel or leaves rest.
+        // Recovery/delivery uses ResumeDailyCampaignAsync only after actionable evidence.
+        var missionList = await ReadDailyMissionListAsync(session, pause, cancellationToken, allowPanelActions: false);
 
         WriteLog(session, missionList.MissionY is not null
             ? $"Verificação das Diárias: missão roxa ainda ativa na linha y={missionList.MissionY}."
@@ -7734,15 +7747,8 @@ public sealed partial class BotAutomationEngine(
     {
         RespectHumanInteraction(session);
         BindWorkflowClient(session);
-        var target = session.Options.Target;
-        if (!gameWindows.Activate(target))
-        {
-            throw new InvalidOperationException($"Não foi possível ativar a janela {target.Title}.");
-        }
-
-        // Activate já confirma foco e janela maximizada. A captura abaixo espera
-        // o próximo quadro do jogo, sem impor 1,8 s em todo PC.
-        await Task.Delay(180, cancellationToken);
+        // Prepare the window-owned capture, not foreground. Normal input acquires
+        // focus just in time and still verifies the target before sending anything.
         await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
     }
 
@@ -7773,22 +7779,7 @@ public sealed partial class BotAutomationEngine(
 
     private async Task EnsureGameForegroundAsync(ClientSession session, CancellationToken cancellationToken)
     {
-        RespectHumanInteraction(session);
-        BindWorkflowClient(session);
-        var target = session.Options.Target;
-        if (gameWindows.IsForeground(target))
-        {
-            await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
-            return;
-        }
-
-        if (!gameWindows.Activate(target))
-        {
-            throw new InvalidOperationException($"Não foi possível devolver o foco à janela {target.Title}.");
-        }
-
-        await Task.Delay(180, cancellationToken);
-        await DismissWemadeOfferIfPresentAsync(session, cancellationToken);
+        await ActivateGameAsync(session, cancellationToken);
     }
 
     private async Task<bool> DismissWemadeOfferIfPresentAsync(

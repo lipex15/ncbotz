@@ -26,6 +26,16 @@ public sealed partial class BotAutomationEngine
         recognition.WorkflowDiagnosticContext = () => DiagnosticState(session);
         input.WorkflowTrace = message => WritePersistentOnly(session, message);
         input.ValidateNormalInteraction = () => RespectHumanInteraction(session);
+        input.PrepareWorkflowTargetAsync = async token =>
+        {
+            RespectHumanInteraction(session);
+            if (gameWindows.IsForeground(session.Options.Target)) return;
+            WritePersistentOnly(session, "focus_request reason=workflow_input; observation=false");
+            if (!gameWindows.Activate(session.Options.Target))
+                throw new InvalidOperationException($"Não foi possível ativar {session.Options.Label} para executar o comando.");
+            await Task.Delay(180, token);
+            // No input is sent if focus/ownership changed during activation.
+        };
         input.ValidateWorkflowTarget = () =>
         {
             ThrowIfDeathPending(session);
