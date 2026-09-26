@@ -930,11 +930,13 @@ public sealed partial class BotAutomationEngine(
             var hadRest = await FindRestStateAsync(session, cancellationToken) is not null;
             if (hadRest)
                 await ExitRestIfNeededAsync(session, pause, cancellationToken);
-            var observation = await ReadStartupRestorationAsync(session, pause, cancellationToken);
+            TombstoneIconReading? startupIcon = null;
+            var observation = await ReadStartupRestorationAsync(session, pause, cancellationToken,
+                icon => startupIcon = icon);
             if (observation == StartupRestorationObservation.Present)
             {
                 WriteLog(session, "Perda confirmada por ícone vermelho estável ou contador da restauração; restaurando antes das rotinas.");
-                await RestoreDeathResourcesAsync(session, pause, cancellationToken);
+                await RestoreDeathResourcesAsync(session, pause, cancellationToken, startupIcon);
             }
             else if (observation == StartupRestorationObservation.Absent)
             {
@@ -2545,8 +2547,23 @@ public sealed partial class BotAutomationEngine(
         var taName = TaName(destination);
         SetStatus(BotRunState.Running, $"{session.Options.Label}: comprando suprimentos", $"NPC Artigos dentro da {taName}");
         await WaitForReferenceAsync(ArrivalReference(destination), "painel Artigos", TimeSpan.FromSeconds(12), pause, cancellationToken);
-        await input.ClickAsync(187, 129, cancellationToken);
-        await WaitForReferenceAsync("loja_artigos", "Mercador de Artigos", TimeSpan.FromSeconds(15), pause, cancellationToken);
+        var shopOpened = false;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await AbortWorkflowIfDeathDetectedAsync(session, "ao abrir Artigos na T.A", cancellationToken);
+            if ((await FindReferenceOnClientAsync(session, "loja_artigos", cancellationToken, requireObservable: true)).Found)
+            {
+                shopOpened = true;
+                break;
+            }
+            await WaitForReferenceAsync(ArrivalReference(destination), "NPC Artigos na T.A", TimeSpan.FromSeconds(4), pause, cancellationToken);
+            WritePersistentOnly(session, $"ta_shop_interaction attempt={attempt}/3; localRetry=true; repeatTravel=false");
+            await input.ClickAsync(187, 129, cancellationToken);
+            shopOpened = await WaitForReferenceToAppearAsync("loja_artigos", TimeSpan.FromSeconds(7), pause, cancellationToken);
+            if (shopOpened) break;
+        }
+        if (!shopOpened)
+            throw new TimeoutException("Mercador de Artigos não abriu após três interações locais; nenhuma compra enviada.");
         var buyButtonLuma = await WaitForStableBuyButtonLumaAsync(session, pause, cancellationToken);
         if (buyButtonLuma < 72)
         {
@@ -6648,6 +6665,12 @@ public sealed partial class BotAutomationEngine(
                 $"{StatisticsSessionId}.town.{Interlocked.Read(ref session.EmergencyClaimUntilTicks)}");
         await RecordAbbeyExitAsync(session);
         await RecordAnonymousDungeonExitAsync(session);
+        if (session.NeedsDeathRestoration)
+        {
+            WriteLog(session, "TP concluído com restauração pendente; concluindo as perdas antes da viagem ao farm.");
+            await ActivateGameForEmergencyAsync(session, cancellationToken);
+            await RestoreDeathResourcesAsync(session, pause, cancellationToken);
+        }
         WriteLog(session, $"Proteção visual executada sem morte; retomando {ConfiguredFarmName(session)}.");
         await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: true);
     }
@@ -6773,7 +6796,8 @@ public sealed partial class BotAutomationEngine(
     private async Task RestoreDeathResourcesAsync(
         ClientSession session,
         PauseController pause,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TombstoneIconReading? startupIcon = null)
     {
         var restorationWasPending = session.NeedsDeathRestoration;
         await SetRestorationPendingAsync(session, true);
@@ -6873,11 +6897,14 @@ public sealed partial class BotAutomationEngine(
             WriteLog(session, "Sem tela de Ressuscitar neste momento; conferindo as perdas de EXP e equipamento.");
         }
 
-        WriteLog(session, "Aguardando o personagem e os indicadores de perda estabilizarem.");
-        await ActionDelayAsync(cancellationToken, 1800, 2600);
+        WriteLog(session, "Conferindo os indicadores de perda; aguardando apenas se a tela estiver carregando.");
         await ActivateGameForEmergencyAsync(session, cancellationToken);
         // Decide absence before waiting for a panel which may not exist.
-        var initialObservation = await ReadStartupRestorationAsync(session, pause, cancellationToken);
+        TombstoneIconReading? confirmedIcon = confirmedDeathScreen ? null : startupIcon;
+        var initialObservation = confirmedIcon is { Found: true }
+            ? StartupRestorationObservation.Present
+            : await ReadStartupRestorationAsync(session, pause, cancellationToken,
+                icon => confirmedIcon = icon);
         if (initialObservation == StartupRestorationObservation.Absent)
         {
             await SetRestorationPendingAsync(session, false);
@@ -6905,46 +6932,15 @@ public sealed partial class BotAutomationEngine(
                     $"não vou tratar a perda como concluída. Diagnóstico: {diagnostic}");
             }
 
-            WriteLog(session, "Verificando se esta morte gerou lápide de restauração.");
-            // Presence was already observed. Reconfirm the same icon briefly;
-            // never spend 6–10 seconds hunting an icon that is not on screen.
-            var iconFound = false;
-            var iconConfirmations = 0;
-            TombstoneIconReading? previousIcon = null;
-            for (var sample = 0; sample < 3; sample++)
-            {
-                await CheckpointAsync(pause, cancellationToken);
-                var iconFrame = await CaptureClientFrameAsync(session, cancellationToken);
-                var icon = await TombstoneIconReader.ReadAsync(recognition, iconFrame, cancellationToken, session.NeedsDeathRestoration);
-                if (icon.Found)
-                {
-                    iconConfirmations = icon.AgreesWith(previousIcon) ? iconConfirmations + 1 : 1;
-                    if (iconConfirmations >= 2)
-                    {
-                        iconFound = true;
-                        previousIcon = icon;
-                        WriteLog(session, $"Ícone de perda confirmado em dois quadros ({icon.Confidence:P0}); abrindo a lápide reconhecida.");
-                        break;
-                    }
-                }
-                else
-                {
-                    iconConfirmations = 0;
-                }
-                previousIcon = icon;
-
-                if (sample < 2) await Task.Delay(250, cancellationToken);
-            }
+            // Reuse the two frames just confirmed, scoped to this client/call.
+            // The click below still checks the current position once, not another loop.
+            var iconFound = confirmedIcon is { Found: true };
+            TombstoneIconReading? previousIcon = confirmedIcon;
+            if (iconFound)
+                WritePersistentOnly(session, "restoration_evidence reused=true; duplicateIconChecks=0; preClickFrameRequired=true");
 
             if (!iconFound)
             {
-                var observation = await ReadStartupRestorationAsync(session, pause, cancellationToken);
-                if (observation == StartupRestorationObservation.Absent)
-                {
-                    await SetRestorationPendingAsync(session, false);
-                    WriteLog(session, "Tela válida sem lápide após ressurreição; seguindo sem clique de teste.");
-                    return;
-                }
                 panelCounter = await WaitForRestorationCounterAsync(session, TimeSpan.FromSeconds(2), pause, cancellationToken);
                 if (panelCounter.State == RestorationCountState.Unknown)
                 {

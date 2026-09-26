@@ -114,7 +114,9 @@ public sealed partial class BotAutomationEngine
                 $"Próxima verificação em {(session.LoveBossInside ? "15 segundos na sala" : "10 minutos")}; sem repetir a entrada.");
             try
             {
-                session.LoveBossInside = (await FindReferenceOnClientAsync(
+                // A missing label (rest, loading, overlays) is not proof of exit.
+                // Keep ownership of a raid whose entry was already confirmed.
+                session.LoveBossInside |= (await FindReferenceOnClientAsync(
                     session, "boss_room", cancellationToken, requireObservable: true)).Found;
                 if (!session.LoveBossInside)
                 {
@@ -195,6 +197,11 @@ public sealed partial class BotAutomationEngine
         ClientSession session, PauseController pause, CancellationToken cancellationToken,
         string day)
     {
+        if (await FindRestStateAsync(session, cancellationToken) is not null)
+        {
+            WriteLog(session, "Descanso encobriu o Boss do Amor; revelando a luta sem sair da raide.");
+            await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        }
         if (!session.LoveBossAutoConfirmed)
         {
             session.LoveBossAutoConfirmed = await EnsureLoveBossAutoAsync(session, pause, cancellationToken);

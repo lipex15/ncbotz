@@ -23,7 +23,9 @@ internal static class TombstoneIconReader
         // Keep the search around the restoration shortcut, not Guild/shop badges.
         var icon = await recognition.FindAsync("lapide_nucleo", frame, token);
         var redVariant = await recognition.FindAsync("lapide_vermelha", frame, token);
-        if (redVariant.Found && (!icon.Found || redVariant.Confidence > icon.Confidence))
+        if ((redVariant.Found && !icon.Found) ||
+            (!icon.Found && redVariant.Confidence > icon.Confidence) ||
+            (redVariant.Found && redVariant.Confidence > icon.Confidence))
             icon = redVariant;
         var candidateRed = TombstoneIconAnalyzer.HasRedAt(frame, icon.X, icon.Y);
         var contextual = MayInspectAfterDeath(restorationPending, candidateRed, icon.Confidence, icon.X, icon.Y);
