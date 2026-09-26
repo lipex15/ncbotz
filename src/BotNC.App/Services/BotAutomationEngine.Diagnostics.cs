@@ -12,6 +12,8 @@ public sealed partial class BotAutomationEngine
         session.InDailyCampaign, session.DailyCycle, session.DailyCompletedCycle,
         session.LoveBossInside, session.LoveBossRewardCycle, session.InAgenda,
         session.NeedsDeathRestoration, session.HandlingDeath, session.HandlingProtection,
+        session.RestorationResourcesCleared, session.AwaitingHpRecovery, session.HpRecoveryHits,
+        session.SapherasExitedEarly, session.SapherasExitHits,
         deathPending = Volatile.Read(ref session.PendingVisualDeath),
         teleportPending = Volatile.Read(ref session.PendingVisualLowHp),
         teleportInFlight = Volatile.Read(ref session.EmergencyTeleportInFlight),
@@ -25,7 +27,7 @@ public sealed partial class BotAutomationEngine
 
     private async Task SaveActionFailureEvidenceAsync(ClientSession session, string action, Exception error, CancellationToken token)
     {
-        if (error is HumanInteractionException or ProtectionTransitionException || token.IsCancellationRequested) return;
+        if (error is HumanInteractionException or ProtectionTransitionException or RecoveryObservationPendingException || token.IsCancellationRequested) return;
         if (!session.HandlingDeath && Volatile.Read(ref session.PendingVisualDeath) != 0) return;
         WritePersistentOnly(session, $"action_failure action={action}; error={error.GetType().Name}; state={System.Text.Json.JsonSerializer.Serialize(DiagnosticState(session))}");
         if (DateTime.UtcNow - session.LastFailureDiagnosticAt < TimeSpan.FromSeconds(30))

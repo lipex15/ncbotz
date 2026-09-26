@@ -806,6 +806,8 @@ public sealed partial class BotAutomationEngine(
 
         foreach (var session in sapherasSessions)
         {
+            session.SapherasExitedEarly = false;
+            session.SapherasExitHits = 0;
             if (session.NeedsDeathRestoration || !session.StartupRestorationChecked)
             {
                 WriteLog(session, "Entrada em Sapheras adiada: a restauração iniciada na partida ainda está pendente.");
@@ -861,7 +863,7 @@ public sealed partial class BotAutomationEngine(
         foreach (var session in sessions.OrderBy(session => session.Options.Priority))
         {
             session.SapherasFarmConfirmed = false;
-            if (!session.Options.UseSapheras)
+            if (!IsSapherasSessionActive(session))
             {
                 if (!session.InAgenda && !session.IsFarmingTa && !session.LoveBossInside && !session.LoveBossReturnToFarmPending)
                 {
@@ -994,6 +996,7 @@ public sealed partial class BotAutomationEngine(
         CancellationToken cancellationToken,
         string context)
     {
+        await EnsureRecoveredHpAsync(session, cancellationToken);
         await EnsureHigherPriorityClientsSafeAsync(sessions, session, cancellationToken);
         if (session.InAgenda)
         {
@@ -1227,12 +1230,23 @@ public sealed partial class BotAutomationEngine(
                 await CheckpointAsync(pause, cancellationToken);
                 if (!HumanOwnsInterface && !HasPendingProtection)
                 {
-                    foreach (var raidSession in protectedSessions.Where(s => !s.Options.UseSapheras))
+                    foreach (var raidSession in protectedSessions.Where(s => !IsSapherasSessionActive(s)))
                         await RunLoveBossSafelyAsync(raidSession, sessions, dailyRoutines,
                             pause, cancellationToken, null);
                 }
                 foreach (var session in protectedSessions.OrderByDescending(s => Volatile.Read(ref s.PendingVisualDeath) != 0))
                 {
+                    if (!HasPendingProtection && !session.HandlingDeath && !session.NeedsDeathRestoration &&
+                        session.SapherasFarmConfirmed && !session.SapherasExitedEarly &&
+                        await ObserveSapherasExitAsync(session, cancellationToken))
+                    {
+                        session.SapherasExitedEarly = true;
+                        session.SapherasFarmConfirmed = false;
+                        session.SafeInRest = false;
+                        session.IsFarmingTa = false;
+                        session.NextRecoveryAttemptAt = DateTime.UtcNow;
+                        WriteLog(session, "Saída de Sapheras confirmada na cidade; retomando o fluxo sem aguardar o cronômetro.");
+                    }
                     if (session.InAgenda)
                     {
                         session.Audio.Armed = false;
@@ -1267,7 +1281,7 @@ public sealed partial class BotAutomationEngine(
                         {
                             session.NextRecoveryAttemptAt = default;
                             WriteLog(session, "Atendendo morte detectada pela vigilância visual durante Sapheras.");
-                            if (session.Options.UseSapheras)
+                            if (IsSapherasSessionActive(session))
                             {
                                 await RunSessionActionSafelyAsync(
                                     session,
@@ -1295,7 +1309,7 @@ public sealed partial class BotAutomationEngine(
                         session.NextRecoveryAttemptAt = default;
                         var resumed = await RunRecoveryActionSafelyAsync(
                             session,
-                            session.Options.UseSapheras
+                            IsSapherasSessionActive(session)
                                 ? "retomada de Sapheras após falha"
                                 : "retomada da T.A durante Sapheras",
                             async actionToken =>
@@ -1306,7 +1320,7 @@ public sealed partial class BotAutomationEngine(
                                 if (session.NeedsDeathRestoration)
                                 {
                                     WriteLog(session, "Restauração pendente: concluindo a lápide antes de reiniciar a rota.");
-                                    await ActivateGameForEmergencyAsync(session, actionToken);
+                                    BindWorkflowClient(session);
                                     await RestoreDeathResourcesAsync(session, pause, actionToken);
                                 }
 
@@ -1315,7 +1329,7 @@ public sealed partial class BotAutomationEngine(
                                 {
                                     await ResumeHuntAtCurrentSpotAsync(
                                         session,
-                                        !session.Options.UseSapheras,
+                                        !IsSapherasSessionActive(session),
                                         pause,
                                         actionToken);
                                     return;
@@ -1327,7 +1341,7 @@ public sealed partial class BotAutomationEngine(
                                     await ResetStalledClientRouteAsync(session, sapheras, pause, actionToken);
                                 }
 
-                                if (session.Options.UseSapheras)
+                                if (IsSapherasSessionActive(session))
                                 {
                                     await ActivateGameAsync(session, actionToken);
                                     session.IsFarmingTa = false;
@@ -1337,6 +1351,13 @@ public sealed partial class BotAutomationEngine(
                                 }
                                 else
                                 {
+                                    if (session.SapherasExitedEarly && session.PendingAgendaAfterSapheras)
+                                    {
+                                        session.PendingAgendaAfterSapheras = false;
+                                        session.Deaths.Clear();
+                                        await StartAgendaAsync(session, antiOverkill, pause, actionToken);
+                                        return;
+                                    }
                                     await EnterConfiguredFarmAsync(session, pause, actionToken, isEmergency: true);
                                 }
                             },
@@ -1366,7 +1387,7 @@ public sealed partial class BotAutomationEngine(
                         Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
                         session.Audio.Armed = false;
                         bool protectionCompleted;
-                        if (session.Options.UseSapheras)
+                        if (IsSapherasSessionActive(session))
                         {
                             protectionCompleted = await RunSessionActionSafelyAsync(
                                 session,
@@ -1387,7 +1408,7 @@ public sealed partial class BotAutomationEngine(
                         {
                             session.Audio.Armed = session.NextRecoveryAttemptAt == default &&
                                                   (session.IsFarmingTa ||
-                                                   (session.Options.UseSapheras && session.SafeInRest));
+                                                   (IsSapherasSessionActive(session) && session.SafeInRest));
                         }
 
                         break;
@@ -1396,7 +1417,7 @@ public sealed partial class BotAutomationEngine(
                     if (Interlocked.Exchange(ref session.PendingVisualLowHp, 0) != 0)
                     {
                         session.Audio.Armed = false;
-                        if (session.Options.UseSapheras)
+                        if (IsSapherasSessionActive(session))
                         {
                             await RunSessionActionSafelyAsync(
                                 session,
@@ -1419,6 +1440,9 @@ public sealed partial class BotAutomationEngine(
                     continue;
                 }
 
+                if (protectedSessions.Any(s => s.Options.UseSapheras) &&
+                    protectedSessions.Where(s => s.Options.UseSapheras).All(s => s.SapherasExitedEarly))
+                    break;
                 SetStatus(BotRunState.Running, "Farmando em Sapheras", $"Tempo restante: {FormatDuration(finishesAt - DateTime.Now)}");
                 await Task.Delay(100, cancellationToken);
             }
@@ -1554,6 +1578,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        await EnsureRecoveredHpAsync(session, cancellationToken);
         session.AwaitingHuntActivationAtSpot = false;
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
         if (!(await recognition.FindAsync("atalaia_erodida", cancellationToken)).Found)
@@ -1638,6 +1663,7 @@ public sealed partial class BotAutomationEngine(
         CancellationToken cancellationToken,
         bool isEmergency)
     {
+        await EnsureRecoveredHpAsync(session, cancellationToken);
         if (session.NeedsDeathRestoration)
             throw new InvalidOperationException(
                 $"{session.Options.Label}: retorno ao farm bloqueado enquanto a restauração de morte está pendente.");
@@ -5727,7 +5753,7 @@ public sealed partial class BotAutomationEngine(
                                     if (session.NeedsDeathRestoration)
                                     {
                                         WriteLog(session, "Restauração pendente: concluindo a lápide antes de voltar ao farm.");
-                                        await ActivateGameForEmergencyAsync(session, actionToken);
+                                        BindWorkflowClient(session);
                                         await RestoreDeathResourcesAsync(session, pause, actionToken);
                                     }
 
@@ -6357,6 +6383,13 @@ public sealed partial class BotAutomationEngine(
             WriteLog(session, $"{action} interrompido pela morte; Ressuscitar tem prioridade, sem espera de recuperação.");
             return;
         }
+        if (exception is RecoveryObservationPendingException)
+        {
+            session.NextRecoveryAttemptAt = DateTime.UtcNow.AddSeconds(5);
+            session.RequiresHardFlowReset = false;
+            WritePersistentOnly(session, $"recovery_wait action={action}; reason={exception.Message}; routePreserved=true; protectionActive=true");
+            return;
+        }
         session.Audio.Armed = false;
         session.SafeInRest = false;
         session.ConsecutiveRecoveryFailures++;
@@ -6717,7 +6750,7 @@ public sealed partial class BotAutomationEngine(
         if (session.NeedsDeathRestoration)
         {
             WriteLog(session, "TP concluído com restauração pendente; concluindo as perdas antes da viagem ao farm.");
-            await ActivateGameForEmergencyAsync(session, cancellationToken);
+            BindWorkflowClient(session);
             await RestoreDeathResourcesAsync(session, pause, cancellationToken);
         }
         WriteLog(session, $"Proteção visual executada sem morte; retomando {ConfiguredFarmName(session)}.");
@@ -6763,6 +6796,7 @@ public sealed partial class BotAutomationEngine(
         }
 
         session.HandlingDeath = true;
+        session.RestorationResourcesCleared = false;
         await SetRestorationPendingAsync(session, true);
         session.Audio.Armed = false;
         _ = session.Audio.TryConsumeAlert(out _);
@@ -6848,8 +6882,13 @@ public sealed partial class BotAutomationEngine(
         CancellationToken cancellationToken,
         TombstoneIconReading? startupIcon = null)
     {
+        if (session.RestorationResourcesCleared && !(await FindDeathOnClientAsync(session, cancellationToken)).Found)
+        {
+            await CloseClearedRestorationAsync(session, pause, cancellationToken);
+            return;
+        }
+        session.RestorationResourcesCleared = false;
         var restorationWasPending = session.NeedsDeathRestoration;
-        await SetRestorationPendingAsync(session, true);
         // O Cliente 2 pode sinalizar "Morte" primeiro dentro do descanso e só
         // depois abrir a tela completa com o botão Ressuscitar. Esperamos essa
         // transição sem clicar às cegas na tela normal.
@@ -6890,6 +6929,7 @@ public sealed partial class BotAutomationEngine(
             throw new InvalidOperationException("Morte ainda visível sem botão Ressuscitar confirmado; restauração de perdas bloqueada até o renascimento.");
         if (fullDeath.Found)
         {
+            await SetRestorationPendingAsync(session, true);
             WriteLog(
                 session,
                 $"Tela completa de morte confirmada ({fullDeath.Confidence:P0}); aguardando 5 segundos antes de Ressuscitar.");
@@ -6947,7 +6987,11 @@ public sealed partial class BotAutomationEngine(
         }
 
         WriteLog(session, "Conferindo os indicadores de perda; aguardando apenas se a tela estiver carregando.");
-        await ActivateGameForEmergencyAsync(session, cancellationToken);
+        BindWorkflowClient(session);
+        // Rest hides the tombstone area. Uncover it only when resolving this
+        // restoration, never infer absence from a hidden indicator.
+        if (await FindRestStateAsync(session, cancellationToken) is not null)
+            await ExitRestIfNeededAsync(session, pause, cancellationToken);
         // Decide absence before waiting for a panel which may not exist.
         TombstoneIconReading? confirmedIcon = confirmedDeathScreen ? null : startupIcon;
         var initialObservation = confirmedIcon is { Found: true }
@@ -6961,7 +7005,8 @@ public sealed partial class BotAutomationEngine(
             return;
         }
         if (initialObservation == StartupRestorationObservation.Unknown)
-            throw new InvalidOperationException("Tela de restauração inconclusiva; nenhum clique nem busca prolongada de lápide será executado.");
+            throw new RecoveryObservationPendingException("tela de perdas ainda sem evidência suficiente; nenhuma aba de equipamento será clicada");
+        await SetRestorationPendingAsync(session, true);
         var panelCounter = await ReadRestorationCounterAsync(session, cancellationToken);
         if (panelCounter.State != RestorationCountState.Unknown)
             panelCounter = await WaitForRestorationCounterAsync(
@@ -7105,16 +7150,40 @@ public sealed partial class BotAutomationEngine(
         }
 
         WriteLog(session, "Contadores de restauração zerados; fechando o painel com Esc.");
-        await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        session.RestorationResourcesCleared = true;
+        await CloseClearedRestorationAsync(session, pause, cancellationToken);
+    }
+
+    private async Task CloseClearedRestorationAsync(ClientSession session, PauseController pause, CancellationToken cancellationToken)
+    {
+        BindWorkflowClient(session);
+        // Persist progress within this death: retry only panel closure, never the losses.
+        var initialFrame = await CaptureClientFrameAsync(session, cancellationToken);
+        var initialCounter = await _restorationCounterReader.ReadClientFrameAsync(initialFrame, cancellationToken);
+        if (initialCounter.State == RestorationCountState.Pending)
+        {
+            session.RestorationResourcesCleared = false;
+            throw new RecoveryObservationPendingException("novas perdas visíveis; progresso anterior invalidado");
+        }
+        if (initialCounter.State != RestorationCountState.Unknown ||
+            (await recognition.FindAsync("painel_restauracao", initialFrame, cancellationToken)).Found)
+            await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
         var closeDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         var closedConfirmations = 0;
         while (DateTime.UtcNow < closeDeadline)
         {
             await CheckpointAsync(pause, cancellationToken);
-            panelCounter = await ReadRestorationCounterAsync(session, cancellationToken);
+            var closeFrame = await CaptureClientFrameAsync(session, cancellationToken);
+            var panelCounter = await _restorationCounterReader.ReadClientFrameAsync(closeFrame, cancellationToken);
+            if (panelCounter.State == RestorationCountState.Pending)
+            {
+                session.RestorationResourcesCleared = false;
+                throw new RecoveryObservationPendingException("novas perdas surgiram antes do fechamento; reavaliando restauração");
+            }
             if (panelCounter.State == RestorationCountState.Unknown &&
-                (await FindReferenceOnClientAsync(session, "game_hud_menu", cancellationToken, requireObservable: true)).Found &&
-                !(await FindReferenceOnClientAsync(session, "painel_restauracao", cancellationToken, requireObservable: true)).Found)
+                HpBarAnalyzer.Measure(closeFrame).Found &&
+                !RestorationCounterReader.HasRestorationHeading(panelCounter.RawText) &&
+                !(await recognition.FindAsync("painel_restauracao", closeFrame, cancellationToken)).Found)
             {
                 closedConfirmations++;
                 if (closedConfirmations >= 3)
@@ -7132,11 +7201,12 @@ public sealed partial class BotAutomationEngine(
 
         if (closedConfirmations < 3)
         {
-            throw new TimeoutException($"{session.Options.Label}: o painel de restauração não fechou após Esc.");
+            throw new RecoveryObservationPendingException("perdas já zeradas; aguardando confirmação do fechamento do painel");
         }
 
         WriteLog(session, "Painel de restauração fechado.");
         await SetRestorationPendingAsync(session, false);
+        session.RestorationResourcesCleared = false;
     }
 
     private async Task SetRestorationPendingAsync(ClientSession session, bool pending)
@@ -8149,6 +8219,9 @@ public sealed partial class BotAutomationEngine(
         public bool AwaitingFavoriteSpotRecognition { get; set; }
         public bool SafeInRest { get; set; }
         public bool SapherasFarmConfirmed { get; set; }
+        public bool SapherasExitedEarly;
+        public int SapherasExitHits;
+        public DateTime LastSapherasExitCheck;
         public bool RestHudVisible { get; set; }
         public string CurrentAction { get; set; } = "";
         public string LastPublishedActivity { get; set; } = "";
@@ -8252,6 +8325,12 @@ public sealed partial class BotAutomationEngine(
         public DateTime LastDeathVisualCheckAt { get; set; }
         public DateTime LastWindowFrameAt { get; set; }
         public int LowHpVisualHits { get; set; }
+        public bool AwaitingHpRecovery;
+        public int HpRecoveryHits;
+        public DateTime LastHpRecoverySample;
+        public DateTime LastHpRecoveryLog;
+        public bool RestorationResourcesCleared;
+        public DateTime LastRestorationDiagnostic;
         public DateTime LowHpFirstObservedUtc { get; set; }
         public int PendingVisualLowHp;
         public bool VisualEmergencyIssued { get; set; }

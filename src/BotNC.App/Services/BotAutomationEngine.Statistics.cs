@@ -96,7 +96,11 @@ public sealed partial class BotAutomationEngine
         catch (Exception exception) { WritePersistentOnly(session, $"statistics_daily_pending: {exception.Message}"); }
     }
 
-    private Task RecordEmergencyCommandAsync(ClientSession session) =>
-        RecordStatisticAsync(session, "emergency", "Proteção acionada · comando de TP enviado",
+    private Task RecordEmergencyCommandAsync(ClientSession session)
+    {
+        session.AwaitingHpRecovery = true;
+        session.HpRecoveryHits = 0;
+        return RecordStatisticAsync(session, "emergency", "Proteção acionada · comando de TP enviado",
             $"{StatisticsSessionId}.emergency.{Interlocked.Read(ref session.EmergencyClaimUntilTicks)}");
+    }
 }

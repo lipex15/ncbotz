@@ -501,6 +501,7 @@ public partial class App : Application
     {
         await WindowsInputService.VerifyDeferredFocusAsync();
         BotAutomationEngine.VerifyHuntActivationPolicy();
+        BotAutomationEngine.VerifyRecoveryObservationPolicy();
         BotAutomationEngine.VerifySchedulePolicy();
         BotAutomationEngine.VerifyDeathRestorationPolicy();
         BotAutomationEngine.VerifyStartupObservationPolicy();

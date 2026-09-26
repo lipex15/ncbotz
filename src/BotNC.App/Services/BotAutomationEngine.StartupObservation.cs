@@ -69,22 +69,30 @@ public sealed partial class BotAutomationEngine
             }
             await Task.Delay(250, token);
         }
-        var diagnostic = await recognition.SaveDiagnosticAsync($"startup_observation_{session.Options.Priority}",
-            await CaptureClientFrameAsync(session, token));
-        WritePersistentOnly(session, $"startup_restoration inconclusive; diagnostic={diagnostic}; noInput=true");
+        if (DateTime.UtcNow - session.LastRestorationDiagnostic >= TimeSpan.FromMinutes(1))
+        {
+            session.LastRestorationDiagnostic = DateTime.UtcNow;
+            var diagnostic = await recognition.SaveDiagnosticAsync($"startup_observation_{session.Options.Priority}",
+                await CaptureClientFrameAsync(session, token));
+            WritePersistentOnly(session, $"startup_restoration inconclusive; diagnostic={diagnostic}; noInput=true");
+        }
+        else WritePersistentOnly(session, "startup_restoration inconclusive; diagnostic=unchanged_state_throttled; noInput=true");
         return StartupRestorationObservation.Unknown;
     }
 
     internal static bool HasSufficientRestorationHud(bool menu, bool hp, bool pending) =>
-        hp && (menu || !pending);
+        hp;
 
     internal static void VerifyStartupObservationPolicy()
     {
         if (!HasSufficientRestorationHud(false, true, false) ||
-            HasSufficientRestorationHud(false, true, true) ||
+            !HasSufficientRestorationHud(false, true, true) ||
             HasSufficientRestorationHud(false, false, false) ||
             HasSufficientRestorationHud(true, false, true))
-            throw new InvalidOperationException("HUD de partida e HUD pós-morte devem ter exigências distintas.");
+            throw new InvalidOperationException("HP válido também deve permitir confirmar ausência de perdas pendentes; menu decorativo não é obrigatório.");
+        if (ClassifyStartupRestoration(true, false, false, false, false,
+                restorationPending: true, completeHud: HasSufficientRestorationHud(false, true, true)) != StartupRestorationObservation.Absent)
+            throw new InvalidOperationException("Pendência antiga sem lápide não deve bloquear o jogo quando o menu não corresponde.");
         if (ClassifyStartupRestoration(true, false, false, false, false,
                 restorationPending: true, completeHud: false) != StartupRestorationObservation.Unknown ||
             ClassifyStartupRestoration(true, true, true, false, false,
