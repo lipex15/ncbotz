@@ -12,7 +12,7 @@ public sealed partial class BotAutomationEngine
         session.InDailyCampaign, session.DailyCycle, session.DailyCompletedCycle,
         session.LoveBossInside, session.LoveBossRewardCycle, session.InAgenda,
         session.NeedsDeathRestoration, session.HandlingDeath, session.HandlingProtection,
-        session.RestorationResourcesCleared, session.AwaitingHpRecovery, session.HpRecoveryHits,
+        session.RestorationResourcesCleared, residualHpAlertSuppressed = session.ResidualHp.IsActive,
         session.SapherasExitedEarly, session.SapherasExitHits,
         deathPending = Volatile.Read(ref session.PendingVisualDeath),
         teleportPending = Volatile.Read(ref session.PendingVisualLowHp),

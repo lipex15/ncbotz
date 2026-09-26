@@ -4,8 +4,6 @@ public sealed partial class BotAutomationEngine
 {
     private sealed class RecoveryObservationPendingException(string reason) : InvalidOperationException(reason);
 
-    internal static bool IsRecoveredHp(bool found, double percent) => found && percent >= 0.70 && percent <= 1;
-
     private static bool IsSapherasSessionActive(ClientSession session) =>
         session.Options.UseSapheras && !session.SapherasExitedEarly;
 
@@ -27,32 +25,59 @@ public sealed partial class BotAutomationEngine
         return session.SapherasExitHits >= 3;
     }
 
-    private async Task EnsureRecoveredHpAsync(ClientSession session, CancellationToken token)
+    private void BeginResidualHpRecovery(ClientSession session, string reason)
     {
-        if (!session.AwaitingHpRecovery) return;
-        // Short, passive samples: leave the action queue available to the other client.
-        if (DateTime.UtcNow - session.LastHpRecoverySample < TimeSpan.FromSeconds(2))
-            throw new RecoveryObservationPendingException("aguardando próxima amostra de HP");
-        session.LastHpRecoverySample = DateTime.UtcNow;
-        var frame = await CaptureClientFrameAsync(session, token);
-        var hp = HpBarAnalyzer.Measure(frame);
-        session.HpRecoveryHits = IsRecoveredHp(hp.Found, hp.Percent) ? session.HpRecoveryHits + 1 : 0;
-        if (session.HpRecoveryHits >= 2)
+        session.ResidualHp.Begin(DateTime.UtcNow);
+        _ = session.Audio.TryConsumeAlert(out _);
+        WriteLog(session, $"{reason}: seguindo o fluxo sem esperar HP; pulsação residual não provoca novo TP.");
+    }
+
+    // This state only filters duplicate protection events. It is never awaited
+    // by travel, restoration, hunt activation, or the other client's workflow.
+    private sealed class ResidualHpGuard
+    {
+        private readonly object gate = new();
+        private bool active;
+        private DateTime started, lastSample;
+        private double peak;
+        private int recoveredHits, fallingHits;
+        public bool IsActive { get { lock (gate) return active; } }
+        public void Begin(DateTime now)
         {
-            session.AwaitingHpRecovery = false;
-            session.HpRecoveryHits = 0;
-            WriteLog(session, $"HP recuperado e estável ({hp.Percent:P0}); retorno ao farm liberado.");
-            return;
+            lock (gate)
+            {
+                active = true;
+                started = now;
+                lastSample = default;
+                peak = 0;
+                recoveredHits = fallingHits = 0;
+            }
         }
-        if (DateTime.UtcNow - session.LastHpRecoveryLog >= TimeSpan.FromSeconds(30))
+        public bool Observe(bool found, double percent, DateTime now)
         {
-            session.LastHpRecoveryLog = DateTime.UtcNow;
-            WriteLog(session, hp.Found
-                ? $"Aguardando recuperação de HP ({hp.Percent:P0}) antes de retornar; proteção continua ativa."
-                : "HP encoberto ou não reconhecido; aguardando leitura em segundo plano antes de retornar.");
+            lock (gate)
+            {
+                if (!active || now - lastSample < TimeSpan.FromMilliseconds(500)) return false;
+                lastSample = now;
+                if (!found || percent < 0 || percent > 1)
+                {
+                    recoveredHits = fallingHits = 0;
+                    return false;
+                }
+                // Ignore transient pre-teleport frames; no delay is imposed on gameplay.
+                if (now - started < TimeSpan.FromSeconds(5))
+                {
+                    peak = percent;
+                    return false;
+                }
+                peak = Math.Max(peak, percent);
+                recoveredHits = percent >= .60 ? recoveredHits + 1 : 0;
+                fallingHits = peak - percent >= .12 ? fallingHits + 1 : 0;
+                if (recoveredHits < 2 && fallingHits < 2) return false;
+                active = false;
+                return true;
+            }
         }
-        WritePersistentOnly(session, $"hp_recovery found={hp.Found}; percent={hp.Percent:F3}; stableSamples={session.HpRecoveryHits}; required=2; threshold=0.70; input=false");
-        throw new RecoveryObservationPendingException("HP ainda sem recuperação estável");
     }
 
     internal static void VerifyRecoveryObservationPolicy()
@@ -62,8 +87,23 @@ public sealed partial class BotAutomationEngine
             IsConfirmedCityExit(true, false, "CASTELO DE ABILIUS") ||
             IsConfirmedCityExit(true, true, "ATALAIA ERODIDA"))
             throw new InvalidOperationException("Saída de Sapheras exige cidade reconhecida, HP e ponto fixo.");
-        if (IsRecoveredHp(false, 1) || IsRecoveredHp(true, .35) || IsRecoveredHp(true, .69) ||
-            !IsRecoveredHp(true, .70) || !IsRecoveredHp(true, 1) || IsRecoveredHp(true, 1.1))
-            throw new InvalidOperationException("Política de recuperação de HP inválida.");
+        var now = DateTime.UtcNow;
+        var guard = new ResidualHpGuard();
+        guard.Begin(now);
+        for (var i = 1; i <= 120; i++)
+            if (guard.Observe(true, .25, now.AddSeconds(i)))
+                throw new InvalidOperationException("HP baixo residual não pode gerar nova emergência por tempo decorrido.");
+        if (!guard.IsActive || guard.Observe(false, 1, now.AddSeconds(121)))
+            throw new InvalidOperationException("Leitura ausente não prova recuperação.");
+        if (guard.Observe(true, .65, now.AddSeconds(122)) ||
+            !guard.Observe(true, .65, now.AddSeconds(123)) || guard.IsActive)
+            throw new InvalidOperationException("HP recuperado deve rearmar proteção em duas amostras.");
+        guard.Begin(now);
+        guard.Observe(true, .40, now.AddSeconds(6));
+        if (guard.Observe(true, .20, now.AddSeconds(7)) ||
+            !guard.Observe(true, .20, now.AddSeconds(8)))
+            throw new InvalidOperationException("Nova queda relevante de HP deve rearmar proteção sem esperar cura.");
+        var other = new ResidualHpGuard();
+        if (other.IsActive) throw new InvalidOperationException("Recuperação residual não deve afetar outro cliente.");
     }
 }

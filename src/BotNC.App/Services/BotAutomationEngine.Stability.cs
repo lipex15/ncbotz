@@ -50,7 +50,6 @@ public sealed partial class BotAutomationEngine
         CancellationToken token, DateTime? nextSapheras)
     {
         if (await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, token)) return;
-        await EnsureRecoveredHpAsync(session, token);
         if (await TryAdoptScheduledDungeonFarmAsync(session, pause, token)) return;
         // Adopt an existing automatic campaign BEFORE opening mail, guild or the TA selector.
         if (await RunLoveBossSafelyAsync(session, sessions, routines, pause, token, nextSapheras)) return;

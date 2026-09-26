@@ -98,8 +98,7 @@ public sealed partial class BotAutomationEngine
 
     private Task RecordEmergencyCommandAsync(ClientSession session)
     {
-        session.AwaitingHpRecovery = true;
-        session.HpRecoveryHits = 0;
+        BeginResidualHpRecovery(session, "TP enviado");
         return RecordStatisticAsync(session, "emergency", "Proteção acionada · comando de TP enviado",
             $"{StatisticsSessionId}.emergency.{Interlocked.Read(ref session.EmergencyClaimUntilTicks)}");
     }

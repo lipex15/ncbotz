@@ -996,7 +996,6 @@ public sealed partial class BotAutomationEngine(
         CancellationToken cancellationToken,
         string context)
     {
-        await EnsureRecoveredHpAsync(session, cancellationToken);
         await EnsureHigherPriorityClientsSafeAsync(sessions, session, cancellationToken);
         if (session.InAgenda)
         {
@@ -1381,7 +1380,7 @@ public sealed partial class BotAutomationEngine(
                         WriteLog(session, "Áudio de HP indisponível; tentando reconectar. A barra visual mantém proteção de contingência.");
                     }
 
-                    if (session.Audio.TryConsumeAlert(out var confidence))
+                    if (session.Audio.TryConsumeAlert(out var confidence) && !session.ResidualHp.IsActive)
                     {
                         WriteLog(session, $"HP baixo durante Sapheras ({confidence:P0}). Acionando proteção.");
                         Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
@@ -1578,7 +1577,6 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
-        await EnsureRecoveredHpAsync(session, cancellationToken);
         session.AwaitingHuntActivationAtSpot = false;
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
         if (!(await recognition.FindAsync("atalaia_erodida", cancellationToken)).Found)
@@ -1663,7 +1661,6 @@ public sealed partial class BotAutomationEngine(
         CancellationToken cancellationToken,
         bool isEmergency)
     {
-        await EnsureRecoveredHpAsync(session, cancellationToken);
         if (session.NeedsDeathRestoration)
             throw new InvalidOperationException(
                 $"{session.Options.Label}: retorno ao farm bloqueado enquanto a restauração de morte está pendente.");
@@ -5805,7 +5802,7 @@ public sealed partial class BotAutomationEngine(
                         continue;
                     }
 
-                    if (session.Audio.TryConsumeAlert(out var confidence))
+                    if (session.Audio.TryConsumeAlert(out var confidence) && !session.ResidualHp.IsActive)
                     {
                         WriteLog(session, $"Alerta sonoro de HP baixo confirmado ({confidence:P0}). Atendendo este cliente agora.");
                         Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
@@ -6111,7 +6108,14 @@ public sealed partial class BotAutomationEngine(
                     continue;
                 }
                 session.DeathVisualHits = 0;
+                var recoveryHp = HpBarAnalyzer.Measure(frame);
+                if (session.ResidualHp.Observe(recoveryHp.Found, recoveryHp.Percent, DateTime.UtcNow))
+                {
+                    session.VisualEmergencyIssued = false;
+                    WriteLog(session, "Proteção de HP rearmada: recuperação ou nova queda de HP confirmada; fluxo não foi pausado.");
+                }
                 if (session.Audio.TryConsumeAlert(out var audioConfidence) && !session.VisualEmergencyIssued &&
+                    !session.ResidualHp.IsActive &&
                     TryClaimEmergency(session))
                 {
                     session.VisualEmergencyIssued = true;
@@ -6177,7 +6181,7 @@ public sealed partial class BotAutomationEngine(
                     var allowVisualFallback = !session.Audio.IsHealthy ||
                         DateTime.UtcNow - session.LowHpFirstObservedUtc >= TimeSpan.FromSeconds(2);
                     if (session.LowHpVisualHits >= 3 && allowVisualFallback &&
-                        !session.Audio.HasPendingAlert && !session.VisualEmergencyIssued &&
+                        !session.Audio.HasPendingAlert && !session.VisualEmergencyIssued && !session.ResidualHp.IsActive &&
                         TryClaimEmergency(session))
                     {
                         session.VisualEmergencyIssued = true;
@@ -7211,6 +7215,8 @@ public sealed partial class BotAutomationEngine(
 
     private async Task SetRestorationPendingAsync(ClientSession session, bool pending)
     {
+        if (!pending && session.NeedsDeathRestoration)
+            BeginResidualHpRecovery(session, "restauração encerrada");
         session.NeedsDeathRestoration = pending;
         await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.restoration.pending", pending ? "true" : "false");
     }
@@ -8325,10 +8331,7 @@ public sealed partial class BotAutomationEngine(
         public DateTime LastDeathVisualCheckAt { get; set; }
         public DateTime LastWindowFrameAt { get; set; }
         public int LowHpVisualHits { get; set; }
-        public bool AwaitingHpRecovery;
-        public int HpRecoveryHits;
-        public DateTime LastHpRecoverySample;
-        public DateTime LastHpRecoveryLog;
+        public ResidualHpGuard ResidualHp { get; } = new();
         public bool RestorationResourcesCleared;
         public DateTime LastRestorationDiagnostic;
         public DateTime LowHpFirstObservedUtc { get; set; }
