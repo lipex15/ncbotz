@@ -3232,7 +3232,10 @@ public sealed partial class BotAutomationEngine(
         CancellationToken cancellationToken)
     {
         RespectHumanInteraction(session);
-        if (await OpenHudHuntReader.ReadAsync(recognition, await CaptureClientFrameAsync(session, cancellationToken), cancellationToken) == OpenHudHuntState.Active)
+        BindWorkflowClient(session);
+        var initialAuto = await OpenHudHuntReader.ReadAsync(recognition,
+            await CaptureClientFrameAsync(session, cancellationToken), cancellationToken);
+        if (initialAuto == OpenHudHuntState.Active)
         {
             session.SafeInRest = false;
             session.AwaitingHuntActivationAtSpot = false;
@@ -3252,6 +3255,24 @@ public sealed partial class BotAutomationEngine(
             }
 
             var restState = await FindRestStateAsync(session, cancellationToken);
+            var idleAtSpotConfirmed = false;
+            if (restState is null && session.AwaitingHuntActivationAtSpot && attempt == 1 &&
+                initialAuto == OpenHudHuntState.Unknown)
+                restState = await TryOpenRestPanelAsync(session, pause, cancellationToken);
+            if (restState?.ReferenceId == "caca_automatica")
+            {
+                session.SafeInRest = true;
+                session.AwaitingHuntActivationAtSpot = false;
+                WriteLog(session, "Descanso confirmou caça já ativa; preservando Q e o ponto atual.");
+                return;
+            }
+            if (restState?.ReferenceId == "descanso_ponto_fixo")
+            {
+                session.AwaitingHuntActivationAtSpot = false;
+                throw new InvalidOperationException("Ponto fixo reconhecido; não ativando caça nem preservando um spot antigo.");
+            }
+            if (restState?.ReferenceId == "descanso_aguardando_spot" && session.AwaitingHuntActivationAtSpot)
+                idleAtSpotConfirmed = await ConfirmIdleFarmSpotAsync(session, pause, cancellationToken);
             if (restState is not null)
             {
                 var closed = await TryCloseRestPanelAsync(
@@ -3272,12 +3293,15 @@ public sealed partial class BotAutomationEngine(
             // Q is a toggle. Re-read after closing rest, rather than using the
             // stale state that originally brought this workflow here.
             var inactiveHits = 0;
+            var contextualActivation = false;
             var autoDeadline = DateTime.UtcNow.AddSeconds(8);
             while (DateTime.UtcNow < autoDeadline && inactiveHits < 2)
             {
                 await CheckpointAsync(pause, cancellationToken);
+                var autoFrame = await CaptureClientFrameAsync(session, cancellationToken);
                 var currentAuto = await OpenHudHuntReader.ReadAsync(recognition,
-                    await CaptureClientFrameAsync(session, cancellationToken), cancellationToken);
+                    autoFrame, cancellationToken,
+                    evidence => WritePersistentOnly(session, evidence));
                 WritePersistentOnly(session, $"hunt_toggle_guard state={currentAuto}; inactiveHits={inactiveHits}; attempt={attempt}; decision={(currentAuto == OpenHudHuntState.Active ? "preserve" : "observe")}");
                 if (currentAuto == OpenHudHuntState.Active)
                 {
@@ -3288,15 +3312,26 @@ public sealed partial class BotAutomationEngine(
                     WriteLog(session, "Caça já ativa após conferir o HUD; Q não foi enviado.");
                     return;
                 }
+                if (MayEnableHuntFromIdleRest(session.AwaitingHuntActivationAtSpot,
+                        idleAtSpotConfirmed, session.NeedsDeathRestoration,
+                        HpBarAnalyzer.Measure(VisualRecognitionService.NormalizeForReferenceMatching(autoFrame)).Found,
+                        currentAuto))
+                {
+                    contextualActivation = true;
+                    WritePersistentOnly(session, "hunt_toggle_guard decision=contextual_enable; idleRestFrames=2; fixedPoint=false; liveHp=true; localSpot=true");
+                    break;
+                }
                 inactiveHits = currentAuto == OpenHudHuntState.Inactive ? inactiveHits + 1 : 0;
                 if (inactiveHits < 2) await Task.Delay(250, cancellationToken);
             }
-            if (inactiveHits < 2)
+            if (inactiveHits < 2 && !contextualActivation)
             {
                 var autoDiagnostic = await recognition.SaveDiagnosticAsync($"auto_inconclusivo_{session.Options.Priority}");
-                throw new InvalidOperationException($"Auto sem duas leituras desligadas; preservando Q. Diagnóstico: {autoDiagnostic}");
+                throw new HuntActivationUncertainException($"Auto e evidência alternativa insuficientes; preservando o spot e Q. Diagnóstico: {autoDiagnostic}");
             }
-            WriteLog(session, $"Auto desligado confirmado duas vezes; ativando com Q — ciclo {attempt}/3.");
+            WriteLog(session, contextualActivation
+                ? $"Chegada e espera no spot confirmadas; ativando Q pelo estado do descanso — ciclo {attempt}/3."
+                : $"Auto desligado confirmado duas vezes; ativando com Q — ciclo {attempt}/3.");
             await EnsureGameForegroundAsync(session, cancellationToken);
             await input.PressKeyAsync(
                 KeyQ,
@@ -6325,7 +6360,8 @@ public sealed partial class BotAutomationEngine(
         session.Audio.Armed = false;
         session.SafeInRest = false;
         session.ConsecutiveRecoveryFailures++;
-        session.RequiresHardFlowReset = session.ConsecutiveRecoveryFailures >= 2;
+        session.RequiresHardFlowReset = ShouldResetRouteAfterFailure(session.ConsecutiveRecoveryFailures,
+            session.AwaitingHuntActivationAtSpot, exception is HuntActivationUncertainException);
         var retryDelaySeconds = (int)RecoveryBackoff(session.ConsecutiveRecoveryFailures).TotalSeconds;
         if (session.ConsecutiveRecoveryFailures >= 4)
             WriteLog(session, "Recuperação ainda sem progresso; nova leitura em até 15 segundos, sem repetir compras ou cliques sem evidência.");

@@ -50,7 +50,8 @@ public sealed partial class BotAutomationEngine
             var current = ClassifyStartupRestoration(hud.Found || hp.Found, red, icon.Found,
                 counter.State != RestorationCountState.Unknown, heading,
                 icon.Confidence >= (session.NeedsDeathRestoration ? 0.78 : 0.90) && !icon.Found,
-                session.NeedsDeathRestoration, completeHud: hud.Found && hp.Found);
+                session.NeedsDeathRestoration,
+                completeHud: HasSufficientRestorationHud(hud.Found, hp.Found, session.NeedsDeathRestoration));
             WritePersistentOnly(session, $"restoration_context pending={session.NeedsDeathRestoration}; red={red}; icon={icon.Found}; confidence={icon.Confidence:F3}; contextualInspection={session.NeedsDeathRestoration && icon.Found && icon.Confidence < 0.78}; panelVerificationRequired=true");
             var positionStable = current != StartupRestorationObservation.Present ||
                 counter.State != RestorationCountState.Unknown || icon.AgreesWith(previousIcon);
@@ -74,8 +75,16 @@ public sealed partial class BotAutomationEngine
         return StartupRestorationObservation.Unknown;
     }
 
+    internal static bool HasSufficientRestorationHud(bool menu, bool hp, bool pending) =>
+        hp && (menu || !pending);
+
     internal static void VerifyStartupObservationPolicy()
     {
+        if (!HasSufficientRestorationHud(false, true, false) ||
+            HasSufficientRestorationHud(false, true, true) ||
+            HasSufficientRestorationHud(false, false, false) ||
+            HasSufficientRestorationHud(true, false, true))
+            throw new InvalidOperationException("HUD de partida e HUD pós-morte devem ter exigências distintas.");
         if (ClassifyStartupRestoration(true, false, false, false, false,
                 restorationPending: true, completeHud: false) != StartupRestorationObservation.Unknown ||
             ClassifyStartupRestoration(true, true, true, false, false,

@@ -3,12 +3,14 @@ namespace BotNC.App.Services;
 internal enum OpenHudHuntState { Unknown, Active, Inactive }
 internal static class OpenHudHuntReader
 {
-    internal static async Task<OpenHudHuntState> ReadAsync(VisualRecognitionService recognition, PixelFrame source, CancellationToken token)
+    internal static async Task<OpenHudHuntState> ReadAsync(VisualRecognitionService recognition, PixelFrame source, CancellationToken token,
+        Action<string>? trace = null)
     {
         var frame = VisualRecognitionService.NormalizeForReferenceMatching(source);
         var on = await recognition.FindAsync("hud_auto_active", frame, token);
         var off = await recognition.FindAsync("hud_auto_inactive", frame, token);
         var label = await recognition.FindAsync("hud_auto_label", frame, token);
+        trace?.Invoke($"auto_evidence on={on.Found}/{on.Confidence:F3}@{on.X},{on.Y}; off={off.Found}/{off.Confidence:F3}@{off.X},{off.Y}; label={label.Found}/{label.Confidence:F3}@{label.X},{label.Y}; source={source.Width}x{source.Height}; normalized={frame.Width}x{frame.Height}");
         if (!on.Found && !off.Found && !label.Found) return OpenHudHuntState.Unknown;
         // Both states share the same lettering. Compare the orange halo as well.
         var cx = on.Confidence >= off.Confidence ? on.X : off.X;

@@ -500,6 +500,7 @@ public partial class App : Application
     private static async Task RunSelfTestAsync(string outputPath)
     {
         await WindowsInputService.VerifyDeferredFocusAsync();
+        BotAutomationEngine.VerifyHuntActivationPolicy();
         BotAutomationEngine.VerifySchedulePolicy();
         BotAutomationEngine.VerifyDeathRestorationPolicy();
         BotAutomationEngine.VerifyStartupObservationPolicy();
