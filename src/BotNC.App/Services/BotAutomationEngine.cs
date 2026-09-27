@@ -6876,6 +6876,11 @@ public sealed partial class BotAutomationEngine(
                 return;
             }
 
+            if (session.HandlingReconnect)
+            {
+                WriteLog(session, "Restauração após login concluída; concluindo preparação da reconexão antes de retomar o farm.");
+                return;
+            }
             WriteLog(session, $"Restauração concluída; retomando {ConfiguredFarmName(session)}.");
             // A restauração terminou. Uma nova morte durante a viagem de retorno
             // precisa voltar a interromper o fluxo, inclusive na Anônima.
@@ -7062,7 +7067,13 @@ public sealed partial class BotAutomationEngine(
             return;
         }
         if (initialObservation == StartupRestorationObservation.Unknown)
+        {
+            // Refresh a stale/partial capture before the next attempt; merely
+            // waiting and reading the same invalid surface cannot make progress.
+            await ReconnectWindowCaptureAsync(session, cancellationToken);
+            WriteLog(session, "Leitura de perdas incompleta: captura reiniciada para nova tentativa; reconexão do jogo permanece monitorada.");
             throw new RecoveryObservationPendingException("tela de perdas ainda sem evidência suficiente; nenhuma aba de equipamento será clicada");
+        }
         await SetRestorationPendingAsync(session, true);
         var panelCounter = await ReadRestorationCounterAsync(session, cancellationToken);
         if (panelCounter.State != RestorationCountState.Unknown)

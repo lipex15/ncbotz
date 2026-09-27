@@ -14,6 +14,12 @@ public sealed partial class BotAutomationEngine
         if ((await visual.FindAsync("reconnect_character", frame, token)).Found &&
             (await visual.FindAsync("reconnect_start", frame, token)).Found) return ReconnectScreen.Character;
         if (HpBarAnalyzer.Measure(frame).Found) return ReconnectScreen.World;
+        // Login may return directly to death/rest, where HP is zero and the
+        // ordinary world HUD is hidden. This still needs the restoration flow.
+        if ((await visual.FindAsync("rest_unlock_instruction", frame, token)).Found ||
+            ((await visual.FindAsync("morte_titulo", frame, token)).Found &&
+             (await visual.FindAsync("morte_ressuscitar", frame, token)).Found))
+            return ReconnectScreen.World;
         var touch = (await visual.FindAsync("reconnect_touch", frame, token)).Found;
         var server = (await visual.FindAsync("reconnect_server", frame, token)).Found;
         // The message can change (inactivity, timeout, network loss). Only acknowledge
@@ -144,9 +150,9 @@ public sealed partial class BotAutomationEngine
                 else { session.LastReconnectActionScreen = screen; session.ReconnectStepAttempts = 1; }
                 if (session.ReconnectStepAttempts > 3)
                 {
-                    session.NextReconnectAction = DateTime.UtcNow.AddSeconds(30);
+                    session.NextReconnectAction = DateTime.UtcNow.AddSeconds(3);
                     session.ReconnectStepAttempts = 0;
-                    WriteLog(session, $"Reconexão aguardando mudança em {screen}; sem repetir cliques durante 30s. Outro cliente continua ativo.");
+                    WriteLog(session, $"Reconexão sem avanço em {screen}; reavaliando a tela em 3s para repetir apenas a ação correspondente. Outro cliente continua ativo.");
                     continue;
                 }
                 switch (screen)
@@ -197,6 +203,8 @@ public sealed partial class BotAutomationEngine
             var actual = await ReadReconnectScreenAsync(visual, load(file), CancellationToken.None);
             if (actual != expected) throw new InvalidOperationException($"Reconnect {file}: {actual}, esperado {expected}.");
         }
+        if (await ReadReconnectScreenAsync(visual, load("regression_death_rest_20260927.png"), CancellationToken.None) != ReconnectScreen.World)
+            throw new InvalidOperationException("Login em descanso com morte deve encaminhar à restauração, não aguardar HUD vivo.");
         var frame = VisualRecognitionService.NormalizeForReferenceMatching(load("reconnect_world.png"));
         if (!(await visual.FindAsync("reconnect_skill_off", frame, CancellationToken.None)).Found ||
             (await visual.FindAsync("reconnect_skill_on", frame, CancellationToken.None)).Found)
