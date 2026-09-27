@@ -8,12 +8,33 @@ public sealed partial class BotAutomationEngine
     private sealed class ReconnectTransitionException : InvalidOperationException;
 
     internal static async Task<ReconnectScreen> ReadReconnectScreenAsync(VisualRecognitionService visual,
-        PixelFrame frame, CancellationToken token)
+        PixelFrame frame, CancellationToken token, Action<string>? trace = null)
     {
         frame = VisualRecognitionService.NormalizeForReferenceMatching(frame);
-        if ((await visual.FindAsync("reconnect_character", frame, token)).Found &&
-            (await visual.FindAsync("reconnect_start", frame, token)).Found) return ReconnectScreen.Character;
-        if (HpBarAnalyzer.Measure(frame).Found) return ReconnectScreen.World;
+        var character = await visual.FindAsync("reconnect_character", frame, token);
+        var start = await visual.FindAsync("reconnect_start", frame, token);
+        var hp = HpBarAnalyzer.Measure(frame);
+        var menu = await visual.FindAsync("game_hud_menu", frame, token);
+        var auto = await visual.FindAsync("hud_auto_label", frame, token);
+        var controls = menu.Found || auto.Found;
+        trace?.Invoke($"reconnect_evidence character={character.Found}/{character.Confidence:F3}; start={start.Found}/{start.Confidence:F3}; hp={hp.Found}/{hp.Percent:F3}; menu={menu.Found}/{menu.Confidence:F3}; auto={auto.Found}/{auto.Confidence:F3}");
+        // The title identifies this screen independently of character appearance,
+        // slot count and the localized/animated Start button. Click its known slot.
+        if (character.Found) return ReconnectScreen.Character;
+        if (!controls)
+        {
+            const int x = 25, y = 20, width = 600, height = 100;
+            var pixels = new byte[width * height * 4];
+            for (var row = 0; row < height; row++)
+                Buffer.BlockCopy(frame.Pixels, (y + row) * frame.Stride + x * 4,
+                    pixels, row * width * 4, width * 4);
+            var text = (await new RestorationCounterReader().ReadHeaderCropAsync(
+                new PixelFrame(width, height, width * 4, pixels), token)).RawText;
+            trace?.Invoke($"reconnect_character_text={text}");
+            if (text.Contains("SELECIONAR", StringComparison.OrdinalIgnoreCase) &&
+                text.Contains("PERSONAGEM", StringComparison.OrdinalIgnoreCase))
+                return ReconnectScreen.Character;
+        }
         // Login may return directly to death/rest, where HP is zero and the
         // ordinary world HUD is hidden. This still needs the restoration flow.
         if ((await visual.FindAsync("rest_unlock_instruction", frame, token)).Found ||
@@ -27,9 +48,9 @@ public sealed partial class BotAutomationEngine
         if ((await visual.FindAsync("reconnect_login_ok", frame, token)).Found &&
             (touch || server || (await visual.FindAsync("reconnect_login_dim_touch", frame, token)).Found))
             return ReconnectScreen.LoginNotice;
-        if (!touch && !server &&
+        if (!touch && !server && controls && (hp.Found ||
             ((await visual.FindAsync("reconnect_skill_off", frame, token)).Found ||
-             (await visual.FindAsync("reconnect_skill_on", frame, token)).Found))
+             (await visual.FindAsync("reconnect_skill_on", frame, token)).Found)))
             return ReconnectScreen.World;
         if (!touch && !server) return ReconnectScreen.Unknown;
         if ((await visual.FindAsync("reconnect_promo_close", frame, token)).Found) return ReconnectScreen.Promotion;
@@ -40,7 +61,10 @@ public sealed partial class BotAutomationEngine
     {
         if (session.ReconnectPending || DateTime.UtcNow < session.NextReconnectObservation) return;
         session.NextReconnectObservation = DateTime.UtcNow.AddSeconds(2);
-        if (HpBarAnalyzer.Measure(frame).Found) { session.ReconnectHits = 0; return; }
+        if (HpBarAnalyzer.Measure(frame).Found &&
+            ((await recognition.FindAsync("game_hud_menu", frame, token)).Found ||
+             (await recognition.FindAsync("hud_auto_label", frame, token)).Found))
+        { session.ReconnectHits = 0; return; }
         var screen = await ReadReconnectScreenAsync(recognition, frame, token);
         var disconnected = screen is ReconnectScreen.LoginNotice or ReconnectScreen.Touch or
             ReconnectScreen.Promotion or ReconnectScreen.ServerReady or ReconnectScreen.Character;
@@ -78,7 +102,8 @@ public sealed partial class BotAutomationEngine
             {
                 BindWorkflowClient(session);
                 var frame = await CaptureClientFrameAsync(session, token);
-                var screen = await ReadReconnectScreenAsync(recognition, frame, token);
+                var screen = await ReadReconnectScreenAsync(recognition, frame, token,
+                    evidence => WritePersistentOnly(session, evidence));
                 if (screen == ReconnectScreen.Unknown && session.ReconnectWorldInitialized &&
                     RestorationCounterReader.HasRestorationHeading((await _restorationCounterReader.ReadClientFrameAsync(frame, token)).RawText))
                     screen = ReconnectScreen.World;
@@ -206,6 +231,32 @@ public sealed partial class BotAutomationEngine
         if (await ReadReconnectScreenAsync(visual, load("regression_death_rest_20260927.png"), CancellationToken.None) != ReconnectScreen.World)
             throw new InvalidOperationException("Login em descanso com morte deve encaminhar à restauração, não aguardar HUD vivo.");
         var frame = VisualRecognitionService.NormalizeForReferenceMatching(load("reconnect_world.png"));
+        // Reproduce the failure mode from the friend's log: apparent HP on a
+        // character screen must never divert login into restoration.
+        var selection = VisualRecognitionService.NormalizeForReferenceMatching(load("reconnect_character.png"));
+        var selectionPixels = (byte[])selection.Pixels.Clone();
+        for (var y = 945; y < 1040; y++)
+            Array.Clear(selectionPixels, y * selection.Stride + 1640 * 4, 280 * 4);
+        static void PaintFalseHp(byte[] pixels, int stride, int height)
+        {
+            for (var y = height - 53; y <= height - 47; y++)
+            for (var x = 100; x < 161; x++)
+            {
+                var offset = y * stride + x * 4;
+                pixels[offset] = 0; pixels[offset + 1] = 0;
+                pixels[offset + 2] = 200; pixels[offset + 3] = 255;
+            }
+        }
+        PaintFalseHp(selectionPixels, selection.Stride, selection.Height);
+        var selectionWithFalseHp = new PixelFrame(selection.Width, selection.Height, selection.Stride, selectionPixels);
+        if (!HpBarAnalyzer.Measure(selectionWithFalseHp).Found ||
+            await ReadReconnectScreenAsync(visual, selectionWithFalseHp, CancellationToken.None) != ReconnectScreen.Character)
+            throw new InvalidOperationException("Seleção com HP falso e botão sem correspondência deve continuar em Iniciar.");
+        var hpOnlyPixels = new byte[frame.Pixels.Length];
+        PaintFalseHp(hpOnlyPixels, frame.Stride, frame.Height);
+        if (await ReadReconnectScreenAsync(visual,
+                new PixelFrame(frame.Width, frame.Height, frame.Stride, hpOnlyPixels), CancellationToken.None) != ReconnectScreen.Unknown)
+            throw new InvalidOperationException("HP isolado não pode confirmar login concluído.");
         if (!(await visual.FindAsync("reconnect_skill_off", frame, CancellationToken.None)).Found ||
             (await visual.FindAsync("reconnect_skill_on", frame, CancellationToken.None)).Found)
             throw new InvalidOperationException("Skill 6 desligada não foi distinguida da borda ativa.");
