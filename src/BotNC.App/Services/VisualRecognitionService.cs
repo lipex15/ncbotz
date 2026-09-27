@@ -10,6 +10,48 @@ public sealed class VisualRecognitionService(
     AppDatabase database,
     ScreenCaptureService capture)
 {
+    private const long DiagnosticLimitBytes = 512L * 1024 * 1024;
+    private static readonly TimeSpan DiagnosticRetention = TimeSpan.FromDays(3);
+    private static readonly TimeSpan DiagnosticCleanupInterval = TimeSpan.FromHours(12);
+    private static readonly SemaphoreSlim DiagnosticCleanupGate = new(1, 1);
+
+    public static async Task CleanupOldDiagnosticsAsync(CancellationToken cancellationToken = default)
+    {
+        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppIdentity.DataDirectoryName, "Diagnosticos");
+        if (!Directory.Exists(directory)) return;
+        var marker = Path.Combine(directory, ".cleanup-v1");
+        try
+        {
+            if (File.Exists(marker) && DateTime.UtcNow - File.GetLastWriteTimeUtc(marker) < DiagnosticCleanupInterval) return;
+            await DiagnosticCleanupGate.WaitAsync(cancellationToken);
+            try
+            {
+                var files = new DirectoryInfo(directory).EnumerateFiles("*", SearchOption.TopDirectoryOnly)
+                    .Where(file => file.Name != Path.GetFileName(marker) &&
+                                   (file.Extension.Equals(".png", StringComparison.OrdinalIgnoreCase) || file.Extension.Equals(".json", StringComparison.OrdinalIgnoreCase)))
+                    .OrderBy(file => file.LastWriteTimeUtc).ToList();
+                foreach (var file in files.Where(file => DateTime.UtcNow - file.LastWriteTimeUtc > DiagnosticRetention).ToList())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try { file.Delete(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                }
+                files = new DirectoryInfo(directory).EnumerateFiles("*", SearchOption.TopDirectoryOnly)
+                    .Where(file => file.Name != Path.GetFileName(marker) && (file.Extension.Equals(".png", StringComparison.OrdinalIgnoreCase) || file.Extension.Equals(".json", StringComparison.OrdinalIgnoreCase)))
+                    .OrderBy(file => file.LastWriteTimeUtc).ToList();
+                long total = files.Sum(file => file.Length);
+                foreach (var file in files)
+                {
+                    if (total <= DiagnosticLimitBytes) break;
+                    try { total -= file.Length; file.Delete(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                }
+                await File.WriteAllTextAsync(marker, DateTime.UtcNow.ToString("O"), cancellationToken);
+            }
+            finally { DiagnosticCleanupGate.Release(); }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
     private const int ReferenceWidth = 1920;
     private const int ReferenceDesktopHeight = 1080;
     private const int ReferenceWindowHeight = 1040;

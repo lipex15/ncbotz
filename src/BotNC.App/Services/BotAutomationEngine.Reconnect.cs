@@ -11,9 +11,9 @@ public sealed partial class BotAutomationEngine
         PixelFrame frame, CancellationToken token)
     {
         frame = VisualRecognitionService.NormalizeForReferenceMatching(frame);
-        if (HpBarAnalyzer.Measure(frame).Found) return ReconnectScreen.World;
         if ((await visual.FindAsync("reconnect_character", frame, token)).Found &&
             (await visual.FindAsync("reconnect_start", frame, token)).Found) return ReconnectScreen.Character;
+        if (HpBarAnalyzer.Measure(frame).Found) return ReconnectScreen.World;
         var touch = (await visual.FindAsync("reconnect_touch", frame, token)).Found;
         var server = (await visual.FindAsync("reconnect_server", frame, token)).Found;
         // The message can change (inactivity, timeout, network loss). Only acknowledge

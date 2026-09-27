@@ -33,7 +33,8 @@ public sealed partial class BotAutomationEngine
                 }
                 if (attempt < 2) await Task.Delay(350, token);
             }
-            WriteLog(session, "Skill 6 encoberta ou não reconhecida; fluxo mantido, nova verificação em 30 segundos, sem alternar às cegas.");
+            session.StartupSkillChecked = true;
+            WriteLog(session, "Skill 6 encoberta ou não reconhecida nesta inicialização; fluxo mantido sem alternar às cegas.");
         }
         finally
         {
@@ -45,7 +46,7 @@ public sealed partial class BotAutomationEngine
     private async Task ServiceStartupSkillsAsync(IReadOnlyList<ClientSession> sessions, PauseController pause, CancellationToken token)
     {
         foreach (var session in sessions.Where(s => s.StartupRestorationChecked && !s.NeedsDeathRestoration &&
-                     !s.StartupSkillChecked && !s.ReconnectPending && DateTime.UtcNow >= s.NextStartupSkillCheck))
+                     !s.StartupSkillChecked && !s.ReconnectPending))
             await RunSessionActionSafelyAsync(session, "verificação inicial da skill 6",
                 () => CheckStartupSkillAsync(session, pause, token), token);
     }
