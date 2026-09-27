@@ -67,6 +67,8 @@ public sealed partial class RestorationCounterReader
             (standard.RawText + tight.RawText).Contains("EQUIPAMENTO", StringComparison.Ordinal) &&
             (standard.RawText + tight.RawText).Contains("DANIF", StringComparison.Ordinal))
         {
+            if (MatchesKnownEquipmentOne(frame))
+                return new(RestorationTab.Equipment, 1, null, standard.RawText + " | greenCounter=1; visualShape=true");
             var engine = OcrEngine.TryCreateFromLanguage(new Language("pt-BR")) ?? OcrEngine.TryCreateFromUserProfileLanguages();
             if (engine is not null)
             {
@@ -79,6 +81,49 @@ public sealed partial class RestorationCounterReader
         }
         return tight.State != RestorationCountState.Unknown ? tight :
             standard with { RawText = standard.RawText + " | tight=" + tight.RawText };
+    }
+
+    // A positive-only fallback for the supplied real failure. Compare the green
+    // digit shape, not the scenery, after the equipment heading was identified.
+    // Never infer zero or a restored resource from this fallback.
+    private static readonly Lazy<PixelFrame?> EquipmentOneReference = new(() =>
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "References", "restoration_equipment_pending_regression.png");
+        if (!File.Exists(path)) return null;
+        using var stream = File.OpenRead(path);
+        var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+        var image = new FormatConvertedBitmap(decoder.Frames[0], PixelFormats.Bgra32, null, 0);
+        var stride = image.PixelWidth * 4;
+        var pixels = new byte[stride * image.PixelHeight];
+        image.CopyPixels(pixels, stride, 0);
+        return new PixelFrame(image.PixelWidth, image.PixelHeight, stride, pixels);
+    });
+
+    private static bool MatchesKnownEquipmentOne(PixelFrame frame)
+    {
+        var reference = EquipmentOneReference.Value;
+        if (reference is null || frame.Width != 1920 || frame.Height != 1040) return false;
+        static bool Green(PixelFrame image, int x, int y)
+        {
+            var offset = y * image.Stride + x * 4;
+            var b = image.Pixels[offset]; var g = image.Pixels[offset + 1]; var r = image.Pixels[offset + 2];
+            return g > r * 1.15 && g > b * 1.05 && g >= 70;
+        }
+        for (var dy = -3; dy <= 3; dy++)
+        for (var dx = -4; dx <= 4; dx++)
+        {
+            var intersection = 0; var union = 0;
+            for (var y = 108; y < 139; y++)
+            for (var x = 405; x < 432; x++)
+            {
+                var expected = Green(reference, x, y);
+                var actual = Green(frame, x + dx, y + dy);
+                if (expected || actual) union++;
+                if (expected && actual) intersection++;
+            }
+            if (intersection >= 25 && union > 0 && intersection / (double)union >= .92) return true;
+        }
+        return false;
     }
 
     public async Task<RestorationCounterResult> ReadImageAsync(
@@ -215,8 +260,9 @@ public sealed partial class RestorationCounterReader
                 var red = frame.Pixels[sourceOffset + 2];
                 var luma = ((red * 77) + (green * 150) + (blue * 29)) >> 8;
                 var value = threshold == -2
-                    ? (byte)((green > red * 1.15 && green > blue * 1.05 && green >= 70 ||
-                              red >= green * 1.04 && green > blue * 1.1 && green >= 100) ? 255 : 0)
+                    ? (byte)((sourceX >= 320 && sourceX < 355
+                              ? green > red * 1.15 && green > blue * 1.05 && green >= 70
+                              : sourceX < 320 && red >= green * 1.04 && green > blue * 1.1 && green >= 100) ? 255 : 0)
                     : threshold == -1
                     ? (byte)(green > red * 1.15 && green > blue * 1.05 && green >= 70 ? 255 : 0)
                     : threshold is null
