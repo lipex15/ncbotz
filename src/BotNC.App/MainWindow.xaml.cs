@@ -102,6 +102,8 @@ public partial class MainWindow : Window
         GuildDirectiveScopeComboBox.ItemsSource = clientScopes;
         GuildCheckinScopeComboBox.ItemsSource = clientScopes;
         MailScopeComboBox.ItemsSource = clientScopes;
+        AutoStorageScopeComboBox.ItemsSource = clientScopes;
+        AutoStorageScopeComboBox.SelectedItem = "Nenhum";
         DailyShopScopeComboBox.ItemsSource = clientScopes;
         LoveBossScopeComboBox.ItemsSource = clientScopes;
         AntiOverkillScopeComboBox.ItemsSource = clientScopes;
@@ -1076,6 +1078,13 @@ public partial class MainWindow : Window
         }
         if (!limit1Valid) abbeyLimit1 = 1;
         if (!limit2Valid) abbeyLimit2 = 1;
+        var storageIntervalValid = int.TryParse(AutoStorageIntervalTextBox.Text, out var storageInterval) && storageInterval is >= 1 and <= 10080;
+        if (AutoStorageScopeComboBox.SelectedItem?.ToString() != "Nenhum" && !storageIntervalValid)
+        {
+            ShowValidation("Informe um intervalo de 1 a 10080 minutos para guardar itens no Depósito.");
+            return;
+        }
+        if (!storageIntervalValid) storageInterval = 120;
 
         foreach (var selectedClient in new[] { client1, client2 }.Where(client => client is not null))
         {
@@ -1188,7 +1197,8 @@ public partial class MainWindow : Window
                 ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 1),
                 Client1AnonymousCheckBox.IsChecked == true,
                 IndividualDungeonLevel(Client1IndividualDungeonComboBox.SelectedIndex), anonymousLimit1,
-                Client1SapherasCustomCheckBox.IsChecked == true ? _client1SapherasCoordinate : null));
+                Client1SapherasCustomCheckBox.IsChecked == true ? _client1SapherasCoordinate : null,
+                ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 1), storageInterval));
         }
 
         if (client2 is not null)
@@ -1218,7 +1228,8 @@ public partial class MainWindow : Window
                     ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 2),
                     Client2AnonymousCheckBox.IsChecked == true,
                     IndividualDungeonLevel(Client2IndividualDungeonComboBox.SelectedIndex), anonymousLimit2,
-                    Client2SapherasCustomCheckBox.IsChecked == true ? _client2SapherasCoordinate : null));
+                    Client2SapherasCustomCheckBox.IsChecked == true ? _client2SapherasCoordinate : null,
+                    ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 2), storageInterval));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -1652,6 +1663,8 @@ public partial class MainWindow : Window
         GuildCheckinScopeComboBox.IsEnabled = !isRunning;
         GuildCheckinTimeTextBox.IsEnabled = !isRunning;
         MailScopeComboBox.IsEnabled = !isRunning;
+        AutoStorageScopeComboBox.IsEnabled = !isRunning;
+        AutoStorageIntervalTextBox.IsEnabled = !isRunning;
         DailyShopScopeComboBox.IsEnabled = !isRunning;
         LoveBossScopeComboBox.IsEnabled = !isRunning;
         DailyShopTimeTextBox.IsEnabled = !isRunning;
@@ -1826,6 +1839,8 @@ public partial class MainWindow : Window
         GuildCheckinScopeComboBox.SelectedItem = guildCheckinScope ?? "Nenhum";
         GuildCheckinTimeTextBox.Text = string.IsNullOrWhiteSpace(guildCheckinTime) ? "00:05" : guildCheckinTime;
         MailScopeComboBox.SelectedItem = mailScope ?? "Ambos";
+        AutoStorageScopeComboBox.SelectedItem = await _database.GetSettingAsync("routines.storage.scope") ?? "Nenhum";
+        AutoStorageIntervalTextBox.Text = await _database.GetSettingAsync("routines.storage.intervalMinutes") ?? "120";
         DailyShopScopeComboBox.SelectedItem = dailyShopScope ?? "Nenhum";
         LoveBossScopeComboBox.SelectedItem = loveBossScope ?? "Nenhum";
         DailyShopTimeTextBox.Text = string.IsNullOrWhiteSpace(dailyShopTime) ? "13:05" : dailyShopTime;
@@ -1912,6 +1927,8 @@ public partial class MainWindow : Window
         await _database.SaveSettingAsync("routines.guildCheckin.scope", GuildCheckinScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
         await _database.SaveSettingAsync("routines.guildCheckin.time", runOptions.DailyRoutines.GuildCheckinAt.ToString(@"hh\:mm", CultureInfo.InvariantCulture));
         await _database.SaveSettingAsync("routines.mail.scope", MailScopeComboBox.SelectedItem?.ToString() ?? "Ambos");
+        await _database.SaveSettingAsync("routines.storage.scope", AutoStorageScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
+        await _database.SaveSettingAsync("routines.storage.intervalMinutes", AutoStorageIntervalTextBox.Text.Trim());
         await _database.SaveSettingAsync("routines.dailyShop.enabled", runOptions.DailyRoutines.EnableDailyShop.ToString().ToLowerInvariant());
         await _database.SaveSettingAsync("routines.dailyShop.scope", DailyShopScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
         await _database.SaveSettingAsync("routines.loveBoss.scope", LoveBossScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");

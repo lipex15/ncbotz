@@ -508,6 +508,7 @@ public partial class App : Application
         BotAutomationEngine.VerifyStartupObservationPolicy();
         BotAutomationEngine.VerifyWorkflowStabilityPolicy();
         BotAutomationEngine.VerifyDeathPriorityPolicy();
+        BotAutomationEngine.VerifyAutoStoragePolicy();
         BotAutomationEngine.VerifyScheduleClockPolicy();
         if (!HumanInteractionMonitor.IsPhysicalEvent(true, 0) || !HumanInteractionMonitor.IsPhysicalEvent(false, 0) ||
             HumanInteractionMonitor.IsPhysicalEvent(true, 1) || HumanInteractionMonitor.IsPhysicalEvent(false, 16))

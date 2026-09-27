@@ -466,7 +466,25 @@
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Border Grid.Row="3" Grid.ColumnSpan="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Guardar itens automaticamente" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                            <TextBlock Text="Após o intervalo, aguarda a próxima ida normal à cidade. Usa Armazenar Autom. e retoma o fluxo, sem teleporte extra, venda ou descarte de itens."
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,12" />
+                            <WrapPanel>
+                                <StackPanel Margin="0,0,24,0">
+                                    <TextBlock Text="EXECUTAR PARA · NENHUM DESATIVA" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox x:Name="AutoStorageScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" Margin="0,7,0,0" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="INTERVALO EM MINUTOS" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="AutoStorageIntervalTextBox" Text="120" Width="150" Height="40" HorizontalAlignment="Left" Margin="0,7,0,0" />
+                                </StackPanel>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
                     <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
                             BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,7,14">
                         <StackPanel>

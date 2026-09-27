@@ -145,6 +145,9 @@ public sealed partial class BotAutomationEngine(
             if (DateTimeOffset.TryParse(await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.guildTreasure.lastVisit"),
                     CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var treasureVisit))
                 session.LastGuildTreasureVisit = treasureVisit;
+            if (DateTimeOffset.TryParse(await database.GetSettingAsync($"{SessionSettingPrefix(session)}.storage.lastAction"),
+                    CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var storageVisit))
+                session.LastAutoStorageAt = storageVisit;
             session.DailyShopCommonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCommonCycle");
             session.DailyShopSummonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopSummonCycle");
             session.DailyShopAttemptCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopAttemptCycle");
@@ -1672,6 +1675,8 @@ public sealed partial class BotAutomationEngine(
 
         await RefreshAbbeyWeekAsync(session);
         await SkipUnavailableFarmScheduleStepsAsync(session);
+
+        await TryStoreItemsInCityAsync(session, pause, cancellationToken);
 
         if (session.AbbeyInside && !WantsAbbey(session))
         {
@@ -8272,6 +8277,8 @@ public sealed partial class BotAutomationEngine(
         public long ProtectionQueuedAtTicks;
         public bool HandlingProtection { get; set; }
         public bool ServicingEmergencyInput { get; set; }
+        public DateTimeOffset? LastAutoStorageAt { get; set; }
+        public DateTime NextAutoStorageRetryAt { get; set; }
         public long EmergencyClaimUntilTicks;
         public int DeathVisualHits { get; set; }
         public int ConsecutiveRecoveryFailures { get; set; }
