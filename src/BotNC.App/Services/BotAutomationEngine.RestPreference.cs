@@ -10,7 +10,7 @@ public sealed partial class BotAutomationEngine
         if (HumanOwnsInterface || HasPendingProtection) return;
         foreach (var session in sessions)
         {
-            if (session.ReconnectPending || !session.StartupRestorationChecked ||
+            if (!session.RestPreference.Pending || session.ReconnectPending || !session.StartupRestorationChecked ||
                 session.NeedsDeathRestoration || session.HandlingDeath || session.HandlingProtection ||
                 session.InAgenda || session.LoveBossInside || session.VisualCaptureFaulted ||
                 session.UserInterfaceBusy || session.NextRecoveryAttemptAt != default ||
@@ -21,23 +21,38 @@ public sealed partial class BotAutomationEngine
             _interruptibleAction.Value = session;
             try
             {
+                // Settled farm must not keep asserting UI preference. In
+                // particular an open Auto HUD outweighs a sparse rest match.
+                var openHud = await OpenHudHuntReader.ReadAsync(recognition,
+                    await CaptureClientFrameAsync(session, token), token);
+                if (!session.Options.KeepRestMode && openHud != OpenHudHuntState.Unknown)
+                {
+                    session.RestPreference.Complete();
+                    session.SafeInRest = false;
+                    continue;
+                }
                 BindWorkflowClient(session);
                 var rest = await FindRestStateAsync(session, token);
                 if (!session.Options.KeepRestMode)
                 {
                     var dailyConfirmed = session.InDailyCampaign && rest is not null &&
                         (await FindReferenceOnClientAsync(session, "daily_automatic", token, requireObservable: true)).Found;
-                    if (RestPreferencePolicy.ShouldClose(false, rest?.ReferenceId, dailyConfirmed))
+                    if (RestPreferencePolicy.ShouldClose(false, rest?.ReferenceId, dailyConfirmed, openHud))
                     {
                         await ExitRestIfNeededAsync(session, pause, token);
                         session.SafeInRest = false;
+                        session.RestPreference.Complete();
                         WritePersistentOnly(session, "rest_preference=off; hud=open; autoToggle=false");
                     }
                 }
-                else if (rest is null && RestPreferencePolicy.ShouldOpen(true, null,
-                    await OpenHudHuntReader.ReadAsync(recognition, await CaptureClientFrameAsync(session, token), token)))
+                else if (rest is not null)
+                {
+                    session.RestPreference.Complete();
+                }
+                else if (RestPreferencePolicy.ShouldOpen(true, null, openHud))
                 {
                     session.SafeInRest = await TryOpenRestPanelAsync(session, pause, token) is not null;
+                    if (session.SafeInRest) session.RestPreference.Complete();
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }

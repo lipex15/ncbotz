@@ -75,6 +75,7 @@ public sealed partial class BotAutomationEngine
         session.ReconnectAfterLogin = false;
         session.ReconnectWorldInitialized = false;
         session.DisconnectedAt = DateTime.UtcNow;
+        session.RestPreference.Request();
         session.ReconnectSkillSent = false;
         session.ReconnectSkillAttempts = 0;
         session.ReconnectWorldHits = 0;

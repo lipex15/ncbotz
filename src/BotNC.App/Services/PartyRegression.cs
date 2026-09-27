@@ -6,6 +6,17 @@ internal static class PartyRegression
     {
         static void Check(bool ok, string error) { if (!ok) throw new InvalidOperationException("Party: " + error); }
         Check(RestPreferencePolicy.ShouldClose(false, "caca_automatica", false), "farm deve sair do descanso desativado");
+        foreach (var hud in new[] { OpenHudHuntState.Active, OpenHudHuntState.Inactive })
+            Check(!RestPreferencePolicy.ShouldClose(false, "caca_automatica", false, hud), "HUD aberto não pode provocar L/foco por falso descanso");
+        var preference = new RestPreferenceRuntime();
+        Check(preference.Pending, "preferência deve ser aplicada no início");
+        preference.Complete();
+        for (var idleTick = 0; idleTick < 600; idleTick++)
+            Check(!preference.Pending, "farm estabilizado não deve reaplicar descanso nem solicitar foco");
+        preference.Request();
+        Check(preference.Pending, "ação com descanso/reconexão deve reaplicar preferência");
+        preference.Complete();
+        Check(!preference.Pending, "retorno ao farm deve encerrar aplicação da preferência");
         Check(!RestPreferencePolicy.ShouldClose(true, "caca_automatica", false), "descanso ativado deve ser preservado");
         foreach (var state in new string?[] { null, "descanso_movendo", "descanso_morte", "tela_descanso", "rest_unlock_instruction" })
             Check(!RestPreferencePolicy.ShouldClose(false, state, false), "não interromper deslocamento/morte/tela desconhecida: " + state);

@@ -3102,6 +3102,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        session.RestPreference.Request();
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             await CheckpointAsync(pause, cancellationToken);
@@ -6020,6 +6021,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        session.RestPreference.Request();
         for (var attempt = 1; attempt <= 2; attempt++)
         {
             await TryDismissAgendaAsync(session, cancellationToken);
@@ -7584,6 +7586,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        session.RestPreference.Request();
         await CheckpointAsync(pause, cancellationToken);
         if (await FindRestStateAsync(session, cancellationToken) is null)
         {
@@ -7658,6 +7661,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        session.RestPreference.Request();
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             await CheckpointAsync(pause, cancellationToken);
@@ -8352,6 +8356,7 @@ public sealed partial class BotAutomationEngine(
         public bool AwaitingFavoriteSpotRecognition { get; set; }
         public bool SafeInRest { get; set; }
         public DateTime NextRestPreferenceCheck { get; set; }
+        public RestPreferenceRuntime RestPreference { get; } = new();
         public bool SapherasFarmConfirmed { get; set; }
         public volatile bool ReconnectPending;
         public bool StartupSkillChecked;
