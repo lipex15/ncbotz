@@ -269,7 +269,7 @@ public partial class App : Application
             var service = new VisualRecognitionService(db, new ScreenCaptureService());
             var frame = LoadReferenceFrame(Path.GetFullPath(e.Args[flowProbeIndex + 1]));
             var lines = new List<string>();
-            foreach (var id in new[] { "hud_auto_label", "hud_auto_active", "hud_auto_inactive", "lapide_vermelha", "boss_entry_icon", "sapheras_map" })
+            foreach (var id in new[] { "hud_auto_label", "hud_auto_active", "hud_auto_inactive", "lapide_vermelha", "boss_entry_icon", "sapheras_map", "game_hud_menu", "rest_unlock_instruction", "tela_descanso", "descanso_morte", "morte_ressuscitar" })
             {
                 var r = await service.FindAsync(id, frame);
                 lines.Add($"{id}: found={r.Found}; confidence={r.Confidence:F4}; x={r.X}; y={r.Y}");
@@ -277,6 +277,11 @@ public partial class App : Application
             lines.Add($"auto={await OpenHudHuntReader.ReadAsync(service, frame, CancellationToken.None)}");
             lines.Add($"tombstone={await TombstoneIconReader.ReadAsync(service, frame, CancellationToken.None)}");
             lines.Add($"purpleDaily={BotAutomationEngine.HasPurpleDailyMission(frame)}");
+            var normalized = VisualRecognitionService.NormalizeForReferenceMatching(frame);
+            var hp = HpBarAnalyzer.Measure(normalized);
+            var controls = (await service.FindAsync("game_hud_menu", normalized)).Found ||
+                (await service.FindAsync("hud_auto_label", normalized)).Found;
+            lines.Add($"restorationHud={BotAutomationEngine.HasSufficientRestorationHud(controls, hp.Found, true)}; hp={hp}; controls={controls}");
             await File.WriteAllLinesAsync(output, lines);
             Shutdown();
             return;

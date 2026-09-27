@@ -60,6 +60,10 @@ public sealed partial class BotAutomationEngine
                 continue;
             }
             var hp = HpBarAnalyzer.Measure(frame);
+            // The health bar also exists behind rest. Accept a second, independent
+            // open-world control; do not depend on one decorative menu template.
+            var openControls = hud.Found ||
+                (await recognition.FindAsync("hud_auto_label", frame, token)).Found;
             var icon = await TombstoneIconReader.ReadAsync(recognition, frame, token, session.NeedsDeathRestoration);
             var counter = await _restorationCounterReader.ReadClientFrameAsync(frame, token);
             var red = icon.HasRedSignal;
@@ -68,7 +72,8 @@ public sealed partial class BotAutomationEngine
                 counter.State != RestorationCountState.Unknown, heading,
                 icon.Confidence >= (session.NeedsDeathRestoration ? 0.78 : 0.90) && !icon.Found,
                 session.NeedsDeathRestoration,
-                completeHud: HasSufficientRestorationHud(hud.Found, hp.Found, session.NeedsDeathRestoration));
+                completeHud: HasSufficientRestorationHud(openControls, hp.Found, session.NeedsDeathRestoration));
+            WritePersistentOnly(session, $"restoration_world_evidence openControls={openControls}; hp={hp.Found}/{hp.Percent:F1}; absenceRequiresOpenControls=true");
             WritePersistentOnly(session, $"restoration_context pending={session.NeedsDeathRestoration}; red={red}; icon={icon.Found}; confidence={icon.Confidence:F3}; contextualInspection={session.NeedsDeathRestoration && icon.Found && icon.Confidence < 0.78}; panelVerificationRequired=true");
             var positionStable = current != StartupRestorationObservation.Present ||
                 counter.State != RestorationCountState.Unknown || icon.AgreesWith(previousIcon);
@@ -98,21 +103,22 @@ public sealed partial class BotAutomationEngine
     }
 
     internal static bool HasSufficientRestorationHud(bool menu, bool hp, bool pending) =>
-        hp;
+        menu && hp;
 
     internal static void VerifyStartupObservationPolicy()
     {
         if (ClassifyStartupRestoration(true, false, false, false, false,
                 restorationPending: true, restVisible: true) != StartupRestorationObservation.Unknown)
             throw new InvalidOperationException("HP no descanso não prova ausência de lápide.");
-        if (!HasSufficientRestorationHud(false, true, false) ||
-            !HasSufficientRestorationHud(false, true, true) ||
+        if (HasSufficientRestorationHud(false, true, false) ||
+            HasSufficientRestorationHud(false, true, true) ||
+            !HasSufficientRestorationHud(true, true, true) ||
             HasSufficientRestorationHud(false, false, false) ||
             HasSufficientRestorationHud(true, false, true))
-            throw new InvalidOperationException("HP válido também deve permitir confirmar ausência de perdas pendentes; menu decorativo não é obrigatório.");
+            throw new InvalidOperationException("HP isolado não prova HUD aberto; menu ou Auto mais HP devem permitir progresso.");
         if (ClassifyStartupRestoration(true, false, false, false, false,
-                restorationPending: true, completeHud: HasSufficientRestorationHud(false, true, true)) != StartupRestorationObservation.Absent)
-            throw new InvalidOperationException("Pendência antiga sem lápide não deve bloquear o jogo quando o menu não corresponde.");
+                restorationPending: true, completeHud: HasSufficientRestorationHud(false, true, true)) != StartupRestorationObservation.Unknown)
+            throw new InvalidOperationException("Regressão do diagnóstico: HP com controles ocultos não pode zerar perdas.");
         if (ClassifyStartupRestoration(true, false, false, false, false,
                 restorationPending: true, completeHud: false) != StartupRestorationObservation.Unknown ||
             ClassifyStartupRestoration(true, true, true, false, false,

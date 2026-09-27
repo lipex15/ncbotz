@@ -7,6 +7,11 @@ internal static class FlowVisualRegression
         var deathRest = load("regression_death_rest_20260927.png");
         if (!(await recognition.FindAsync("rest_unlock_instruction", deathRest)).Found)
             throw new InvalidOperationException("Descanso real de morte não foi reconhecido; perdas ficariam ocultas.");
+        var restControls = (await recognition.FindAsync("game_hud_menu", deathRest)).Found ||
+            (await recognition.FindAsync("hud_auto_label", deathRest)).Found;
+        // Deliberately simulate the misleading HP=true from the incident log.
+        if (BotAutomationEngine.HasSufficientRestorationHud(restControls, true, true))
+            throw new InvalidOperationException("Captura real de descanso foi aceita como HUD completo com HP isolado.");
         if ((await recognition.FindAsync("rest_unlock_instruction", load("hud_auto_active.png"))).Found ||
             (await recognition.FindAsync("rest_unlock_instruction", load("reconnect_character.png"))).Found)
             throw new InvalidOperationException("Arraste de descanso liberado fora da tela de descanso.");
@@ -27,6 +32,9 @@ internal static class FlowVisualRegression
             ("regression_auto_range_off.png", OpenHudHuntState.Inactive) })
         {
             var frame = Canvas(load(file), 1815, 615);
+            var autoControl = (await recognition.FindAsync("hud_auto_label", frame)).Found;
+            if (!BotAutomationEngine.HasSufficientRestorationHud(autoControl, true, true))
+                throw new InvalidOperationException($"HUD aberto não pode depender só do menu decorativo: {file}");
             if (await OpenHudHuntReader.ReadAsync(recognition, frame, CancellationToken.None) != expected)
                 throw new InvalidOperationException($"Auto com distância variável: {file}");
         }

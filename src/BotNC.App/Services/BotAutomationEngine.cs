@@ -6606,6 +6606,7 @@ public sealed partial class BotAutomationEngine(
             RecoverSessionAfterActionFailure(session, exception, action);
             return false;
         }
+
         finally
         {
             WritePersistentOnly(session, $"action_end name={action}; elapsedMs={elapsed.ElapsedMilliseconds}");
@@ -6847,7 +6848,6 @@ public sealed partial class BotAutomationEngine(
         }
 
         session.HandlingDeath = true;
-        session.RestorationResourcesCleared = false;
         await SetRestorationPendingAsync(session, true);
         session.Audio.Armed = false;
         _ = session.Audio.TryConsumeAlert(out _);
@@ -6858,6 +6858,8 @@ public sealed partial class BotAutomationEngine(
         try
         {
             await ClearRestorationIconAbsenceAsync(session);
+            // RestoreDeathResourcesAsync invalidates completed work only if a
+            // death is still visible; a stale notification must not reset it.
             await RecordAbbeyExitAsync(session);
             await RecordAnonymousDungeonExitAsync(session);
             SetStatus(BotRunState.Running, $"{session.Options.Label}: personagem morreu", "Ressuscitando e restaurando recursos");
@@ -6951,8 +6953,9 @@ public sealed partial class BotAutomationEngine(
                 (await recognition.FindAsync("rest_unlock_instruction", deathFrame, cancellationToken)).Found)
             {
                 await ActivateGameForEmergencyAsync(session, cancellationToken);
-                WriteLog(session, "Morte no descanso: saindo com L para revelar Ressuscitar antes de verificar perdas.");
-                await TryCloseRestPanelAsync(session, pause, "revelar Ressuscitar", cancellationToken);
+                WriteLog(session, "Morte no descanso: desbloqueando para revelar Ressuscitar antes de verificar perdas.");
+                if (!await TryCloseRestPanelAsync(session, pause, "revelar Ressuscitar", cancellationToken))
+                    throw new RecoveryObservationPendingException("descanso não desbloqueado; perdas preservadas, sem conclusão falsa");
             }
             WriteLog(session, "Estado Morte reconhecido; aguardando a tela completa de Ressuscitar.");
             var transitionStartedAt = DateTime.UtcNow;
@@ -7001,7 +7004,8 @@ public sealed partial class BotAutomationEngine(
                 }
 
                 WriteLog(session, $"Clicando em Ressuscitar (1811, 994) — tentativa {attempt}/2.");
-                await input.ClickAsync(1811, 994, cancellationToken);
+                var resurrectPoint = gameWindows.MapReferencePoint(session.Options.Target, 1811, 994);
+                await input.ClickAsync(resurrectPoint.X, resurrectPoint.Y, cancellationToken);
                 var disappearDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
                 while (DateTime.UtcNow < disappearDeadline)
                 {
@@ -7568,7 +7572,8 @@ public sealed partial class BotAutomationEngine(
                 return true;
             }
 
-            if (attempt == 1)
+            if (attempt == 1 && state.Value.ReferenceId != "descanso_morte" &&
+                state.Value.ReferenceId != "rest_unlock_instruction")
                 await input.PressKeyAsync(KeyL, TimeSpan.FromMilliseconds(145), cancellationToken);
             else
             {
@@ -7681,7 +7686,9 @@ public sealed partial class BotAutomationEngine(
         {
             await CheckpointAsync(pause, cancellationToken);
             if (await FindRestStateAsync(session, cancellationToken) is null &&
-                (await FindReferenceOnClientAsync(session, "game_hud_menu", cancellationToken, requireObservable: true)).Found)
+                ((await FindFullDeathOnClientAsync(session, cancellationToken)).Found ||
+                 (await FindReferenceOnClientAsync(session, "game_hud_menu", cancellationToken, requireObservable: true)).Found ||
+                 (await FindReferenceOnClientAsync(session, "hud_auto_label", cancellationToken, requireObservable: true)).Found))
             {
                 clearConfirmations++;
                 if (clearConfirmations >= 2)
