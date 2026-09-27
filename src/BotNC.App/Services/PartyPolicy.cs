@@ -55,7 +55,7 @@ internal sealed class PartyRuntime
     internal int UncertainReads;
     internal DateTime LastRebuild;
     internal bool RosterEstablished;
-    internal int MissingCardReads;
+    internal bool NeedsObservation => !RosterEstablished || RecheckAfterReconnect;
     internal int NextInviteIndex;
     internal bool AcceptanceAwaitingCard;
     internal string? AwaitingName;

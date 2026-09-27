@@ -16,6 +16,9 @@ public sealed partial class BotAutomationEngine
                 DateTime.UtcNow < session.Party.NextScan) continue;
             var state = session.Party;
             state.Reconnected(session.DisconnectedAt);
+            // Once established, no screenshots, OCR or P-panel polling for party.
+            // A reconnect (or a new ClientSession) explicitly re-arms this work.
+            if (!state.NeedsObservation) continue;
             state.NextScan = DateTime.UtcNow.AddSeconds(3);
             var previousInterruptible = _interruptibleAction.Value;
             _interruptibleAction.Value = session;
@@ -25,10 +28,13 @@ public sealed partial class BotAutomationEngine
                 var frame = await CaptureClientFrameAsync(session, token);
                 if (options.Role == PartyRole.Receiver)
                 {
-                    if (state.AcceptanceAwaitingCard && await PartyReader.HasMemberCardAsync(recognition, frame, token))
+                    if (await PartyReader.HasMemberCardAsync(recognition, frame, token))
                     {
                         state.AcceptanceAwaitingCard = false;
+                        state.RosterEstablished = true;
+                        state.RecheckAfterReconnect = false;
                         WriteLog(session, "Grupo: entrada confirmada pelo card do integrante.");
+                        continue;
                     }
                     if (await PartyReader.HasInvitationAsync(recognition, frame, token))
                         await AcceptPartyInvitationAsync(session, options, pause, token);
@@ -36,22 +42,6 @@ public sealed partial class BotAutomationEngine
                 }
                 if (DateTime.UtcNow < state.NextLeaderCheck ||
                     !(session.IsFarmingTa || session.SapherasFarmConfirmed)) continue;
-                if (state.RosterEstablished && !state.RecheckAfterReconnect)
-                {
-                    // A hidden HUD while resting is not a lost party. Keep
-                    // passive checks in the background; only open P on evidence
-                    // of a missing card or after reconnect.
-                    if (await FindRestStateAsync(session, token) is not null ||
-                        (PartyReader.HudCards(frame) >= options.InviteNames.Count &&
-                         await PartyReader.HasMemberCardAsync(recognition, frame, token)))
-                    {
-                        state.MissingCardReads = 0;
-                        state.NextLeaderCheck = DateTime.UtcNow.AddSeconds(30);
-                        continue;
-                    }
-                    if (++state.MissingCardReads < 2) continue;
-                    state.RosterEstablished = false;
-                }
                 state.NextLeaderCheck = DateTime.UtcNow.AddSeconds(60);
                 await MaintainPartyLeaderAsync(session, options, pause, token);
             }
@@ -102,6 +92,8 @@ public sealed partial class BotAutomationEngine
             frame = await CaptureClientFrameAsync(session, token);
             var card = await PartyReader.HasMemberCardAsync(recognition, frame, token);
             session.Party.AcceptanceAwaitingCard = !card;
+            session.Party.RosterEstablished = card;
+            if (card) session.Party.RecheckAfterReconnect = false;
             WriteLog(session, card ? "Grupo: entrada confirmada pelo card do integrante." :
                 "Grupo: OK do convite enviado; aguardando confirmação visual do integrante, sem parar o farm.");
             session.Party.NextScan = DateTime.UtcNow.AddSeconds(5);
@@ -240,6 +232,6 @@ public sealed partial class BotAutomationEngine
         }
         if ((await recognition.FindAsync("party_panel", frame, token)).Found)
             await PartyClickAsync(session, 382, 123, token);
-        if (hadRest) session.SafeInRest = await TryOpenRestPanelAsync(session, pause, token) is not null;
+        if (hadRest && session.Options.KeepRestMode) session.SafeInRest = await TryOpenRestPanelAsync(session, pause, token) is not null;
     }
 }

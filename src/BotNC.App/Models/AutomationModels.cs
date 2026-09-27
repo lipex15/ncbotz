@@ -89,7 +89,8 @@ public sealed record AutomationClientOptions(
     bool EnableAutoStorage = false,
     int AutoStorageIntervalMinutes = 120,
     FarmCoordinate? AnonymousDungeonCustomFarmCoordinate = null,
-    PartyOptions? Party = null);
+    PartyOptions? Party = null,
+    bool KeepRestMode = true);
 
 public enum PartyRole { Disabled, Leader, Receiver }
 public sealed record PartyOptions(PartyRole Role, IReadOnlyList<string> InviteNames, string PreferredInviter = "");

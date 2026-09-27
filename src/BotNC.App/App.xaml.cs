@@ -474,6 +474,8 @@ public partial class App : Application
             window.ShowExecutionPreviewForScreenshot();
         if (e.Args.Contains("--start-preview", StringComparer.Ordinal))
             window.ShowStartPreviewForScreenshot();
+        if (e.Args.Contains("--party-preview", StringComparer.Ordinal))
+            window.ShowPartyForScreenshot();
         var outputPath = Path.GetFullPath(e.Args[screenshotIndex + 1]);
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         window.UpdateLayout();

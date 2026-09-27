@@ -1236,6 +1236,7 @@ public sealed partial class BotAutomationEngine(
                 await CheckpointAsync(pause, cancellationToken);
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
+                await ServiceRestPreferenceAsync(sessions, pause, cancellationToken);
                 await ServicePartiesAsync(sessions, pause, cancellationToken);
                 if (!HumanOwnsInterface && !HasPendingProtection)
                 {
@@ -5496,6 +5497,7 @@ public sealed partial class BotAutomationEngine(
 
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
+                await ServiceRestPreferenceAsync(sessions, pause, cancellationToken);
                 await ServicePartiesAsync(sessions, pause, cancellationToken);
                 if (await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, cancellationToken))
                     continue;
@@ -5598,6 +5600,10 @@ public sealed partial class BotAutomationEngine(
                         var dailyActionStarted = false;
                         try
                         {
+                            // Temporary observation of daily movement/Auto remains
+                            // available even when normal farming uses the open HUD.
+                            if (!session.Options.KeepRestMode)
+                                await ObserveDailyRestForOpenHudAsync(session, pause, cancellationToken);
                             var normalHunt = await FindReferenceOnClientAsync(
                                 session, "caca_automatica", cancellationToken, requireObservable: true);
                             var dailyHunt = await FindReferenceOnClientAsync(
@@ -8345,6 +8351,7 @@ public sealed partial class BotAutomationEngine(
         public bool AwaitingHuntActivationAtSpot { get; set; }
         public bool AwaitingFavoriteSpotRecognition { get; set; }
         public bool SafeInRest { get; set; }
+        public DateTime NextRestPreferenceCheck { get; set; }
         public bool SapherasFarmConfirmed { get; set; }
         public volatile bool ReconnectPending;
         public bool StartupSkillChecked;

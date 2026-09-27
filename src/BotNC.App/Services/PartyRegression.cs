@@ -5,6 +5,15 @@ internal static class PartyRegression
     internal static async Task VerifyAsync(VisualRecognitionService visual, Func<string, PixelFrame> load)
     {
         static void Check(bool ok, string error) { if (!ok) throw new InvalidOperationException("Party: " + error); }
+        Check(RestPreferencePolicy.ShouldClose(false, "caca_automatica", false), "farm deve sair do descanso desativado");
+        Check(!RestPreferencePolicy.ShouldClose(true, "caca_automatica", false), "descanso ativado deve ser preservado");
+        foreach (var state in new string?[] { null, "descanso_movendo", "descanso_morte", "tela_descanso", "rest_unlock_instruction" })
+            Check(!RestPreferencePolicy.ShouldClose(false, state, false), "não interromper deslocamento/morte/tela desconhecida: " + state);
+        Check(RestPreferencePolicy.ShouldClose(false, "tela_descanso", true), "diária confirmada deve voltar à tela aberta");
+        Check(RestPreferencePolicy.ShouldOpen(true, null, OpenHudHuntState.Active), "preferência ligada deve descansar farm ativo");
+        Check(!RestPreferencePolicy.ShouldOpen(false, null, OpenHudHuntState.Active) &&
+            !RestPreferencePolicy.ShouldOpen(true, null, OpenHudHuntState.Unknown) &&
+            !RestPreferencePolicy.ShouldOpen(true, null, OpenHudHuntState.Inactive), "não esconder tela ambígua ou desrespeitar preferência");
         foreach (var (reference, file) in new[] {
             ("party_panel", "party_panel.png"), ("party_empty", "party_create.png"),
             ("party_create_confirm", "party_create.png"), ("party_invite_prompt", "party_invite.png"),
@@ -43,6 +52,18 @@ internal static class PartyRegression
         Check(PartyPolicy.ClearlyDifferentInviter("Convite para a equipe de OutroNick. Deseja aceitar?", "MeuNick") &&
             !PartyPolicy.ClearlyDifferentInviter("Convite para a equipe de 流氓LIPEX. Deseja aceitar?", "MeuNick"), "remetente ambíguo");
         var runtime = new PartyRuntime();
+        Check(runtime.NeedsObservation, "nova sessão deve verificar a PT existente");
+        runtime.RosterEstablished = true;
+        Check(!runtime.NeedsObservation, "PT confirmada não deve continuar verificando");
+        runtime.Reconnected(default);
+        Check(!runtime.NeedsObservation, "sem reconexão não deve reabrir a verificação");
+        var epoch = DateTime.UtcNow;
+        runtime.Reconnected(epoch);
+        Check(runtime.NeedsObservation && !runtime.RosterEstablished, "reconexão deve conferir PT novamente");
+        runtime.RosterEstablished = true;
+        runtime.RecheckAfterReconnect = false;
+        runtime.Reconnected(epoch);
+        Check(!runtime.NeedsObservation, "mesma reconexão não deve reiniciar checagem concluída");
         for (var i = 0; i < 5; i++) { Check(runtime.MayInvite(names[0]), "limite antecipado"); runtime.RecordInvite(names[0]); }
         Check(!runtime.MayInvite(names[0]) && runtime.MayInvite(names[1]), "limite por pessoa");
         runtime.Reconnected(DateTime.UtcNow);

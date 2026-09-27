@@ -917,6 +917,7 @@ public partial class MainWindow : Window
         lines.Add($"Loja: {DailyShopScopeComboBox.SelectedItem} · Guilda: {GuildCheckinScopeComboBox.SelectedItem}");
         lines.Add($"Boss do Amor: {LoveBossScopeComboBox.SelectedItem} · Agenda: {FarmScheduleScopeComboBox.SelectedItem}");
         lines.Add($"Grupo: Cliente 1 {(Client1PartyRole.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content} · Cliente 2 {(Client2PartyRole.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content}");
+        lines.Add($"Descanso no farm: Cliente 1 {(Client1KeepRestCheckBox.IsChecked == true ? "ligado" : "desligado")} · Cliente 2 {(Client2KeepRestCheckBox.IsChecked == true ? "ligado" : "desligado")}");
         StartPreviewText.Text = string.Join(Environment.NewLine, lines);
         StartPreviewOverlay.Visibility = Visibility.Visible;
     }
@@ -1234,7 +1235,7 @@ public partial class MainWindow : Window
                 Client1SapherasCustomCheckBox.IsChecked == true ? _client1SapherasCoordinate : null,
                 ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 1), storageInterval,
                 Client1AnonymousCustomCheckBox.IsChecked == true ? _client1AnonymousCoordinate : null,
-                ReadPartyOptions(1)));
+                ReadPartyOptions(1), Client1KeepRestCheckBox.IsChecked == true));
         }
 
         if (client2 is not null)
@@ -1267,7 +1268,7 @@ public partial class MainWindow : Window
                     Client2SapherasCustomCheckBox.IsChecked == true ? _client2SapherasCoordinate : null,
                     ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 2), storageInterval,
                     Client2AnonymousCustomCheckBox.IsChecked == true ? _client2AnonymousCoordinate : null,
-                    ReadPartyOptions(2)));
+                    ReadPartyOptions(2), Client2KeepRestCheckBox.IsChecked == true));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -1704,7 +1705,8 @@ public partial class MainWindow : Window
         AutoStorageScopeComboBox.IsEnabled = !isRunning;
         AutoStorageIntervalTextBox.IsEnabled = !isRunning;
         foreach (var control in new System.Windows.Controls.Control[] { Client1PartyRole, Client2PartyRole,
-            Client1PartyNames, Client2PartyNames, Client1PartyInviter, Client2PartyInviter }) control.IsEnabled = !isRunning;
+            Client1PartyNames, Client2PartyNames, Client1PartyInviter, Client2PartyInviter,
+            Client1KeepRestCheckBox, Client2KeepRestCheckBox }) control.IsEnabled = !isRunning;
         DailyShopScopeComboBox.IsEnabled = !isRunning;
         LoveBossScopeComboBox.IsEnabled = !isRunning;
         DailyShopTimeTextBox.IsEnabled = !isRunning;
