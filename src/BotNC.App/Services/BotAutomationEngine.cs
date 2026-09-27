@@ -954,6 +954,7 @@ public sealed partial class BotAutomationEngine(
                 throw new InvalidOperationException("Captura inicial inconclusiva; captura reconectada, sem clicar na lápide nem registrar perda.");
             }
 
+            await CheckStartupSkillAsync(session, pause, cancellationToken);
             if (hadRest)
             {
                 var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
@@ -1228,6 +1229,7 @@ public sealed partial class BotAutomationEngine(
             {
                 await CheckpointAsync(pause, cancellationToken);
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
+                await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
                 if (!HumanOwnsInterface && !HasPendingProtection)
                 {
                     foreach (var raidSession in protectedSessions.Where(s => !s.ReconnectPending && !IsSapherasSessionActive(s)))
@@ -5481,6 +5483,7 @@ public sealed partial class BotAutomationEngine(
                 }
 
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
+                await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
                 if (await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, cancellationToken))
                     continue;
 
@@ -8252,6 +8255,8 @@ public sealed partial class BotAutomationEngine(
         public bool SafeInRest { get; set; }
         public bool SapherasFarmConfirmed { get; set; }
         public volatile bool ReconnectPending;
+        public bool StartupSkillChecked;
+        public DateTime NextStartupSkillCheck;
         public bool HandlingReconnect;
         public bool ReconnectAfterLogin, ReconnectWorldInitialized, ReconnectSkillSent;
         public int ReconnectHits, ReconnectWorldHits, ReconnectStepAttempts, ReconnectSkillAttempts;

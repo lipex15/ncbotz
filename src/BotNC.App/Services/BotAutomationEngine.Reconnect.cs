@@ -109,6 +109,7 @@ public sealed partial class BotAutomationEngine
                     {
                         await input.PressKeyAsync(0x36, cancellationToken: token);
                         session.ReconnectSkillSent = true;
+                        session.StartupSkillChecked = true;
                         session.ReconnectSkillAttempts = 0;
                         WriteLog(session, "Reconexão: skill 6 desligada; tecla 6 enviada uma vez.");
                         continue;
@@ -117,6 +118,7 @@ public sealed partial class BotAutomationEngine
                     WriteLog(session, active.Found ? "Skill 6 ativa confirmada após login." :
                         "Skill 6 sem confirmação visual após login; não vou alternar a tecla às cegas. Confira a habilidade; retomando o fluxo.");
                     session.ReconnectPending = false;
+                    if (active.Found) session.StartupSkillChecked = true;
                     if (session.InAgenda) session.AgendaUntil += DateTime.UtcNow - session.DisconnectedAt;
                     session.ReconnectHits = 0;
                     session.ConsecutiveRecoveryFailures = 0;
