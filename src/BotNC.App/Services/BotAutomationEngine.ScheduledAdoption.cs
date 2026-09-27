@@ -29,6 +29,15 @@ public sealed partial class BotAutomationEngine
         if (!location) return false;
         session.AbbeyInside = abbey;
         session.AnonymousDungeonInside = !abbey;
+        if (abbey) session.AbbeyActiveSinceUtc = DateTime.UtcNow;
+        if ((abbey ? session.Options.AbbeyCustomFarmCoordinate : session.Options.AnonymousDungeonCustomFarmCoordinate) is not null)
+        {
+            // Agenda uses the configured destination even with individual farming disabled.
+            if (abbey) await TravelToAbbeySpotAsync(session, pause, token);
+            else await TravelToAnonymousDungeonSpotAsync(session, pause, token);
+            await SaveFarmScheduleStateAsync(session);
+            return true;
+        }
         session.IsFarmingTa = true;
         session.SafeInRest = false;
         session.ScheduleHuntConfirmed = true;

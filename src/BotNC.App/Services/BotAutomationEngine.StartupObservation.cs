@@ -63,9 +63,17 @@ public sealed partial class BotAutomationEngine
             // The health bar also exists behind rest. Accept a second, independent
             // open-world control; do not depend on one decorative menu template.
             var openControls = hud.Found ||
-                (await recognition.FindAsync("hud_auto_label", frame, token)).Found;
+                (await recognition.FindAsync("hud_auto_label", frame, token)).Found ||
+                (await recognition.FindAsync("reconnect_skill_off", frame, token)).Found ||
+                (await recognition.FindAsync("reconnect_skill_on", frame, token)).Found;
             var icon = await TombstoneIconReader.ReadAsync(recognition, frame, token, session.NeedsDeathRestoration);
             var counter = await _restorationCounterReader.ReadClientFrameAsync(frame, token);
+            if (session.NeedsDeathRestoration && hp.Found && icon.AreaInspection)
+            {
+                onConfirmedIcon?.Invoke(icon);
+                WritePersistentOnly(session, $"restoration_decision=Present; reason=fixed_area_inspection; templateConfidence={icon.Confidence:F3}; panelMustConfirm=true; xy={icon.X},{icon.Y}");
+                return StartupRestorationObservation.Present;
+            }
             var red = icon.HasRedSignal;
             var heading = RestorationCounterReader.HasRestorationHeading(counter.RawText);
             var current = ClassifyStartupRestoration(hud.Found || hp.Found, red, icon.Found,
@@ -88,6 +96,12 @@ public sealed partial class BotAutomationEngine
                     onConfirmedIcon?.Invoke(icon);
                 WritePersistentOnly(session, $"restoration_decision={current}; elapsedMs={elapsed.ElapsedMilliseconds}; samples={sample + 1}; noInput=true");
                 return current;
+            }
+            if (session.NeedsDeathRestoration && current == StartupRestorationObservation.Unknown && icon.Found)
+            {
+                onConfirmedIcon?.Invoke(icon);
+                WritePersistentOnly(session, "restoration_decision=Present; reason=confirmed_death_fixed_area; noInput=true");
+                return StartupRestorationObservation.Present;
             }
             await Task.Delay(250, token);
         }

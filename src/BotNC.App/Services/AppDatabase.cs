@@ -280,7 +280,7 @@ public sealed class AppDatabase
                 760, 134, 405, 29, 720, 105, 490, 90, 0.80),
             new("storage_city_npc", "Depósito na lista de serviços", "storage_city_npc.png",
                 14, 7, 120, 34, 5, 145, 325, 145, 0.80),
-            new("storage_city_weapons", "Armas na lista de serviços da cidade", "storage_city_npc.png",
+            new("storage_city_weapons", "Armas na lista de serviços da cidade", "storage_city_services.png",
                 25, 65, 110, 33, 5, 115, 320, 105, 0.80),
             new("storage_open", "Vigia do Depósito", "storage_open.png",
                 79, 46, 245, 34, 20, 20, 400, 95, 0.82),

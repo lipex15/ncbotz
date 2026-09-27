@@ -12,19 +12,19 @@ public sealed partial class BotAutomationEngine
         if (hadRest) await ExitRestIfNeededAsync(session, pause, token);
         try
         {
+            var inactiveHits = 0;
             for (var attempt = 0; attempt < 3; attempt++)
             {
                 var frame = await CaptureClientFrameAsync(session, token);
-                var active = await recognition.FindAsync("reconnect_skill_on", frame, token);
-                var inactive = await recognition.FindAsync("reconnect_skill_off", frame, token);
-                WritePersistentOnly(session, $"startup_skill attempt={attempt + 1}; on={active.Found}/{active.Confidence:F3}; off={inactive.Found}/{inactive.Confidence:F3}");
-                if (active.Found)
+                var skill = await SkillSixReader.ReadAsync(recognition, frame, token, evidence => WritePersistentOnly(session, evidence));
+                inactiveHits = skill == SkillSixState.Inactive ? inactiveHits + 1 : 0;
+                if (skill == SkillSixState.Active)
                 {
                     session.StartupSkillChecked = true;
                     WriteLog(session, "Inicialização: skill 6 já está ativa; nenhuma tecla enviada.");
                     return;
                 }
-                if (inactive.Found)
+                if (inactiveHits >= 2)
                 {
                     await input.PressKeyAsync(0x36, cancellationToken: token);
                     session.StartupSkillChecked = true;

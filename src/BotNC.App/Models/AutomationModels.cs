@@ -87,7 +87,8 @@ public sealed record AutomationClientOptions(
     int WeeklyAnonymousEntryLimit = 1,
     FarmCoordinate? SapherasCustomFarmCoordinate = null,
     bool EnableAutoStorage = false,
-    int AutoStorageIntervalMinutes = 120);
+    int AutoStorageIntervalMinutes = 120,
+    FarmCoordinate? AnonymousDungeonCustomFarmCoordinate = null);
 
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,

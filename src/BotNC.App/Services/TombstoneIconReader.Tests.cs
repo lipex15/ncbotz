@@ -48,6 +48,15 @@ internal static class TombstoneIconRegression
                 != BotAutomationEngine.StartupRestorationObservation.Absent)
             throw new InvalidOperationException("Uma marca vermelha sem forma virou lápide.");
         report.Add("tombstone redBadgeRejected=true; validHudWithoutIcon=Absent");
+        var pendingArea = await TombstoneIconReader.ReadAsync(recognition, badge, CancellationToken.None, true);
+        if (!pendingArea.Found || !pendingArea.AreaInspection || pendingArea.X != 1538 || pendingArea.Y != 63)
+            throw new InvalidOperationException("Morte pendente com área vermelha deve permitir inspeção do painel, sem depender da forma.");
+        var smallBadge = new PixelFrame(1920, 1040, 1920 * 4, new byte[1920 * 1040 * 4]);
+        for (var y = 30; y < 38; y++)
+        for (var x = 1530; x < 1538; x++) smallBadge.Pixels[y * smallBadge.Stride + x * 4 + 2] = 200;
+        if (TombstoneIconReader.HasRestorationAreaSignal(smallBadge))
+            throw new InvalidOperationException("Ponto vermelho isolado não pode confirmar a área da lápide.");
+        report.Add("tombstone pendingAreaInspection=true; tinyBadgeRejected=true; confidenceNotFabricated=true");
         return report;
     }
 

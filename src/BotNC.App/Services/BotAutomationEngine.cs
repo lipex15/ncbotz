@@ -937,11 +937,13 @@ public sealed partial class BotAutomationEngine(
             if (hadRest)
                 await ExitRestIfNeededAsync(session, pause, cancellationToken);
             TombstoneIconReading? startupIcon = null;
-            var observation = await ReadStartupRestorationAsync(session, pause, cancellationToken,
-                icon => startupIcon = icon);
+            var observation = session.NeedsDeathRestoration
+                ? StartupRestorationObservation.Present
+                : await ReadStartupRestorationAsync(session, pause, cancellationToken,
+                    icon => startupIcon = icon);
             if (observation == StartupRestorationObservation.Present)
             {
-                WriteLog(session, "Perda confirmada por ícone vermelho estável ou contador da restauração; restaurando antes das rotinas.");
+                WriteLog(session, "Pendência salva ou perda visual identificada; verificando o painel antes das rotinas.");
                 await RestoreDeathResourcesAsync(session, pause, cancellationToken, startupIcon);
             }
             else if (observation == StartupRestorationObservation.Absent)
@@ -1872,10 +1874,13 @@ public sealed partial class BotAutomationEngine(
             await WaitForReferenceAsync("anonymous_map", "mapa do Estreito de Tenerys", TimeSpan.FromSeconds(18), pause, cancellationToken);
         }
 
-        var start = ChooseNextSpot(session, -3, AnonymousDungeonSpots.Length);
-        for (var offset = 0; offset < AnonymousDungeonSpots.Length; offset++)
+        var customPoint = session.Options.AnonymousDungeonCustomFarmCoordinate;
+        var start = customPoint is null ? ChooseNextSpot(session, -3, AnonymousDungeonSpots.Length) : 0;
+        for (var offset = 0; offset < (customPoint is null ? AnonymousDungeonSpots.Length : 3); offset++)
         {
-            var point = AnonymousDungeonSpots[(start + offset) % AnonymousDungeonSpots.Length];
+            var point = customPoint is { } configured
+                ? gameWindows.MapReferencePoint(session.Options.Target, configured.X, configured.Y)
+                : AnonymousDungeonSpots[(start + offset) % AnonymousDungeonSpots.Length];
             await input.MoveAndClickAsync(point.X, point.Y, TimeSpan.FromMilliseconds(180), cancellationToken, cooldown: TimeSpan.FromMilliseconds(50));
             await Task.Delay(140, cancellationToken);
             if ((await recognition.FindAsync("anonymous_invalid_point", cancellationToken)).Found)
@@ -7054,6 +7059,34 @@ public sealed partial class BotAutomationEngine(
         // restoration, never infer absence from a hidden indicator.
         if (await FindRestStateAsync(session, cancellationToken) is not null)
             await ExitRestIfNeededAsync(session, pause, cancellationToken);
+        // A persisted death is already a reason to inspect the known shortcut.
+        // Opening this slot is reversible; restoring/spending still requires the
+        // actual panel and counters. This bypasses the failed template hunt.
+        if (session.NeedsDeathRestoration)
+        {
+            var lossFrame = await CaptureClientFrameAsync(session, cancellationToken);
+            var existingLoss = await _restorationCounterReader.ReadClientFrameAsync(lossFrame, cancellationToken);
+            if (existingLoss.State == RestorationCountState.Unknown &&
+                !RestorationCounterReader.HasRestorationHeading(existingLoss.RawText) &&
+                !(await recognition.FindAsync("painel_restauracao", lossFrame, cancellationToken)).Found &&
+                HpBarAnalyzer.Measure(lossFrame).Found &&
+                await FindRestStateAsync(session, cancellationToken) is null &&
+                !(await FindDeathOnClientAsync(session, cancellationToken)).Found &&
+                !await LoadingScreenReader.IsLoadingAsync(lossFrame, cancellationToken))
+            {
+                var loginState = await ReadReconnectScreenAsync(recognition, lossFrame, cancellationToken);
+                if (loginState is ReconnectScreen.World or ReconnectScreen.Unknown)
+                {
+                    await EnsureGameForegroundAsync(session, cancellationToken);
+                    ThrowIfDeathPending(session);
+                    var slot = gameWindows.MapReferencePoint(session.Options.Target, 1538, 70);
+                    WriteLog(session, "Morte pendente: abrindo o atalho fixo de perdas e verificando o painel.");
+                    await input.MoveAndClickAsync(slot.X, slot.Y, TimeSpan.FromMilliseconds(180), cancellationToken);
+                    await WaitForRestorationCounterAsync(session, TimeSpan.FromSeconds(3), pause, cancellationToken);
+                    startupIcon = null; // Discard any icon captured before opening the panel.
+                }
+            }
+        }
         // Decide absence before waiting for a panel which may not exist.
         TombstoneIconReading? confirmedIcon = confirmedDeathScreen ? null : startupIcon;
         var initialObservation = confirmedIcon is { Found: true }
@@ -7071,7 +7104,7 @@ public sealed partial class BotAutomationEngine(
             // Refresh a stale/partial capture before the next attempt; merely
             // waiting and reading the same invalid surface cannot make progress.
             await ReconnectWindowCaptureAsync(session, cancellationToken);
-            WriteLog(session, "Leitura de perdas incompleta: captura reiniciada para nova tentativa; reconexão do jogo permanece monitorada.");
+            WriteLog(session, "Leitura incompleta após tentativa de abrir perdas: captura reiniciada; a próxima ação reavaliará o painel e a reconexão.");
             throw new RecoveryObservationPendingException("tela de perdas ainda sem evidência suficiente; nenhuma aba de equipamento será clicada");
         }
         await SetRestorationPendingAsync(session, true);
@@ -7119,8 +7152,13 @@ public sealed partial class BotAutomationEngine(
                 await EnsureGameForegroundAsync(session, cancellationToken);
                 var currentIconFrame = await CaptureClientFrameAsync(session, cancellationToken);
                 var currentIcon = await TombstoneIconReader.ReadAsync(recognition, currentIconFrame, cancellationToken, session.NeedsDeathRestoration);
-                if (!currentIcon.AgreesWith(previousIcon))
+                if (!currentIcon.AgreesWith(previousIcon) &&
+                    !(previousIcon is { AreaInspection: true } && session.NeedsDeathRestoration &&
+                      HpBarAnalyzer.Measure(currentIconFrame).Found &&
+                      !(await recognition.FindAsync("rest_unlock_instruction", currentIconFrame, cancellationToken)).Found &&
+                      !(await LoadingScreenReader.IsLoadingAsync(currentIconFrame, cancellationToken))))
                     break;
+                if (previousIcon is { AreaInspection: true }) currentIcon = previousIcon;
                 WriteLog(session, $"Clicando na lápide reconhecida — tentativa {attempt}/3.");
                 var tombstonePoint = gameWindows.MapReferencePoint(session.Options.Target,
                     currentIcon.ClickReferenceX, currentIcon.ClickReferenceY);

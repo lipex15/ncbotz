@@ -607,7 +607,7 @@
                             <TextBlock Text="LIMITE SEMANAL DE ENTRADAS · SOMENTE INDIVIDUAL" Style="{StaticResource FieldLabel}" />
                             <TextBox x:Name="Client1AbbeyLimitTextBox" Text="1" Width="110" Height="38"
                                      HorizontalAlignment="Left" Margin="0,6,0,12" />
-                            <CheckBox x:Name="Client1AbbeyCustomCheckBox" Content="Usar ponto personalizado na Abadia" />
+                            <CheckBox x:Name="Client1AbbeyCustomCheckBox" Content="Ponto personalizado · individual e Agenda" />
                             <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
                                 <Button x:Name="CaptureClient1AbbeyButton" Content="Capturar ponto no mapa"
                                         Click="OnCaptureClient1AbbeyCoordinate" />
@@ -621,7 +621,7 @@
                             <TextBlock Text="LIMITE SEMANAL DE ENTRADAS · SOMENTE INDIVIDUAL" Style="{StaticResource FieldLabel}" />
                             <TextBox x:Name="Client2AbbeyLimitTextBox" Text="1" Width="110" Height="38"
                                      HorizontalAlignment="Left" Margin="0,6,0,12" />
-                            <CheckBox x:Name="Client2AbbeyCustomCheckBox" Content="Usar ponto personalizado na Abadia" />
+                            <CheckBox x:Name="Client2AbbeyCustomCheckBox" Content="Ponto personalizado · individual e Agenda" />
                             <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
                                 <Button x:Name="CaptureClient2AbbeyButton" Content="Capturar ponto no mapa"
                                         Click="OnCaptureClient2AbbeyCoordinate" />
@@ -636,6 +636,9 @@
                             <TextBlock Text="Estreito de Tenerys" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,16" />
                             <TextBlock Text="Cliente 1" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
                             <CheckBox x:Name="Client1AnonymousCheckBox" Content="Farm individual na Anônima" Margin="0,13,0,10" />
+                            <CheckBox x:Name="Client1AnonymousCustomCheckBox" Content="Ponto personalizado · individual e Agenda" />
+                            <Button x:Name="CaptureClient1AnonymousButton" Content="Capturar ponto no mapa" Click="OnCaptureClient1AnonymousCoordinate" Margin="0,6,0,4" />
+                            <TextBlock x:Name="Client1AnonymousCoordinateText" Text="Não definida" Margin="0,0,0,10" />
                             <TextBlock Text="NÍVEL DA MASMORRA" Style="{StaticResource FieldLabel}" />
                             <ComboBox x:Name="Client1IndividualDungeonComboBox" SelectedIndex="1" Height="40" Margin="0,6,0,12">
                                 <ComboBoxItem Content="Nível 86" /><ComboBoxItem Content="Nível 97" /><ComboBoxItem Content="Nível 110" />
@@ -645,6 +648,9 @@
                             <Border Height="1" Background="#30445B" Margin="0,22,0,22" />
                             <TextBlock Text="Cliente 2" FontSize="17" FontWeight="SemiBold" Foreground="#65CEFA" />
                             <CheckBox x:Name="Client2AnonymousCheckBox" Content="Farm individual na Anônima" Margin="0,13,0,10" />
+                            <CheckBox x:Name="Client2AnonymousCustomCheckBox" Content="Ponto personalizado · individual e Agenda" />
+                            <Button x:Name="CaptureClient2AnonymousButton" Content="Capturar ponto no mapa" Click="OnCaptureClient2AnonymousCoordinate" Margin="0,6,0,4" />
+                            <TextBlock x:Name="Client2AnonymousCoordinateText" Text="Não definida" Margin="0,0,0,10" />
                             <TextBlock Text="NÍVEL DA MASMORRA" Style="{StaticResource FieldLabel}" />
                             <ComboBox x:Name="Client2IndividualDungeonComboBox" SelectedIndex="1" Height="40" Margin="0,6,0,12">
                                 <ComboBoxItem Content="Nível 86" /><ComboBoxItem Content="Nível 97" /><ComboBoxItem Content="Nível 110" />

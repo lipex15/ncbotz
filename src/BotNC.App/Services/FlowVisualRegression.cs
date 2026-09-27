@@ -39,6 +39,8 @@ internal static class FlowVisualRegression
                 throw new InvalidOperationException($"Auto com distância variável: {file}");
         }
         var red = await TombstoneIconReader.ReadAsync(recognition, Canvas(load("lapide_vermelha.png"), 1518, 38), CancellationToken.None);
+        if (!(await recognition.FindAsync("storage_city_weapons", Canvas(load("storage_city_services.png"), 0, 90))).Found)
+            throw new InvalidOperationException("Serviços da cidade: referência de Armas inválida.");
         if (!red.Found || red.X != 1535 || red.Y != 63)
             throw new InvalidOperationException("Lápide vermelha não reconhecida na partida sem morte previamente salva.");
         var exit = Canvas(load("regression_dungeon_exit.png"), 328, 100);

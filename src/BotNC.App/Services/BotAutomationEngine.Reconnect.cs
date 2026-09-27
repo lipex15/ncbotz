@@ -133,11 +133,12 @@ public sealed partial class BotAutomationEngine
                     }
                     await ExitRestIfNeededAsync(session, pause, token);
                     frame = await CaptureClientFrameAsync(session, token);
-                    var active = await recognition.FindAsync("reconnect_skill_on", frame, token);
-                    var inactive = await recognition.FindAsync("reconnect_skill_off", frame, token);
-                    WritePersistentOnly(session, $"reconnect_skill on={active.Found}/{active.Confidence:F3}; off={inactive.Found}/{inactive.Confidence:F3}; sent={session.ReconnectSkillSent}");
-                    if (!active.Found && inactive.Found && !session.ReconnectSkillSent)
+                    var skill = await SkillSixReader.ReadAsync(recognition, frame, token, evidence => WritePersistentOnly(session, evidence));
+                    if (skill == SkillSixState.Inactive && !session.ReconnectSkillSent)
                     {
+                        await Task.Delay(250, token);
+                        if (await SkillSixReader.ReadAsync(recognition, await CaptureClientFrameAsync(session, token), token) != SkillSixState.Inactive)
+                            continue;
                         await input.PressKeyAsync(0x36, cancellationToken: token);
                         session.ReconnectSkillSent = true;
                         session.StartupSkillChecked = true;
@@ -145,11 +146,11 @@ public sealed partial class BotAutomationEngine
                         WriteLog(session, "Reconexão: skill 6 desligada; tecla 6 enviada uma vez.");
                         continue;
                     }
-                    if (!active.Found && ++session.ReconnectSkillAttempts < 3) continue;
-                    WriteLog(session, active.Found ? "Skill 6 ativa confirmada após login." :
+                    if (skill != SkillSixState.Active && ++session.ReconnectSkillAttempts < 3) continue;
+                    WriteLog(session, skill == SkillSixState.Active ? "Skill 6 ativa confirmada após login." :
                         "Skill 6 sem confirmação visual após login; não vou alternar a tecla às cegas. Confira a habilidade; retomando o fluxo.");
                     session.ReconnectPending = false;
-                    if (active.Found) session.StartupSkillChecked = true;
+                    if (skill == SkillSixState.Active) session.StartupSkillChecked = true;
                     if (session.InAgenda) session.AgendaUntil += DateTime.UtcNow - session.DisconnectedAt;
                     session.ReconnectHits = 0;
                     session.ConsecutiveRecoveryFailures = 0;
@@ -261,6 +262,8 @@ public sealed partial class BotAutomationEngine
             (await visual.FindAsync("reconnect_skill_on", frame, CancellationToken.None)).Found)
             throw new InvalidOperationException("Skill 6 desligada não foi distinguida da borda ativa.");
         var activeIcon = load("reconnect_skill_on.png");
+        if (await SkillSixReader.ReadAsync(visual, frame, CancellationToken.None) != SkillSixState.Inactive)
+            throw new InvalidOperationException("Skill 6 desligada: leitura da borda não confirmou Inactive.");
         var activePixels = (byte[])frame.Pixels.Clone();
         for (var y = 0; y < 78; y++)
             Buffer.BlockCopy(activeIcon.Pixels, (y + 20) * activeIcon.Stride + 16 * 4,
@@ -268,6 +271,8 @@ public sealed partial class BotAutomationEngine
         if (!(await visual.FindAsync("reconnect_skill_on",
                 new PixelFrame(frame.Width, frame.Height, frame.Stride, activePixels), CancellationToken.None)).Found)
             throw new InvalidOperationException("Borda ativa da skill 6 não reconhecida.");
+        if (await SkillSixReader.ReadAsync(visual, new PixelFrame(frame.Width, frame.Height, frame.Stride, activePixels), CancellationToken.None) != SkillSixState.Active)
+            throw new InvalidOperationException("Skill 6 ativa não pode receber outra tecla 6.");
         // The dialog wording must be irrelevant; OK alone must never authorize
         // reconnect on a gameplay screen. Modify only in-memory test frames.
         var notice = load("reconnect_inactivity.png");
