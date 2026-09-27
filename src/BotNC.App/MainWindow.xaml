@@ -316,6 +316,24 @@
                                        TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
+                    <Border Background="{StaticResource CardBrush}" CornerRadius="20" Padding="18" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Grupo automático · até 5 pessoas" FontSize="16" FontWeight="Bold" />
+                            <TextBlock Text="Cliente 1" Margin="0,10,0,4" />
+                            <ComboBox x:Name="Client1PartyRole" SelectedIndex="0"><ComboBoxItem Content="Desativado"/><ComboBoxItem Content="Líder: criar e convidar"/><ComboBoxItem Content="Membro: receber convites"/></ComboBox>
+                            <TextBlock Text="Nicks para convidar — um por linha, até 4" Margin="0,8,0,4" />
+                            <TextBox x:Name="Client1PartyNames" AcceptsReturn="True" Height="80" VerticalScrollBarVisibility="Auto" />
+                            <TextBlock Text="Receber: nome preferido de quem convida (opcional)" Margin="0,8,0,4" />
+                            <TextBox x:Name="Client1PartyInviter" />
+                            <TextBlock Text="Cliente 2" Margin="0,14,0,4" />
+                            <ComboBox x:Name="Client2PartyRole" SelectedIndex="0"><ComboBoxItem Content="Desativado"/><ComboBoxItem Content="Líder: criar e convidar"/><ComboBoxItem Content="Membro: receber convites"/></ComboBox>
+                            <TextBlock Text="Nicks para convidar — um por linha, até 4" Margin="0,8,0,4" />
+                            <TextBox x:Name="Client2PartyNames" AcceptsReturn="True" Height="80" VerticalScrollBarVisibility="Auto" />
+                            <TextBlock Text="Receber: nome preferido de quem convida (opcional)" Margin="0,8,0,4" />
+                            <TextBox x:Name="Client2PartyInviter" />
+                            <TextBlock Text="Cole os nicks exatos. Máximo de 5 convites sem aceite por pessoa até parar/iniciar. Nomes ilegíveis no convite podem ser aceitos; remetente claramente diferente é ignorado." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
                 </ScrollViewer>
 

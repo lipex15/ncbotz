@@ -916,6 +916,7 @@ public partial class MainWindow : Window
         lines.Add($"Diárias: {DailyMissionsScopeComboBox.SelectedItem} · Diretiva: {GuildDirectiveScopeComboBox.SelectedItem}");
         lines.Add($"Loja: {DailyShopScopeComboBox.SelectedItem} · Guilda: {GuildCheckinScopeComboBox.SelectedItem}");
         lines.Add($"Boss do Amor: {LoveBossScopeComboBox.SelectedItem} · Agenda: {FarmScheduleScopeComboBox.SelectedItem}");
+        lines.Add($"Grupo: Cliente 1 {(Client1PartyRole.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content} · Cliente 2 {(Client2PartyRole.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content}");
         StartPreviewText.Text = string.Join(Environment.NewLine, lines);
         StartPreviewOverlay.Visibility = Visibility.Visible;
     }
@@ -1197,6 +1198,12 @@ public partial class MainWindow : Window
             keyName,
             emergencyTeleportKey,
             emergencyKeyName);
+        try
+        {
+            if (enableClient1) _ = ReadPartyOptions(1);
+            if (enableClient2) _ = ReadPartyOptions(2);
+        }
+        catch (ArgumentException error) { ShowValidation(error.Message); return; }
         var clients = new List<AutomationClientOptions>();
         if (client1 is not null)
         {
@@ -1226,7 +1233,8 @@ public partial class MainWindow : Window
                 IndividualDungeonLevel(Client1IndividualDungeonComboBox.SelectedIndex), anonymousLimit1,
                 Client1SapherasCustomCheckBox.IsChecked == true ? _client1SapherasCoordinate : null,
                 ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 1), storageInterval,
-                Client1AnonymousCustomCheckBox.IsChecked == true ? _client1AnonymousCoordinate : null));
+                Client1AnonymousCustomCheckBox.IsChecked == true ? _client1AnonymousCoordinate : null,
+                ReadPartyOptions(1)));
         }
 
         if (client2 is not null)
@@ -1258,7 +1266,8 @@ public partial class MainWindow : Window
                     IndividualDungeonLevel(Client2IndividualDungeonComboBox.SelectedIndex), anonymousLimit2,
                     Client2SapherasCustomCheckBox.IsChecked == true ? _client2SapherasCoordinate : null,
                     ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 2), storageInterval,
-                    Client2AnonymousCustomCheckBox.IsChecked == true ? _client2AnonymousCoordinate : null));
+                    Client2AnonymousCustomCheckBox.IsChecked == true ? _client2AnonymousCoordinate : null,
+                    ReadPartyOptions(2)));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -1694,6 +1703,8 @@ public partial class MainWindow : Window
         MailScopeComboBox.IsEnabled = !isRunning;
         AutoStorageScopeComboBox.IsEnabled = !isRunning;
         AutoStorageIntervalTextBox.IsEnabled = !isRunning;
+        foreach (var control in new System.Windows.Controls.Control[] { Client1PartyRole, Client2PartyRole,
+            Client1PartyNames, Client2PartyNames, Client1PartyInviter, Client2PartyInviter }) control.IsEnabled = !isRunning;
         DailyShopScopeComboBox.IsEnabled = !isRunning;
         LoveBossScopeComboBox.IsEnabled = !isRunning;
         DailyShopTimeTextBox.IsEnabled = !isRunning;
@@ -1874,6 +1885,7 @@ public partial class MainWindow : Window
         MailScopeComboBox.SelectedItem = mailScope ?? "Ambos";
         AutoStorageScopeComboBox.SelectedItem = await _database.GetSettingAsync("routines.storage.scope") ?? "Nenhum";
         AutoStorageIntervalTextBox.Text = await _database.GetSettingAsync("routines.storage.intervalMinutes") ?? "120";
+        await LoadPartySettingsAsync();
         DailyShopScopeComboBox.SelectedItem = dailyShopScope ?? "Nenhum";
         LoveBossScopeComboBox.SelectedItem = loveBossScope ?? "Nenhum";
         DailyShopTimeTextBox.Text = string.IsNullOrWhiteSpace(dailyShopTime) ? "13:05" : dailyShopTime;
@@ -1909,6 +1921,7 @@ public partial class MainWindow : Window
 
     private async Task SaveSettingsAsync(BotRunOptions runOptions)
     {
+        await SavePartySettingsAsync();
         await SaveAnonymousCoordinateAsync(1, _client1AnonymousCoordinate, Client1AnonymousCustomCheckBox.IsChecked == true);
         await SaveAnonymousCoordinateAsync(2, _client2AnonymousCoordinate, Client2AnonymousCustomCheckBox.IsChecked == true);
         await SaveSapherasCoordinateAsync(1, _client1SapherasCoordinate, Client1SapherasCustomCheckBox.IsChecked == true);

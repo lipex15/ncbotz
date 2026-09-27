@@ -1236,6 +1236,7 @@ public sealed partial class BotAutomationEngine(
                 await CheckpointAsync(pause, cancellationToken);
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
+                await ServicePartiesAsync(sessions, pause, cancellationToken);
                 if (!HumanOwnsInterface && !HasPendingProtection)
                 {
                     foreach (var raidSession in protectedSessions.Where(s => !s.ReconnectPending && !IsSapherasSessionActive(s)))
@@ -5495,6 +5496,7 @@ public sealed partial class BotAutomationEngine(
 
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
+                await ServicePartiesAsync(sessions, pause, cancellationToken);
                 if (await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, cancellationToken))
                     continue;
 
@@ -8310,6 +8312,7 @@ public sealed partial class BotAutomationEngine(
 
     private sealed class ClientSession(AutomationClientOptions options)
     {
+        public PartyRuntime Party { get; } = new();
         public AutomationClientOptions Options { get; set; } = options;
         public HpAudioAlertService Audio { get; } = new();
         public SemaphoreSlim WindowCaptureGate { get; } = new(1, 1);

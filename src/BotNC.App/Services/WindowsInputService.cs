@@ -328,6 +328,33 @@ public sealed class WindowsInputService
     private static bool IsLeftButtonPressed() =>
         (NativeMethods.GetAsyncKeyState(0x01) & 0x8000) != 0;
 
+    public async Task TypeUnicodeTextAsync(string text, CancellationToken token)
+    {
+        // KEYEVENTF_UNICODE sends UTF-16, including surrogate pairs, without
+        // keyboard-layout substitutions or touching the user's clipboard.
+        foreach (var character in text)
+        {
+            if (char.IsControl(character)) throw new ArgumentException("Nome contém caracteres de controle.");
+            await PrepareNormalCommandAsync(token);
+            var stroke = new NativeInput { Type = InputKeyboard, Union = new InputUnion {
+                Keyboard = new KeyboardInput { ScanCode = character, Flags = 0x0004 } } };
+            Send(stroke);
+            stroke.Union.Keyboard.Flags |= KeyboardKeyUp;
+            Send(stroke);
+            await Task.Delay(12, token);
+        }
+        WorkflowTrace?.Invoke($"input unicodeText units={text.Length}; exact=true");
+    }
+
+    public async Task SelectAllTextAsync(CancellationToken token)
+    {
+        await PrepareNormalCommandAsync(token);
+        KeyDown(0x11);
+        try { KeyDown(0x41); KeyUp(0x41); }
+        finally { KeyUp(0x11); }
+        await Task.Delay(80, token);
+    }
+
     private static void KeyDown(int virtualKey) =>
         Send(CreateKeyboardInput(virtualKey, keyUp: false));
 

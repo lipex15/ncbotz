@@ -88,7 +88,11 @@ public sealed record AutomationClientOptions(
     FarmCoordinate? SapherasCustomFarmCoordinate = null,
     bool EnableAutoStorage = false,
     int AutoStorageIntervalMinutes = 120,
-    FarmCoordinate? AnonymousDungeonCustomFarmCoordinate = null);
+    FarmCoordinate? AnonymousDungeonCustomFarmCoordinate = null,
+    PartyOptions? Party = null);
+
+public enum PartyRole { Disabled, Leader, Receiver }
+public sealed record PartyOptions(PartyRole Role, IReadOnlyList<string> InviteNames, string PreferredInviter = "");
 
 public sealed record BotRunOptions(
     SapherasOptions Sapheras,
