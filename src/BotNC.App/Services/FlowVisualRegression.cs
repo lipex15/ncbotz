@@ -4,6 +4,12 @@ internal static class FlowVisualRegression
 {
     internal static async Task VerifyAsync(VisualRecognitionService recognition, Func<string, PixelFrame> load)
     {
+        var deathRest = load("regression_death_rest_20260927.png");
+        if (!(await recognition.FindAsync("rest_unlock_instruction", deathRest)).Found)
+            throw new InvalidOperationException("Descanso real de morte não foi reconhecido; perdas ficariam ocultas.");
+        if ((await recognition.FindAsync("rest_unlock_instruction", load("hud_auto_active.png"))).Found ||
+            (await recognition.FindAsync("rest_unlock_instruction", load("reconnect_character.png"))).Found)
+            throw new InvalidOperationException("Arraste de descanso liberado fora da tela de descanso.");
         var balance = FarmScheduleCheckpoint.TryRead(System.Text.Json.JsonSerializer.Serialize(
             new FarmScheduleCheckpoint("Abbey:300", 0, TimeSpan.FromMinutes(300 - 100).TotalSeconds, false, false)));
         if (balance?.RemainingSeconds != 12000 || FarmScheduleCheckpoint.TryRead("corrompido") is not null)

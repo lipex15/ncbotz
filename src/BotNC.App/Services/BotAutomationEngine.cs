@@ -82,6 +82,7 @@ public sealed partial class BotAutomationEngine(
         "descanso_movendo",
         "descanso_aguardando_spot",
         "descanso_morte",
+        "rest_unlock_instruction",
         "tela_descanso"
     ];
 
@@ -6578,6 +6579,8 @@ public sealed partial class BotAutomationEngine(
         Func<Task> operation,
         CancellationToken cancellationToken)
     {
+        var previousInterruptible = _interruptibleAction.Value;
+        _interruptibleAction.Value = session;
         var previousAction = session.DiagnosticActionId;
         session.DiagnosticActionId = Guid.NewGuid().ToString("N")[..12];
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
@@ -6601,6 +6604,8 @@ public sealed partial class BotAutomationEngine(
         finally
         {
             WritePersistentOnly(session, $"action_end name={action}; elapsedMs={elapsed.ElapsedMilliseconds}");
+            session.ServicingEmergencyInput = false;
+            _interruptibleAction.Value = previousInterruptible;
             session.DiagnosticActionId = previousAction;
         }
     }
@@ -6611,6 +6616,8 @@ public sealed partial class BotAutomationEngine(
         Func<CancellationToken, Task> operation,
         CancellationToken cancellationToken)
     {
+        var previousInterruptible = _interruptibleAction.Value;
+        _interruptibleAction.Value = session;
         using var actionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Interlocked.Exchange(ref session.RecoveryActionCancellation, actionCancellation);
         var previousAction = session.DiagnosticActionId;
@@ -6644,6 +6651,7 @@ public sealed partial class BotAutomationEngine(
         finally
         {
             WritePersistentOnly(session, $"action_end name={action}; recovery=true; elapsedMs={elapsed.ElapsedMilliseconds}");
+            _interruptibleAction.Value = previousInterruptible;
             session.DiagnosticActionId = previousAction;
             Interlocked.CompareExchange(ref session.RecoveryActionCancellation, null, actionCancellation);
         }
@@ -6734,14 +6742,18 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        session.ServicingEmergencyInput = true;
+        try
+        {
         session.SafeInRest = false;
         session.IsFarmingTa = false;
         session.AwaitingHuntActivationAtSpot = false;
         SetStatus(BotRunState.Running, $"{session.Options.Label}: proteção de HP", $"TP por {session.BackgroundEmergencySource} enviado em segundo plano");
-        var death = await WaitForDeathAfterEmergencyAsync(session, TimeSpan.FromSeconds(5), cancellationToken);
+        var death = await WaitForDeathAfterEmergencyAsync(session, TimeSpan.FromMilliseconds(500), cancellationToken);
         if (death is not null)
         {
             WriteLog(session, $"Morte confirmada após o TP visual ({death.Confidence:P0}); iniciando restauração.");
+            session.ServicingEmergencyInput = false;
             await HandleDeathAsync(session, options, antiOverkill, pause, cancellationToken);
             return;
         }
@@ -6767,6 +6779,7 @@ public sealed partial class BotAutomationEngine(
             death = await WaitForDeathAfterEmergencyAsync(session, TimeSpan.FromSeconds(4), cancellationToken);
             if (death is not null)
             {
+                session.ServicingEmergencyInput = false;
                 await HandleDeathAsync(session, options, antiOverkill, pause, cancellationToken);
                 return;
             }
@@ -6775,6 +6788,7 @@ public sealed partial class BotAutomationEngine(
         if (arrivedInTown)
             await RecordStatisticAsync(session, "town", "Cidade observada após TP de emergência",
                 $"{StatisticsSessionId}.town.{Interlocked.Read(ref session.EmergencyClaimUntilTicks)}");
+        session.ServicingEmergencyInput = false;
         await RecordAbbeyExitAsync(session);
         await RecordAnonymousDungeonExitAsync(session);
         if (session.NeedsDeathRestoration)
@@ -6785,6 +6799,8 @@ public sealed partial class BotAutomationEngine(
         }
         WriteLog(session, $"Proteção visual executada sem morte; retomando {ConfiguredFarmName(session)}.");
         await EnterConfiguredFarmAsync(session, pause, cancellationToken, isEmergency: true);
+        }
+        finally { session.ServicingEmergencyInput = false; }
     }
 
     private async Task<RecognitionResult?> WaitForDeathAfterEmergencyAsync(
@@ -6926,11 +6942,12 @@ public sealed partial class BotAutomationEngine(
         if (!fullDeath.Found && (await FindDeathOnClientAsync(session, cancellationToken)).Found)
         {
             var deathFrame = await CaptureClientFrameAsync(session, cancellationToken);
-            if ((await recognition.FindAsync("descanso_morte", deathFrame, cancellationToken)).Found)
+            if ((await recognition.FindAsync("descanso_morte", deathFrame, cancellationToken)).Confidence >= RestDeathConfidence ||
+                (await recognition.FindAsync("rest_unlock_instruction", deathFrame, cancellationToken)).Found)
             {
                 await ActivateGameForEmergencyAsync(session, cancellationToken);
                 WriteLog(session, "Morte no descanso: saindo com L para revelar Ressuscitar antes de verificar perdas.");
-                await input.PressKeyAsync(KeyL, cancellationToken: cancellationToken);
+                await TryCloseRestPanelAsync(session, pause, "revelar Ressuscitar", cancellationToken);
             }
             WriteLog(session, "Estado Morte reconhecido; aguardando a tela completa de Ressuscitar.");
             var transitionStartedAt = DateTime.UtcNow;
@@ -7017,6 +7034,7 @@ public sealed partial class BotAutomationEngine(
         }
 
         WriteLog(session, "Conferindo os indicadores de perda; aguardando apenas se a tela estiver carregando.");
+        if (confirmedDeathScreen) BeginResidualHpRecovery(session, "Renascimento observado");
         BindWorkflowClient(session);
         // Rest hides the tombstone area. Uncover it only when resolving this
         // restoration, never infer absence from a hidden indicator.
@@ -7545,10 +7563,16 @@ public sealed partial class BotAutomationEngine(
                 return true;
             }
 
-            await input.PressKeyAsync(
-                KeyL,
-                TimeSpan.FromMilliseconds(90 + (attempt * 55)),
-                cancellationToken);
+            if (attempt == 1)
+                await input.PressKeyAsync(KeyL, TimeSpan.FromMilliseconds(145), cancellationToken);
+            else
+            {
+                // The game explicitly offers dragging; L can be ignored while dead.
+                var start = gameWindows.MapReferencePoint(session.Options.Target, 960, 540);
+                var end = gameWindows.MapReferencePoint(session.Options.Target, 1320, 540);
+                WriteLog(session, "Descanso ainda visível: desbloqueando por arraste, sem repetir L.");
+                await input.DragAsync(start.X, start.Y, end.X, end.Y, cancellationToken);
+            }
             if (await WaitForRestStateToDisappearAsync(
                     session, TimeSpan.FromSeconds(7), pause, cancellationToken))
             {
@@ -7965,6 +7989,7 @@ public sealed partial class BotAutomationEngine(
     {
         cancellationToken.ThrowIfCancellationRequested();
         await pause.WaitIfPausedAsync(cancellationToken);
+        if (_interruptibleAction.Value is { } owner) YieldToOtherEmergency(owner);
     }
 
     private Task ActionDelayAsync(CancellationToken cancellationToken, int minimumMilliseconds = 1800, int maximumMilliseconds = 2200) =>
@@ -8246,6 +8271,7 @@ public sealed partial class BotAutomationEngine(
         public int EmergencyTeleportInFlight;
         public long ProtectionQueuedAtTicks;
         public bool HandlingProtection { get; set; }
+        public bool ServicingEmergencyInput { get; set; }
         public long EmergencyClaimUntilTicks;
         public int DeathVisualHits { get; set; }
         public int ConsecutiveRecoveryFailures { get; set; }

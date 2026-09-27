@@ -14,7 +14,6 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        _ = VisualRecognitionService.CleanupOldDiagnosticsAsync();
         _installationMutex = new Mutex(false, AppIdentity.MutexName);
         var audioProbeIndex = Array.IndexOf(e.Args, "--audio-probe");
         if (audioProbeIndex >= 0 && audioProbeIndex + 2 < e.Args.Length)
@@ -414,6 +413,7 @@ public partial class App : Application
             return;
         }
         var window = new MainWindow();
+        _ = Task.Run(() => VisualRecognitionService.CleanupOldDiagnosticsAsync());
         if (isScreenshotMode)
         {
             window.ShowActivated = false;

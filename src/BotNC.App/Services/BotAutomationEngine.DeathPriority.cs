@@ -28,7 +28,7 @@ public sealed partial class BotAutomationEngine
     {
         // Death first across both clients, before mail, bosses, daily quests or retries.
         var pending = sessions.Where(s => !s.ReconnectPending && !s.HandlingDeath && !s.InAgenda)
-            .OrderByDescending(s => Volatile.Read(ref s.PendingVisualDeath) != 0)
+            .OrderByDescending(s => Volatile.Read(ref s.PendingVisualDeath) == 0 && Volatile.Read(ref s.PendingVisualLowHp) != 0)
             .ThenBy(s => s.Options.Priority)
             .FirstOrDefault(s => Volatile.Read(ref s.PendingVisualDeath) != 0 ||
                 Volatile.Read(ref s.PendingVisualLowHp) != 0 && Volatile.Read(ref s.EmergencyTeleportInFlight) == 0);
@@ -91,6 +91,12 @@ public sealed partial class BotAutomationEngine
         if (!blocked) throw new InvalidOperationException("Morte não bloqueou o fluxo normal.");
         ThrowIfDeathPending(second);
         second.PendingVisualLowHp = 1;
+        if (!ShouldYieldToEmergency(first, second) || ShouldYieldToEmergency(second, second))
+            throw new InvalidOperationException("Emergência deve interromper o outro cliente, não seu próprio atendimento.");
+        first.ServicingEmergencyInput = true;
+        if (ShouldYieldToEmergency(first, second))
+            throw new InvalidOperationException("Dois TPs pendentes não podem interromper mutuamente o envio prioritário.");
+        first.ServicingEmergencyInput = false;
         blocked = false;
         try { ThrowIfDeathPending(second); } catch (ProtectionTransitionException) { blocked = true; }
         if (!blocked) throw new InvalidOperationException("TP não invalidou a etapa antiga.");

@@ -241,6 +241,31 @@ public sealed class WindowsInputService
         await Task.Delay(cooldown ?? CommandCooldown, cancellationToken);
     }
 
+    public async Task DragAsync(int startX, int startY, int endX, int endY, CancellationToken token)
+    {
+        await PrepareNormalCommandAsync(token);
+        var width = NativeMethods.GetSystemMetrics(SmCxScreen);
+        var height = NativeMethods.GetSystemMetrics(SmCyScreen);
+        Send(CreateAbsoluteMouseMove(startX, startY, width, height));
+        await Task.Delay(80, token);
+        ValidateWorkflowTarget?.Invoke();
+        Send(CreateMouseInput(0, 0, MouseLeftDown));
+        try
+        {
+            for (var step = 1; step <= 20; step++)
+            {
+                token.ThrowIfCancellationRequested();
+                ValidateWorkflowTarget?.Invoke();
+                Send(CreateAbsoluteMouseMove(startX + (endX - startX) * step / 20,
+                    startY + (endY - startY) * step / 20, width, height));
+                await Task.Delay(25, token);
+            }
+        }
+        finally { Send(CreateMouseInput(0, 0, MouseLeftUp)); }
+        WorkflowTrace?.Invoke("input rest_unlock_drag; target=verified");
+        await Task.Delay(300, token);
+    }
+
     public async Task MovePointerAsync(int screenX, int screenY, CancellationToken cancellationToken)
     {
         await PrepareNormalCommandAsync(cancellationToken);

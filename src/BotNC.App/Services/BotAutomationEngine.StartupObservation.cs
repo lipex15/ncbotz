@@ -6,8 +6,10 @@ public sealed partial class BotAutomationEngine
 
     internal static StartupRestorationObservation ClassifyStartupRestoration(
         bool hud, bool redIcon, bool iconTemplate, bool readableCounter, bool panelHeading,
-        bool strongUnconfirmedShape = false, bool restorationPending = false, bool completeHud = true)
+        bool strongUnconfirmedShape = false, bool restorationPending = false, bool completeHud = true,
+        bool restVisible = false)
     {
+        if (restVisible) return StartupRestorationObservation.Unknown;
         if (readableCounter || redIcon && iconTemplate) return StartupRestorationObservation.Present;
         if (restorationPending && redIcon) return StartupRestorationObservation.Unknown;
         // Red decoration alone is not a pending restoration and must not start a hunt.
@@ -30,6 +32,14 @@ public sealed partial class BotAutomationEngine
         for (var sample = 0; sample < (session.NeedsDeathRestoration ? 6 : 3); sample++)
         {
             await CheckpointAsync(pause, token);
+            // Rest may reappear after the respawn loading frame. Its HP bar does
+            // not prove that the (hidden) tombstone is absent.
+            if (await FindRestStateAsync(session, token) is not null)
+            {
+                WritePersistentOnly(session, "restoration_hidden_by_rest; decision=uncover; absenceForbidden=true");
+                await ExitRestIfNeededAsync(session, pause, token);
+            }
+            await DismissWemadeOfferIfPresentAsync(session, token);
             var frame = VisualRecognitionService.NormalizeForReferenceMatching(await CaptureClientFrameAsync(session, token));
             if (await LoadingScreenReader.IsLoadingAsync(frame, token))
             {
@@ -42,6 +52,13 @@ public sealed partial class BotAutomationEngine
                 continue;
             }
             var hud = await recognition.FindAsync("game_hud_menu", frame, token);
+            if ((await recognition.FindAsync("rest_unlock_instruction", frame, token)).Found ||
+                (await recognition.FindAsync("tela_descanso", frame, token)).Found)
+            {
+                previous = StartupRestorationObservation.Unknown;
+                hits = 0;
+                continue;
+            }
             var hp = HpBarAnalyzer.Measure(frame);
             var icon = await TombstoneIconReader.ReadAsync(recognition, frame, token, session.NeedsDeathRestoration);
             var counter = await _restorationCounterReader.ReadClientFrameAsync(frame, token);
@@ -85,6 +102,9 @@ public sealed partial class BotAutomationEngine
 
     internal static void VerifyStartupObservationPolicy()
     {
+        if (ClassifyStartupRestoration(true, false, false, false, false,
+                restorationPending: true, restVisible: true) != StartupRestorationObservation.Unknown)
+            throw new InvalidOperationException("HP no descanso não prova ausência de lápide.");
         if (!HasSufficientRestorationHud(false, true, false) ||
             !HasSufficientRestorationHud(false, true, true) ||
             HasSufficientRestorationHud(false, false, false) ||

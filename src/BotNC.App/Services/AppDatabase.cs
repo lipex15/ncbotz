@@ -276,6 +276,8 @@ public sealed class AppDatabase
             new("guild_checkin_reward", "Recompensa do check-in", "guild_checkin_reward.png", 810, 270, 310, 82, 730, 220, 500, 180, 0.66),
             new("guild_donation_panel", "Painel de doações", "guild_donation_panel.png", 905, 206, 155, 55, 800, 170, 350, 115, 0.68),
             new("game_hud_menu", "Menu da tela de jogo", "boss_room.png", 1855, 48, 42, 32, 1820, 25, 95, 75, 0.78),
+            new("rest_unlock_instruction", "Instrução de desbloqueio do descanso", "regression_death_rest_20260927.png",
+                760, 134, 405, 29, 720, 105, 490, 90, 0.80),
             new("guild_directive_page", "Página de Diretivas", "guild_directive_page.png", 430, 105, 190, 70, 390, 85, 280, 115, 0.68),
             new("guild_directive_accepted", "Campanha Aceita", "guild_directive_accepted.png", 805, 105, 315, 165, 730, 70, 470, 245, 0.66),
             new("guild_directive_in_progress", "Diretiva em andamento", "guild_directive_in_progress.png", 720, 475, 235, 75, 650, 430, 350, 150, 0.64),

@@ -5,15 +5,29 @@ namespace BotNC.App.Services;
 public sealed partial class BotAutomationEngine
 {
     private ClientSession? _workflowClient;
+    private readonly AsyncLocal<ClientSession?> _interruptibleAction = new();
     private HumanInteractionMonitor? _humanInteraction;
     private IReadOnlyList<ClientSession> _manualSessions = [];
     private bool HumanOwnsInterface => _humanInteraction?.IsBusy == true || _manualSessions.Any(s => s.UserInterfaceBusy);
     private void RespectHumanInteraction(ClientSession session)
     {
+        YieldToOtherEmergency(session);
         ThrowIfDeathPending(session);
         if (!session.HandlingDeath && !session.HandlingProtection && HumanOwnsInterface)
             throw new HumanInteractionException();
     }
+
+    private void YieldToOtherEmergency(ClientSession session)
+    {
+        if (_manualSessions.Any(other => ShouldYieldToEmergency(session, other)))
+            throw new ProtectionTransitionException();
+    }
+
+    private static bool ShouldYieldToEmergency(ClientSession current, ClientSession other) =>
+        current != other && !current.ServicingEmergencyInput && !other.ReconnectPending && !other.HandlingDeath &&
+        Volatile.Read(ref other.PendingVisualDeath) == 0 &&
+        Volatile.Read(ref other.PendingVisualLowHp) != 0 &&
+        Volatile.Read(ref other.EmergencyTeleportInFlight) == 0;
 
     private void BindWorkflowClient(ClientSession session)
     {
