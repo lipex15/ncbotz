@@ -49,15 +49,37 @@ public sealed partial class RestorationCounterReader
     {
         var normalized = Normalize(text);
         return normalized.Contains("PERDA DE EXP", StringComparison.Ordinal) ||
-               normalized.Contains("EQUIPAMENTO DANIFICADO", StringComparison.Ordinal);
+               normalized.Contains("EQUIPAMENTO DANIF", StringComparison.Ordinal);
     }
     private const int ReferenceWidth = 1920;
     private const int ReferenceHeight = 1040;
 
-    public Task<RestorationCounterResult> ReadClientFrameAsync(
+    public async Task<RestorationCounterResult> ReadClientFrameAsync(
         PixelFrame frame,
-        CancellationToken cancellationToken = default) =>
-        ReadHeaderCropAsync(CropHeading(frame, isFullClientFrame: true), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var standard = await ReadHeaderCropAsync(CropHeading(frame, true), cancellationToken);
+        if (standard.State != RestorationCountState.Unknown) return standard;
+        // Narrower header excludes the animated world and item list. In the
+        // regression capture these drowned out the green equipment counter.
+        var tight = await ReadHeaderCropAsync(CropHeading(frame, true, tight: true), cancellationToken);
+        if (tight.State == RestorationCountState.Unknown &&
+            (standard.RawText + tight.RawText).Contains("EQUIPAMENTO", StringComparison.Ordinal) &&
+            (standard.RawText + tight.RawText).Contains("DANIF", StringComparison.Ordinal))
+        {
+            var engine = OcrEngine.TryCreateFromLanguage(new Language("pt-BR")) ?? OcrEngine.TryCreateFromUserProfileLanguages();
+            if (engine is not null)
+            {
+                using var bitmap = MakeOcrBitmap(CropHeading(frame, true, tight: true), -1);
+                var text = (await engine.RecognizeAsync(bitmap).AsTask(cancellationToken)).Text.Trim();
+                if (Regex.IsMatch(text, @"^\d{1,2}$") && int.TryParse(text, out var count) && count <= 50)
+                    return new(RestorationTab.Equipment, count, null, standard.RawText + " | greenCounter=" + text);
+                tight = tight with { RawText = tight.RawText + " | greenCounter=" + text };
+            }
+        }
+        return tight.State != RestorationCountState.Unknown ? tight :
+            standard with { RawText = standard.RawText + " | tight=" + tight.RawText };
+    }
 
     public async Task<RestorationCounterResult> ReadImageAsync(
         string imagePath,
@@ -93,7 +115,7 @@ public sealed partial class RestorationCounterReader
                      throw new InvalidOperationException("O reconhecimento de texto do Windows não está disponível.");
 
         var observations = new List<RestorationCounterResult>();
-        foreach (var threshold in new int?[] { null, 105, 145 })
+        foreach (var threshold in new int?[] { null, 105, 145, -2 })
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var bitmap = MakeOcrBitmap(heading, threshold);
@@ -150,14 +172,14 @@ public sealed partial class RestorationCounterReader
         return new RestorationCounterResult(RestorationTab.Unknown, null, null, normalized);
     }
 
-    private static PixelFrame CropHeading(PixelFrame frame, bool isFullClientFrame)
+    private static PixelFrame CropHeading(PixelFrame frame, bool isFullClientFrame, bool tight = false)
     {
         var scaleX = isFullClientFrame ? frame.Width / (double)ReferenceWidth : 1d;
         var scaleY = isFullClientFrame ? frame.Height / (double)ReferenceHeight : 1d;
         var x = Math.Clamp((int)Math.Round(80 * scaleX), 0, frame.Width - 1);
-        var y = Math.Clamp((int)Math.Round(65 * scaleY), 0, frame.Height - 1);
+        var y = Math.Clamp((int)Math.Round((tight ? 98 : 65) * scaleY), 0, frame.Height - 1);
         var width = Math.Min((int)Math.Round(390 * scaleX), frame.Width - x);
-        var height = Math.Min((int)Math.Round(100 * scaleY), frame.Height - y);
+        var height = Math.Min((int)Math.Round((tight ? 45 : 100) * scaleY), frame.Height - y);
         var stride = width * 4;
         var pixels = new byte[stride * height];
         for (var row = 0; row < height; row++)
@@ -192,7 +214,12 @@ public sealed partial class RestorationCounterReader
                 var green = frame.Pixels[sourceOffset + 1];
                 var red = frame.Pixels[sourceOffset + 2];
                 var luma = ((red * 77) + (green * 150) + (blue * 29)) >> 8;
-                var value = threshold is null
+                var value = threshold == -2
+                    ? (byte)((green > red * 1.15 && green > blue * 1.05 && green >= 70 ||
+                              red >= green * 1.04 && green > blue * 1.1 && green >= 100) ? 255 : 0)
+                    : threshold == -1
+                    ? (byte)(green > red * 1.15 && green > blue * 1.05 && green >= 70 ? 255 : 0)
+                    : threshold is null
                     ? (byte)luma
                     : luma >= threshold ? (byte)255 : (byte)0;
                 pixels[destinationOffset] = value;
@@ -226,6 +253,6 @@ public sealed partial class RestorationCounterReader
     [GeneratedRegex(@"PERDA\s+DE\s+EXP\s*(?<count>\d{1,2})\s*/\s*(?<capacity>\d{1,2})", RegexOptions.CultureInvariant)]
     private static partial Regex ExperienceHeading();
 
-    [GeneratedRegex(@"EQUIPAMENTO\s+DANIFICADO\s*(?<count>\d{1,2})", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"EQUIPAMENTO\s+DANIFICADO[\s'’:\-]*(?<count>\d{1,2})", RegexOptions.CultureInvariant)]
     private static partial Regex EquipmentHeading();
 }

@@ -522,6 +522,7 @@ public partial class App : Application
             throw new InvalidOperationException("Migração de estado vazou entre usuários.");
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
+        await BotAutomationEngine.VerifyReconnectFixturesAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         await FlowVisualRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         foreach (var loadingFixture in new[] { "regression_loading_city.png", "regression_loading_landscape.png" })
             if (!await LoadingScreenReader.IsLoadingAsync(LoadReferenceFrame(Path.Combine(referenceDirectory, loadingFixture)), CancellationToken.None))

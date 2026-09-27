@@ -1227,14 +1227,16 @@ public sealed partial class BotAutomationEngine(
             while (DateTime.Now < finishesAt)
             {
                 await CheckpointAsync(pause, cancellationToken);
+                await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 if (!HumanOwnsInterface && !HasPendingProtection)
                 {
-                    foreach (var raidSession in protectedSessions.Where(s => !IsSapherasSessionActive(s)))
+                    foreach (var raidSession in protectedSessions.Where(s => !s.ReconnectPending && !IsSapherasSessionActive(s)))
                         await RunLoveBossSafelyAsync(raidSession, sessions, dailyRoutines,
                             pause, cancellationToken, null);
                 }
                 foreach (var session in protectedSessions.OrderByDescending(s => Volatile.Read(ref s.PendingVisualDeath) != 0))
                 {
+                    if (session.ReconnectPending) continue;
                     if (!HasPendingProtection && !session.HandlingDeath && !session.NeedsDeathRestoration &&
                         session.SapherasFarmConfirmed && !session.SapherasExitedEarly &&
                         await ObserveSapherasExitAsync(session, cancellationToken))
@@ -5478,19 +5480,20 @@ public sealed partial class BotAutomationEngine(
                     return;
                 }
 
+                await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 if (await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, cancellationToken))
                     continue;
 
                 if (HumanOwnsInterface)
                 {
-                    foreach (var scheduledSession in sessions.Where(s => s.FarmScheduleSteps.Count > 0))
+                    foreach (var scheduledSession in sessions.Where(s => !s.ReconnectPending && s.FarmScheduleSteps.Count > 0))
                         await TryAdvanceFarmScheduleAsync(scheduledSession, pause, cancellationToken);
                 }
                 if (!HumanOwnsInterface)
                 {
                 if (HasPendingProtection) { await Task.Delay(100, cancellationToken); continue; }
                 var handledLoveBoss = false;
-                foreach (var raidSession in sessions
+                foreach (var raidSession in sessions.Where(s => !s.ReconnectPending)
                              .OrderBy(item => item.LoveBossInside)
                              .ThenBy(item => item.Options.Priority))
                 {
@@ -5504,7 +5507,7 @@ public sealed partial class BotAutomationEngine(
                 }
 
                 var scheduleAdvanced = false;
-                foreach (var scheduledSession in sessions.OrderBy(item => item.Options.Priority))
+                foreach (var scheduledSession in sessions.Where(s => !s.ReconnectPending).OrderBy(item => item.Options.Priority))
                 {
                     if (await TryAdvanceFarmScheduleAsync(scheduledSession, pause, cancellationToken))
                     {
@@ -5517,7 +5520,7 @@ public sealed partial class BotAutomationEngine(
                     continue;
                 }
 
-                foreach (var routineSession in sessions.OrderBy(item => item.Options.Priority))
+                foreach (var routineSession in sessions.Where(s => !s.ReconnectPending).OrderBy(item => item.Options.Priority))
                 {
                     if (routineSession.NextRoutinePanelRecoveryAt == default ||
                         DateTime.UtcNow < routineSession.NextRoutinePanelRecoveryAt)
@@ -5534,7 +5537,7 @@ public sealed partial class BotAutomationEngine(
                     (!stopAt.HasValue || stopAt.Value - DateTime.Now > sapheras.DirectSapherasWindow))
                 {
                     nextMailCheckAt = DateTime.Now.AddSeconds(30);
-                    foreach (var mailSession in sessions.OrderBy(item => item.Options.Priority))
+                    foreach (var mailSession in sessions.Where(s => !s.ReconnectPending).OrderBy(item => item.Options.Priority))
                     {
                         await TryCollectDueGuildTreasureAsync(mailSession, pause, cancellationToken);
                         if (await TryCollectDueMailSafelyAsync(mailSession, pause, cancellationToken))
@@ -5548,7 +5551,7 @@ public sealed partial class BotAutomationEngine(
                     (!stopAt.HasValue || stopAt.Value - DateTime.Now > sapheras.DirectSapherasWindow))
                 {
                     nextVisibleDailyCheckAt = DateTime.Now.AddSeconds(30);
-                    foreach (var routineSession in sessions.OrderBy(item => item.Options.Priority))
+                    foreach (var routineSession in sessions.Where(s => !s.ReconnectPending).OrderBy(item => item.Options.Priority))
                     {
                         if (await TryStartVisibleDailyCampaignSafelyAsync(
                                 routineSession, dailyRoutines, pause, cancellationToken))
@@ -5561,7 +5564,7 @@ public sealed partial class BotAutomationEngine(
                 if (DateTime.Now >= nextRoutineCheckAt)
                 {
                     nextRoutineCheckAt = DateTime.Now.AddSeconds(20);
-                    foreach (var routineSession in sessions.OrderBy(item => item.Options.Priority))
+                    foreach (var routineSession in sessions.Where(s => !s.ReconnectPending).OrderBy(item => item.Options.Priority))
                     {
                         if (await RunDueDailyRoutinesSafelyAsync(routineSession, dailyRoutines, pause, cancellationToken))
                         {
@@ -5573,6 +5576,7 @@ public sealed partial class BotAutomationEngine(
                 }
                 foreach (var session in sessions.OrderBy(session => session.Options.Priority))
                 {
+                    if (session.ReconnectPending) continue;
                     if (!HumanOwnsInterface && !HasPendingProtection && session.InDailyCampaign && !session.LoveBossInside && DateTime.UtcNow >= session.NextDailyMissionCheckAt)
                     {
                         var dailyActionStarted = false;
@@ -6053,7 +6057,21 @@ public sealed partial class BotAutomationEngine(
                 }
 
                 var frame = await CaptureClientFrameAsync(session, cancellationToken);
+                await ObserveReconnectAsync(session, frame, cancellationToken);
                 session.LastWindowFrameAt = DateTime.UtcNow;
+                if (session.ReconnectPending)
+                {
+                    // A hidden gameplay HUD during login cannot keep a stale
+                    // manual-interaction latch set forever.
+                    if (_humanInteraction?.IsBusy != true) session.UserInterfaceBusy = false;
+                    session.Audio.Armed = false;
+                    _ = session.Audio.TryConsumeAlert(out _);
+                    session.ScheduleHuntConfirmed = false;
+                    session.SchedulePreviousObservationActive = false;
+                    PublishCurrentClientActivity(session);
+                    await Task.Delay(200, cancellationToken);
+                    continue;
+                }
                 if (DateTime.UtcNow >= session.NextDiagnosticHeartbeatAt)
                 {
                     session.NextDiagnosticHeartbeatAt = DateTime.UtcNow.AddSeconds(30);
@@ -6367,6 +6385,11 @@ public sealed partial class BotAutomationEngine(
         Exception exception,
         string action)
     {
+        if (exception is ReconnectTransitionException)
+        {
+            WritePersistentOnly(session, $"workflow_interrupted action={action}; reason=disconnect; routePreserved=true");
+            return;
+        }
         if (exception is ProtectionTransitionException)
         {
             WritePersistentOnly(session, $"workflow_interrupted action={action}; reason=background_tp; retryPenalty=false; locationRequiresVerification=true");
@@ -7021,11 +7044,12 @@ public sealed partial class BotAutomationEngine(
         }
         else
         {
-            if ((await FindReferenceOnClientAsync(
+            if (RestorationCounterReader.HasRestorationHeading(panelCounter.RawText) ||
+                (await FindReferenceOnClientAsync(
                     session, "painel_restauracao", cancellationToken, requireObservable: true)).Found)
             {
                 var diagnostic = await recognition.SaveDiagnosticAsync($"restauracao_contador_{session.Options.Priority}");
-                throw new InvalidOperationException(
+                throw new RecoveryObservationPendingException(
                     $"{session.Options.Label}: painel de restauração aberto, mas contador ilegível; " +
                     $"não vou tratar a perda como concluída. Diagnóstico: {diagnostic}");
             }
@@ -8164,6 +8188,8 @@ public sealed partial class BotAutomationEngine(
 
     private static string DescribeCurrentClientActivity(ClientSession session)
     {
+        if (session.ReconnectPending)
+            return session.ReconnectAfterLogin ? "Reconectando · preparando retorno ao farm" : "Reconectando · login e recuperação de perdas";
         var activity = session.HandlingDeath || Volatile.Read(ref session.PendingVisualDeath) != 0
             ? "Morte detectada · recuperação prioritária"
             : session.NeedsDeathRestoration ? "Restaurando EXP e equipamentos"
@@ -8225,6 +8251,12 @@ public sealed partial class BotAutomationEngine(
         public bool AwaitingFavoriteSpotRecognition { get; set; }
         public bool SafeInRest { get; set; }
         public bool SapherasFarmConfirmed { get; set; }
+        public volatile bool ReconnectPending;
+        public bool HandlingReconnect;
+        public bool ReconnectAfterLogin, ReconnectWorldInitialized, ReconnectSkillSent;
+        public int ReconnectHits, ReconnectWorldHits, ReconnectStepAttempts, ReconnectSkillAttempts;
+        public ReconnectScreen LastReconnectScreen, LastReconnectActionScreen;
+        public DateTime NextReconnectObservation, NextReconnectAction, DisconnectedAt;
         public bool SapherasExitedEarly;
         public int SapherasExitHits;
         public DateTime LastSapherasExitCheck;

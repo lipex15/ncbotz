@@ -6,7 +6,7 @@ public sealed partial class BotAutomationEngine
     {
         var now = DateTime.UtcNow;
         if (now - session.ScheduleObservedAt < TimeSpan.FromSeconds(1)) return;
-        var eligible = session.FarmScheduleSteps.Count > 0 && !pause.IsPaused &&
+        var eligible = session.FarmScheduleSteps.Count > 0 && !pause.IsPaused && !session.ReconnectPending &&
                        !session.VisualCaptureFaulted && IsScheduleFarmActive(session);
         var reading = (await recognition.FindAsync("caca_automatica", frame, token)).Found
             ? OpenHudHuntState.Active : session.OpenHudHunt;

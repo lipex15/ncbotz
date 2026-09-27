@@ -20,7 +20,8 @@ public sealed partial class BotAutomationEngine
         if (_workflowClient != session)
             WritePersistentOnly(session, $"workflow_owner hwnd={session.Options.Target.Handle}; pid={session.Options.Target.ProcessId}; daily={session.InDailyCampaign}; farm={session.IsFarmingTa}; restoration={session.NeedsDeathRestoration}");
         _workflowClient = session;
-        recognition.WorkflowFrameProvider = token => CaptureClientFrameAsync(session, token);
+        recognition.WorkflowFrameProvider = token => session.ReconnectPending && !session.HandlingReconnect
+            ? throw new ReconnectTransitionException() : CaptureClientFrameAsync(session, token);
         recognition.WorkflowContextId = $"{session.Options.Priority}:{session.Options.Target.Handle}";
         recognition.WorkflowTrace = message => WritePersistentOnly(session, message);
         recognition.WorkflowDiagnosticContext = () => DiagnosticState(session);
@@ -49,6 +50,7 @@ public sealed partial class BotAutomationEngine
         AntiOverkillOptions antiOverkill, DailyRoutineOptions routines, PauseController pause,
         CancellationToken token, DateTime? nextSapheras)
     {
+        if (session.ReconnectPending && !session.HandlingReconnect) return;
         if (await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, token)) return;
         if (await TryAdoptScheduledDungeonFarmAsync(session, pause, token)) return;
         // Adopt an existing automatic campaign BEFORE opening mail, guild or the TA selector.

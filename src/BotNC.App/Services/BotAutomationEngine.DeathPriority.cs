@@ -6,6 +6,7 @@ public sealed partial class BotAutomationEngine
 {
     private static void ThrowIfDeathPending(ClientSession session)
     {
+        if (session.ReconnectPending && !session.HandlingReconnect) throw new ReconnectTransitionException();
         if (!session.HandlingDeath && Volatile.Read(ref session.PendingVisualDeath) != 0)
             throw new InvalidOperationException($"{session.Options.Label}: morte confirmada; comando normal bloqueado para priorizar Ressuscitar.");
         if (!session.HandlingDeath &&
@@ -18,7 +19,7 @@ public sealed partial class BotAutomationEngine
         public ProtectionTransitionException() : base("TP de proteção alterou o contexto; etapa antiga interrompida para observar a nova localização.") { }
     }
 
-    private bool HasPendingProtection => _manualSessions.Any(s => !s.HandlingDeath && !s.InAgenda &&
+    private bool HasPendingProtection => _manualSessions.Any(s => !s.ReconnectPending && !s.HandlingDeath && !s.InAgenda &&
         (Volatile.Read(ref s.PendingVisualDeath) != 0 || Volatile.Read(ref s.PendingVisualLowHp) != 0 ||
          Volatile.Read(ref s.EmergencyTeleportInFlight) != 0));
 
@@ -26,7 +27,7 @@ public sealed partial class BotAutomationEngine
         SapherasOptions sapheras, AntiOverkillOptions antiOverkill, PauseController pause, CancellationToken token)
     {
         // Death first across both clients, before mail, bosses, daily quests or retries.
-        var pending = sessions.Where(s => !s.HandlingDeath && !s.InAgenda)
+        var pending = sessions.Where(s => !s.ReconnectPending && !s.HandlingDeath && !s.InAgenda)
             .OrderByDescending(s => Volatile.Read(ref s.PendingVisualDeath) != 0)
             .ThenBy(s => s.Options.Priority)
             .FirstOrDefault(s => Volatile.Read(ref s.PendingVisualDeath) != 0 ||

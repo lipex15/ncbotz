@@ -260,6 +260,15 @@ public sealed class AppDatabase
     {
         public static readonly ReferenceDefinition[] All =
         [
+            new("reconnect_login_ok", "Confirmar aviso na tela de login", "reconnect_inactivity.png", 864, 611, 192, 50, 820, 580, 280, 110, .84),
+            new("reconnect_login_dim_touch", "Tela de login sob aviso", "reconnect_inactivity.png", 881, 796, 166, 28, 820, 750, 285, 105, .82),
+            new("reconnect_touch", "Toque na tela de login", "reconnect_touch.png", 880, 795, 165, 30, 820, 750, 285, 105, .82),
+            new("reconnect_promo_close", "Fechar anúncio de login", "reconnect_promo.png", 1513, 779, 36, 36, 1470, 742, 110, 100, .85),
+            new("reconnect_server", "Ícone seletor de servidor", "reconnect_promo.png", 1146, 920, 37, 36, 1110, 885, 115, 95, .78),
+            new("reconnect_character", "Seleção de personagem", "reconnect_character.png", 75, 44, 343, 36, 20, 22, 470, 110, .84),
+            new("reconnect_start", "Iniciar personagem", "reconnect_character.png", 1698, 978, 188, 44, 1640, 945, 280, 95, .83),
+            new("reconnect_skill_off", "Skill 6 desativada", "reconnect_skill_off.png", 9, 14, 69, 66, 1025, 915, 130, 120, .80),
+            new("reconnect_skill_on", "Skill 6 ativada", "reconnect_skill_on.png", 16, 20, 76, 78, 1025, 915, 130, 120, .80),
             new("menu_guild", "Ícone Guilda", "menu_guild.png", 0, 0, 87, 99, 1535, 275, 155, 150, 0.68),
             new("guild_page", "Página da Guilda", "guild_page.png", 24, 30, 280, 80, 0, 15, 390, 130, 0.68),
             new("guild_checkin_available", "Check-in disponível", "guild_checkin_page.png", 803, 880, 155, 50, 755, 830, 250, 125, 0.72),
