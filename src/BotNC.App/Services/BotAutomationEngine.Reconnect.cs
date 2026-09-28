@@ -48,6 +48,11 @@ public sealed partial class BotAutomationEngine
         if ((await visual.FindAsync("reconnect_login_ok", frame, token)).Found &&
             (touch || server || (await visual.FindAsync("reconnect_login_dim_touch", frame, token)).Found))
             return ReconnectScreen.LoginNotice;
+        // Downscaled desktop screenshots can soften the fixed button template.
+        // Require both the explicit inactivity notice and its OK(Y) control;
+        // never acknowledge a generic OK or an unknown gameplay dialog.
+        if (!controls && !touch && !server && await HasInactivityLoginNoticeAsync(frame, token, trace))
+            return ReconnectScreen.LoginNotice;
         if (!touch && !server && controls && (hp.Found ||
             ((await visual.FindAsync("reconnect_skill_off", frame, token)).Found ||
              (await visual.FindAsync("reconnect_skill_on", frame, token)).Found)))
@@ -55,6 +60,27 @@ public sealed partial class BotAutomationEngine
         if (!touch && !server) return ReconnectScreen.Unknown;
         if ((await visual.FindAsync("reconnect_promo_close", frame, token)).Found) return ReconnectScreen.Promotion;
         return server ? ReconnectScreen.ServerReady : ReconnectScreen.Touch;
+    }
+
+    private static async Task<bool> HasInactivityLoginNoticeAsync(PixelFrame frame, CancellationToken token, Action<string>? trace)
+    {
+        if (frame.Width < 1500 || frame.Height < 850) return false;
+        static PixelFrame Crop(PixelFrame source, int x, int y, int width, int height)
+        {
+            var pixels = new byte[width * height * 4];
+            for (var row = 0; row < height; row++)
+                Buffer.BlockCopy(source.Pixels, (y + row) * source.Stride + x * 4, pixels, row * width * 4, width * 4);
+            return new(width, height, width * 4, pixels);
+        }
+        var reader = new RestorationCounterReader();
+        var notice = (await reader.ReadHeaderCropAsync(Crop(frame, 700, 400, 520, 175), token)).RawText;
+        trace?.Invoke("inactivity_notice_text=" + notice);
+        if (!notice.Contains("INATIVIDADE", StringComparison.OrdinalIgnoreCase) ||
+            !notice.Contains("MOVIDO", StringComparison.OrdinalIgnoreCase) ||
+            !notice.Contains("TELA INICIAL", StringComparison.OrdinalIgnoreCase)) return false;
+        var button = (await reader.ReadHeaderCropAsync(Crop(frame, 850, 595, 220, 90), token)).RawText;
+        trace?.Invoke("inactivity_button_text=" + button);
+        return button.Contains("OK", StringComparison.OrdinalIgnoreCase) && button.Contains("Y", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task ObserveReconnectAsync(ClientSession session, PixelFrame frame, CancellationToken token)
@@ -221,17 +247,29 @@ public sealed partial class BotAutomationEngine
     {
         foreach (var (file, expected) in new[] {
             ("reconnect_inactivity.png", ReconnectScreen.LoginNotice),
+            ("reconnect_inactivity_report_20260928.png", ReconnectScreen.LoginNotice),
             ("reconnect_touch.png", ReconnectScreen.Touch),
             ("reconnect_promo.png", ReconnectScreen.Promotion),
             ("reconnect_promo_second.png", ReconnectScreen.Promotion),
             ("reconnect_character.png", ReconnectScreen.Character),
             ("reconnect_world.png", ReconnectScreen.World) })
         {
-            var actual = await ReadReconnectScreenAsync(visual, load(file), CancellationToken.None);
-            if (actual != expected) throw new InvalidOperationException($"Reconnect {file}: {actual}, esperado {expected}.");
+            var evidence = new List<string>();
+            var actual = await ReadReconnectScreenAsync(visual, load(file), CancellationToken.None, evidence.Add);
+            if (actual != expected) throw new InvalidOperationException($"Reconnect {file}: {actual}, esperado {expected}. {string.Join("; ", evidence)}");
         }
         if (await ReadReconnectScreenAsync(visual, load("regression_death_rest_20260927.png"), CancellationToken.None) != ReconnectScreen.World)
             throw new InvalidOperationException("Login em descanso com morte deve encaminhar à restauração, não aguardar HUD vivo.");
+        var reported = VisualRecognitionService.NormalizeForReferenceMatching(load("reconnect_inactivity_report_20260928.png"));
+        foreach (var region in new[] { (X: 850, Y: 595, W: 220, H: 90), (X: 700, Y: 400, W: 520, H: 175) })
+        {
+            var incomplete = (byte[])reported.Pixels.Clone();
+            for (var row = region.Y; row < region.Y + region.H; row++)
+                Array.Clear(incomplete, row * reported.Stride + region.X * 4, region.W * 4);
+            if (await ReadReconnectScreenAsync(visual, new PixelFrame(reported.Width, reported.Height, reported.Stride, incomplete),
+                CancellationToken.None) == ReconnectScreen.LoginNotice)
+                throw new InvalidOperationException("Aviso incompleto não pode autorizar confirmação por OCR.");
+        }
         var frame = VisualRecognitionService.NormalizeForReferenceMatching(load("reconnect_world.png"));
         // Reproduce the failure mode from the friend's log: apparent HP on a
         // character screen must never divert login into restoration.

@@ -8,7 +8,9 @@ public sealed partial class BotAutomationEngine
     private readonly AsyncLocal<ClientSession?> _interruptibleAction = new();
     private HumanInteractionMonitor? _humanInteraction;
     private IReadOnlyList<ClientSession> _manualSessions = [];
-    private bool HumanOwnsInterface => _humanInteraction?.IsBusy == true || _manualSessions.Any(s => s.UserInterfaceBusy);
+    private bool HumanOwnsInterface => _humanInteraction?.IsBusy == true || _manualSessions.Any(s =>
+        ManualInterfacePolicy.Blocks(s.UserInterfaceBusy, s.VisualCaptureFaulted, s.ReconnectPending,
+            gameWindows.IsForeground(s.Options.Target)));
     private void RespectHumanInteraction(ClientSession session)
     {
         YieldToOtherEmergency(session);

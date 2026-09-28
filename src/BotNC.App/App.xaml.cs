@@ -516,6 +516,7 @@ public partial class App : Application
         BotAutomationEngine.VerifyDeathRestorationPolicy();
         BotAutomationEngine.VerifyStartupObservationPolicy();
         BotAutomationEngine.VerifyWorkflowStabilityPolicy();
+        ManualInterfacePolicy.Verify();
         BotAutomationEngine.VerifyDeathPriorityPolicy();
         BotAutomationEngine.VerifyAutoStoragePolicy();
         BotAutomationEngine.VerifyScheduleClockPolicy();

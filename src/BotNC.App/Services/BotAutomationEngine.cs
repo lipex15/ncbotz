@@ -6310,6 +6310,9 @@ public sealed partial class BotAutomationEngine(
             catch (Exception exception)
             {
                 session.VisualCaptureFaulted = true;
+                // Lost frames cannot preserve a manual-menu lock indefinitely
+                // and prevent the other account from reconnecting.
+                session.UserInterfaceBusy = false;
                 if (DateTime.UtcNow - lastCaptureFailureLog >= TimeSpan.FromSeconds(10))
                 {
                     lastCaptureFailureLog = DateTime.UtcNow;
