@@ -8,8 +8,8 @@
             <GradientStop Color="#07101D" Offset="1" />
         </LinearGradientBrush>
         <SolidColorBrush x:Key="PanelBrush" Color="#0B1728" />
-        <LinearGradientBrush x:Key="CardBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#132337" Offset="0"/><GradientStop Color="#101C2C" Offset="1"/></LinearGradientBrush>
-        <SolidColorBrush x:Key="BorderBrush" Color="#23374C" />
+        <LinearGradientBrush x:Key="CardBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#162334" Offset="0"/><GradientStop Color="#0E1928" Offset="1"/></LinearGradientBrush>
+        <SolidColorBrush x:Key="BorderBrush" Color="#2A3C50" />
         <SolidColorBrush x:Key="TextBrush" Color="#F2F6FF" />
         <SolidColorBrush x:Key="MutedBrush" Color="#A2B1C8" />
         <SolidColorBrush x:Key="AccentBrush" Color="#49C6ED" />
@@ -17,8 +17,8 @@
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         </Style>
         <Style x:Key="FieldLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#8296AA" />
-            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="#9BAEC5" />
+            <Setter Property="FontSize" Value="11" />
             <Setter Property="FontWeight" Value="Bold" />
         </Style>
         <Style x:Key="CardContainer" TargetType="Border">
@@ -43,7 +43,7 @@
         </Style>
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="Background" Value="#253A58" />
+            <Setter Property="Background" Value="#152337" />
             <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="16,10" />
