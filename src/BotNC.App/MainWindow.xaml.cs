@@ -315,6 +315,8 @@ public partial class MainWindow : Window
 
     private void HideStatistics()
     {
+        TaDestinationPanel.Visibility = Visibility.Collapsed;
+        Ta2NavigationButton.Background = Ta3NavigationButton.Background = Brushes.Transparent;
         SapherasPanel.Visibility = Visibility.Collapsed;
         TaSettingsPanel.Visibility = Visibility.Collapsed;
         ExpandedLogOverlay.Visibility = Visibility.Collapsed;
@@ -387,8 +389,15 @@ public partial class MainWindow : Window
     {
         if (Client1ScheduleTotalText is null || Client2ScheduleTotalText is null)
             return;
-        Client1ScheduleTotalText.Text = $"Tempo total: {Client1ScheduleSteps.Sum(step => step.DurationMinutes):0} min";
-        Client2ScheduleTotalText.Text = $"Tempo total: {Client2ScheduleSteps.Sum(step => step.DurationMinutes):0} min";
+        foreach (var steps in new[] { Client1ScheduleSteps, Client2ScheduleSteps })
+            for (var i = 0; i < steps.Count; i++)
+            {
+                steps[i].Position = i + 1;
+                steps[i].PropertyChanged -= OnStagePropertyChanged;
+                steps[i].PropertyChanged += OnStagePropertyChanged;
+            }
+        Client1ScheduleTotalText.Text = $"Tempo total: {Client1ScheduleSteps.Sum(step => double.IsFinite(step.DurationMinutes) ? step.DurationMinutes : 0):0} min";
+        Client2ScheduleTotalText.Text = $"Tempo total: {Client2ScheduleSteps.Sum(step => double.IsFinite(step.DurationMinutes) ? step.DurationMinutes : 0):0} min";
     }
 
     private async void OnSaveFarmSchedule(object sender, RoutedEventArgs e)
@@ -397,6 +406,7 @@ public partial class MainWindow : Window
             return;
         try
         {
+            if (!ValidateEditableAgenda()) return;
             await _database.SaveSettingAsync("farmSchedule.scope", FarmScheduleScopeComboBox.SelectedItem?.ToString() ?? "Nenhum");
             await _database.SaveSettingAsync("farmSchedule.client1", JsonSerializer.Serialize(
                 Client1ScheduleSteps.Select(step => step.ToModel()).ToArray()));
@@ -720,7 +730,7 @@ public partial class MainWindow : Window
     private async void OnCaptureClient2AnonymousCoordinate(object sender, RoutedEventArgs e) =>
         await CaptureCustomCoordinateAsync(2, anonymous: true);
 
-    private async Task CaptureCustomCoordinateAsync(int clientNumber, bool abbey = false, bool sapheras = false, bool anonymous = false, bool global = false)
+    private async Task CaptureCustomCoordinateAsync(int clientNumber, bool abbey = false, bool sapheras = false, bool anonymous = false, bool global = false, TaDestination? destinationOverride = null)
     {
         if (_capturingCustomCoordinate || _runCancellation is not null)
         {
@@ -761,6 +771,20 @@ public partial class MainWindow : Window
                 CancellationToken.None);
             var mapped = _gameWindows.MapScreenPointToReference(target, clicked.X, clicked.Y);
             var coordinate = new FarmCoordinate(mapped.X, mapped.Y);
+            if (destinationOverride is { } configuredDestination)
+            {
+                var points = clientNumber == 1 ? _client1TaCoordinates : _client2TaCoordinates;
+                var enabledPoints = clientNumber == 1 ? _client1TaCoordinatesEnabled : _client2TaCoordinatesEnabled;
+                points[configuredDestination] = coordinate;
+                enabledPoints.Add(configuredDestination);
+                var prefix = $"client{clientNumber}.customFarm.{configuredDestination}";
+                await _database.SaveSettingAsync(prefix + ".x", coordinate.X.ToString(CultureInfo.InvariantCulture));
+                await _database.SaveSettingAsync(prefix + ".y", coordinate.Y.ToString(CultureInfo.InvariantCulture));
+                await _database.SaveSettingAsync(prefix + ".enabled", "true");
+                OnTaDestinationChanged(clientNumber == 1 ? Ta1ComboBox : Ta2ComboBox, new System.Windows.Controls.SelectionChangedEventArgs(System.Windows.Controls.Primitives.Selector.SelectionChangedEvent, Array.Empty<object>(), Array.Empty<object>()));
+                RefreshTaPage();
+                return;
+            }
             if (global)
             {
                 if (coordinate.X < 400 || coordinate.X > 1480 || coordinate.Y < 180 || coordinate.Y > 920)
@@ -1226,6 +1250,7 @@ public partial class MainWindow : Window
             if (enableClient2) _ = ReadGlobalOptions(2);
         }
         catch (ArgumentException error) { ShowValidation(error.Message); return; }
+        if (!ValidateEditableAgenda()) return;
         var clients = new List<AutomationClientOptions>();
         if (client1 is not null)
         {
@@ -1677,6 +1702,7 @@ public partial class MainWindow : Window
 
     private void SetRunControls(bool isRunning)
     {
+        TaDestinationPanel.IsEnabled = !isRunning;
         if (isRunning)
         {
             _runStartedAt = DateTime.Now;
@@ -2275,23 +2301,4 @@ public partial class MainWindow : Window
         base.OnClosing(e);
     }
 
-    public sealed record FarmScheduleStepEditor(
-        FarmScheduleDestination Destination,
-        double DurationMinutes,
-        int AnonymousDungeonLevel = 97)
-    {
-        public string DisplayText => Destination == FarmScheduleDestination.AnonymousDungeon
-            ? $"{DestinationName(Destination)} · Nv. {AnonymousDungeonLevel} · {DurationMinutes:0.#} min"
-            : $"{DestinationName(Destination)} · {DurationMinutes:0.#} min";
-
-        public FarmScheduleStep ToModel() => new(Destination, TimeSpan.FromMinutes(DurationMinutes), AnonymousDungeonLevel);
-
-        private static string DestinationName(FarmScheduleDestination destination) => destination switch
-        {
-            FarmScheduleDestination.Ta1 => "T.A 1 (Codex)",
-            FarmScheduleDestination.Abbey => "Abadia da Lembrança",
-            FarmScheduleDestination.AnonymousDungeon => "Estreito de Tenerys",
-            _ => "Destino antigo"
-        };
-    }
 }

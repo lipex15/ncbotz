@@ -478,6 +478,7 @@ public partial class App : Application
         }
         if (e.Args.Contains("--execution-view", StringComparer.Ordinal))
             window.ShowExecutionPreviewForScreenshot();
+        if (e.Args.Contains("--agenda-layout-preview", StringComparer.Ordinal)) window.ShowAgendaLayoutForScreenshot();
         if (e.Args.Contains("--ta-preview", StringComparer.Ordinal)) window.ShowTaForScreenshot();
         if (e.Args.Contains("--sapheras-preview", StringComparer.Ordinal)) window.ShowSapherasForScreenshot();
         if (e.Args.Contains("--start-preview", StringComparer.Ordinal))
@@ -543,6 +544,7 @@ public partial class App : Application
         await BotAutomationEngine.VerifyReconnectFixturesAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         FarmPreferenceRegression.Verify();
         WindowRebindPolicy.Verify();
+        BotNC.App.MainWindow.VerifyAgendaEditor();
         await SpecialRoutineRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         await FlowVisualRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         foreach (var loadingFixture in new[] { "regression_loading_city.png", "regression_loading_landscape.png" })

@@ -4,11 +4,38 @@
         xmlns:local="clr-namespace:BotNC.App"
         Title="PEXBOT"
         Icon="Assets/Brand/pexbot-mark.png"
-        Width="1320" Height="850" MinWidth="1100" MinHeight="740"
+        Width="1440" Height="900" MinWidth="1100" MinHeight="740"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BackgroundBrush}" FontFamily="Segoe UI" FontSize="14"
         Loaded="OnWindowLoaded">
     <Window.Resources>
+<Style x:Key="AddStageButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+<Setter Property="Height" Value="46"/><Setter Property="Foreground" Value="#45DFF5"/><Setter Property="Background" Value="Transparent"/>
+<Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Grid>
+<Rectangle RadiusX="9" RadiusY="9" Stroke="#365369" StrokeDashArray="3,3" StrokeThickness="1" Fill="{TemplateBinding Background}"/>
+<TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14"/></Grid></ControlTemplate></Setter.Value></Setter>
+</Style>
+<DataTemplate x:Key="AgendaStepTemplate">
+<Border Background="#142234" BorderBrush="#21364A" BorderThickness="1" CornerRadius="9" Padding="8,10" Margin="0,0,0,7" AllowDrop="True" Drop="OnStageDrop">
+<Grid><Grid.ColumnDefinitions><ColumnDefinition Width="23"/><ColumnDefinition Width="34"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="56"/><ColumnDefinition Width="31"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+<TextBlock Text="⠿" FontSize="23" Foreground="#57748E" Cursor="SizeAll" VerticalAlignment="Center" ToolTip="Arraste para reordenar. Alt + ↑/↓ também move a etapa." PreviewMouseLeftButtonDown="OnStageGripDown" PreviewMouseMove="OnStageGripMove"/>
+<Border Grid.Column="1" Background="#24374D" CornerRadius="7" Height="34"><TextBlock Text="{Binding Position}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18" FontWeight="SemiBold"/></Border>
+<StackPanel Grid.Column="3">
+<ComboBox ItemsSource="{Binding DestinationChoices}" SelectedItem="{Binding DestinationLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Height="37" FontSize="13"/>
+</StackPanel>
+<TextBox Grid.Column="5" Text="{Binding DurationText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, ValidatesOnDataErrors=True}" Height="37" VerticalAlignment="Top" FontSize="14" ToolTip="{Binding Error}"/>
+<TextBlock Grid.Column="6" Text="min" Foreground="#9BB4CE" FontSize="12" Margin="5,10,0,0"/>
+<Button Grid.Column="7" Click="OnDeleteStage" Padding="3" Height="34" VerticalAlignment="Top" Background="Transparent" BorderThickness="0" ToolTip="Remover etapa">
+<Path Stroke="#CD455B" StrokeThickness="1.6" Width="15" Height="19" Stretch="Uniform" Data="M2,5 L18,5 M6,5 L6,2 14,2 14,5 M4,5 L5,21 15,21 16,5 M8,8 L8,18 M12,8 L12,18"/>
+</Button>
+</Grid></Border>
+</DataTemplate>
+<Style x:Key="AgendaList" TargetType="ListBox">
+<Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="MaxHeight" Value="355"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+<Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+<Setter Property="ItemContainerStyle"><Setter.Value><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><ContentPresenter/></ControlTemplate></Setter.Value></Setter></Style></Setter.Value></Setter>
+</Style>
+
 <Geometry x:Key="IconOverview">M2,10 L12,2 22,10 M5,8 L5,22 10,22 10,15 15,15 15,22 20,22 20,8</Geometry>
 <Geometry x:Key="IconStatistics">M3,22 L3,14 6,14 6,22 Z M10,22 L10,8 13,8 13,22 Z M17,22 L17,2 20,2 20,22 Z</Geometry>
 <Geometry x:Key="IconSapheras">M12,1 L22,11 12,23 2,11 Z M12,1 L8,11 12,23 16,11 Z M2,11 L22,11</Geometry>
@@ -22,13 +49,13 @@
 
 <Style x:Key="NeonNavigation" TargetType="Button">
 <Setter Property="Foreground" Value="#B3C6DE"/><Setter Property="Cursor" Value="Hand"/>
-<Setter Property="FontSize" Value="15"/><Setter Property="FontWeight" Value="Normal"/><Setter Property="Height" Value="37"/>
+<Setter Property="FontSize" Value="15"/><Setter Property="FontWeight" Value="Normal"/><Setter Property="Height" Value="34"/>
 <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
 <Border Background="{TemplateBinding Background}" CornerRadius="8"><Grid>
 <Border x:Name="ActiveLine" Width="2" Background="#26DAEE" HorizontalAlignment="Left" Margin="0,7" Visibility="Collapsed"/>
 <Grid Margin="15,0"><Grid.ColumnDefinitions><ColumnDefinition Width="23"/><ColumnDefinition Width="13"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
 <Path Data="{TemplateBinding Tag}" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.65" Stretch="Uniform" Width="21" Height="21" StrokeLineJoin="Round"/>
-<ContentPresenter Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+<TextBlock Grid.Column="2" Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" FontSize="{TemplateBinding FontSize}" VerticalAlignment="Center"/>
 </Grid></Grid></Border>
 <ControlTemplate.Triggers>
 <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="#45DBED"/></Trigger>
@@ -89,37 +116,48 @@
         </Style>
     </Window.Resources>
     <Grid>
-        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="74"/><RowDefinition Height="*"/><RowDefinition Height="82"/></Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="232" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.RowSpan="2" Background="#0B1425" BorderBrush="#263850" BorderThickness="0,0,1,0">
-            <Grid Margin="14,20">
+        <Border Grid.ColumnSpan="2" BorderBrush="#20344A" BorderThickness="0,0,0,1" Background="#0C1523">
+<Grid Margin="24,0"><StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+<Viewbox Width="43" Height="49" Margin="0,0,10,0"><Canvas Width="70" Height="74">
+<Path Stroke="#22D7F2" StrokeThickness="1.6" Fill="#0C2B3D" Data="M7,55 L27,29 20,29 39,13 51,9 64,12 55,19 65,19 52,27 47,42 32,64 34,47 20,62 25,45 Z"/>
+<Path Stroke="#34DDF5" StrokeThickness="1.6" Data="M12,48 L31,32 M23,24 L41,18 M38,16 L51,14 M29,42 L40,32 M40,29 L45,24"/>
+<Path Fill="#8CF4FF" Data="M48,15 L53,15 49,18 Z"/>
+</Canvas></Viewbox>
+<TextBlock x:Name="AppNameText" Text="PEXBOT" FontSize="25" FontWeight="Bold" VerticalAlignment="Center"/>
+<Border Width="1" Height="24" Background="#37445B" Margin="20,0"/>
+<TextBlock Text="Night Crows" FontSize="18" Foreground="#A2B4CE" VerticalAlignment="Center"/>
+<TextBlock x:Name="TestChannelBadge" Text="AMBIENTE DE TESTES" Foreground="#69BCD5" FontSize="9" VerticalAlignment="Center" Margin="24,0,0,0"/>
+</StackPanel>
+<Canvas Width="550" Height="73" HorizontalAlignment="Right" IsHitTestVisible="False" ClipToBounds="True">
+<Path Stroke="#182D49" StrokeThickness="1" Data="M60,0 L0,73 M100,0 L28,73 140,73 180,35 550,35"/>
+<Path Stroke="#66449F" StrokeThickness="1.5" Data="M120,73 L160,35 250,35"><Path.Effect><DropShadowEffect Color="#8350EC" BlurRadius="18" ShadowDepth="0" Opacity="0.55"/></Path.Effect></Path>
+</Canvas>
+<Ellipse x:Name="UpdatesNotificationDot" Width="9" Height="9"
+                                     Fill="#FF4D67" HorizontalAlignment="Right" Margin="0,0,0,30"
+                                     VerticalAlignment="Center" Visibility="Collapsed">
+                                <Ellipse.Effect>
+                                    <DropShadowEffect Color="#FF3557" BlurRadius="9" ShadowDepth="0" Opacity="0.85" />
+                                </Ellipse.Effect>
+                            </Ellipse>
+<TextBlock Text="A U T O M A Ç Ã O   C O M   D I S C I P L I N A" FontSize="8" Foreground="#318EB4" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,0,10"/>
+</Grid></Border>
+<Border Grid.Row="1" Grid.RowSpan="2" Background="#0B1425" BorderBrush="#263850" BorderThickness="0,0,1,0">
+            <Grid Margin="12,18">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="20" />
+                    <RowDefinition Height="0" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal">
-                    <Viewbox Width="55" Height="60" Margin="0,0,10,0"><Canvas Width="70" Height="74">
-<Path Stroke="#22D7F2" StrokeThickness="1.6" Fill="#0C2B3D" Data="M7,55 L27,29 20,29 39,13 51,9 64,12 55,19 65,19 52,27 47,42 32,64 34,47 20,62 25,45 Z"/>
-<Path Stroke="#34DDF5" StrokeThickness="1.6" Data="M12,48 L31,32 M23,24 L41,18 M38,16 L51,14 M29,42 L40,32 M40,29 L45,24"/>
-<Path Fill="#8CF4FF" Data="M48,15 L53,15 49,18 Z"/>
-</Canvas></Viewbox>
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock x:Name="AppNameText" Text="PEXBOT" Foreground="#65CEFA"
-                                   FontSize="27" FontWeight="SemiBold" />
-                        <TextBlock Text="N I G H T  C R O W S" FontSize="9" Foreground="#32CEE9" Margin="0,3,0,4"/>
-                        <TextBlock x:Name="TestChannelBadge" Text="AMBIENTE DE TESTES"
-                                   Foreground="#F7C66C" FontSize="9" FontWeight="Bold"
-                                   Visibility="Collapsed" />
-                    </StackPanel>
-                </StackPanel>
+
                 <StackPanel Grid.Row="2">
                     <Button x:Name="OverviewNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconOverview}" Content="Início"
                             HorizontalContentAlignment="Left" Background="#153D50"
@@ -131,10 +169,12 @@
                     <Button x:Name="SapherasNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconSapheras}" Content="Sapheras" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0"
                             Click="OnShowSapheras" />
-                    <Button x:Name="TaNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconTa}" Content="Terra Avassaladora" HorizontalContentAlignment="Left"
+                    <Button x:Name="TaNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconTa}" Content="T.A 1" CommandParameter="0" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
-                            Click="OnShowFarm" />
-                    <Button x:Name="AbbeyNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconAbbey}" Content="Abadia / Anônima" HorizontalContentAlignment="Left"
+                            Click="OnShowTaPage" />
+                    <Button x:Name="Ta2NavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconTa}" Content="T.A 2" CommandParameter="1" Background="Transparent" BorderThickness="0" Margin="0,4,0,0" Click="OnShowTaPage"/>
+<Button x:Name="Ta3NavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconTa}" Content="T.A 3" CommandParameter="2" Background="Transparent" BorderThickness="0" Margin="0,4,0,0" Click="OnShowTaPage"/>
+<Button x:Name="AbbeyNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconAbbey}" Content="Abadia / Anônima" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowAbbey" />
                     <Button x:Name="FarmScheduleNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconFarmSchedule}" Content="Agenda de farm" HorizontalContentAlignment="Left"
@@ -150,21 +190,10 @@
                             Click="OnShowProtection" />
                     <Button x:Name="DiagnosticsNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconDiagnostics}" Content="Diagnóstico" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,8,0,0" Click="OnExpandLog" />
-                    <Button x:Name="UpdatesNavigationButton" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconUpdates}"
+                    <Button x:Name="UpdatesNavigationButton" Content="Atualizações" Style="{StaticResource NeonNavigation}" Tag="{StaticResource IconUpdates}"
                             Margin="0,16,0,0" HorizontalContentAlignment="Stretch"
                             Background="Transparent" BorderThickness="0"
-                            Click="OnShowUpdates">
-                        <Grid>
-                            <TextBlock Text="Atualizações" FontSize="15" VerticalAlignment="Center" />
-                            <Ellipse x:Name="UpdatesNotificationDot" Width="9" Height="9"
-                                     Fill="#FF4D67" HorizontalAlignment="Right"
-                                     VerticalAlignment="Center" Visibility="Collapsed">
-                                <Ellipse.Effect>
-                                    <DropShadowEffect Color="#FF3557" BlurRadius="9" ShadowDepth="0" Opacity="0.85" />
-                                </Ellipse.Effect>
-                            </Ellipse>
-                        </Grid>
-                    </Button>
+                            Click="OnShowUpdates"></Button>
                 </StackPanel>
                 <Border Grid.Row="4" x:Name="RunIndicator" VerticalAlignment="Bottom" Margin="0,8,0,8"
                         Padding="14" CornerRadius="22" Background="#102B30" BorderBrush="#27625A" BorderThickness="1">
@@ -181,12 +210,9 @@
             </Grid>
         </Border>
 
-        <Canvas Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Top" Width="300" Height="54" IsHitTestVisible="False" ClipToBounds="True" Opacity="0.5">
-<Path Stroke="#124459" StrokeThickness="1" Data="M60,0 L5,54 M105,0 L50,54 M135,0 L80,54 M195,0 L140,54 M220,0 L165,54 M260,0 L205,54"/>
-<Path Stroke="#16DAF3" StrokeThickness="4" Data="M165,0 L132,33"><Path.Effect><DropShadowEffect Color="#00D9FF" BlurRadius="15" ShadowDepth="0" Opacity="0.85"/></Path.Effect></Path>
-</Canvas>
-        <local:StatisticsPanel x:Name="UserStatisticsPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed"/>
-        <Grid x:Name="OverviewPanel" Grid.Column="1" Margin="28,22,28,18">
+
+        <local:StatisticsPanel x:Name="UserStatisticsPanel" Grid.Column="1" Grid.Row="1" Margin="28,22,28,24" Visibility="Collapsed"/>
+        <Grid x:Name="OverviewPanel" Grid.Column="1" Grid.Row="1" Margin="28,22,28,18">
 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="18"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
 <Grid><StackPanel><TextBlock Text="Início" FontSize="34" FontWeight="Bold"/><TextBlock Text="Suas contas, seus destinos. Configure e deixe o farm seguir." Style="{StaticResource DiscreetHelp}"/></StackPanel>
 <Button x:Name="RefreshButton" Content="↻  Atualizar clientes" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnRefreshClients" Background="#0D1C2A" BorderBrush="#39BFD7" Padding="14,9"/></Grid>
@@ -222,16 +248,24 @@
 </WrapPanel>
 <TextBlock Text="Sapheras segue o horário configurado. Descanso desligado mantém o farm com a tela aberta." Style="{StaticResource DiscreetHelp}"/>
 </StackPanel></Border></Grid>
-<Border Margin="0,14,0,0" Style="{StaticResource CompactCard}"><StackPanel><TextBlock Text="Acontecendo agora" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,10"/>
-<Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<Border Margin="0,16,0,0" Style="{StaticResource CompactCard}" Padding="20,16"><StackPanel>
+<DockPanel Margin="0,0,0,16"><Ellipse Width="6" Height="6" Fill="#3BDAEC" Margin="0,0,9,0"/><TextBlock Text="Acontecendo agora" FontSize="17" FontWeight="SemiBold"/></DockPanel>
+<Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<Border Grid.Column="1" Width="1" Background="#2A3D52" Margin="0,2"/>
 <StackPanel Grid.Column="0">
-<DockPanel><TextBlock Text="Cliente 1" FontWeight="SemiBold" Margin="0,0,12,0"/><TextBlock x:Name="Client1AudioStateText" Text="Aguardando início" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"/></DockPanel>
-<TextBlock x:Name="Client1ActivityText" Text="Aguardando início" Style="{StaticResource DiscreetHelp}" MaxHeight="48"/>
-<TextBlock x:Name="Client1AgendaLiveText" Foreground="#65CEFA" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+<Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<TextBlock Text="CLIENTE 1" FontSize="11" FontWeight="SemiBold" Foreground="#9CB8D3" VerticalAlignment="Center"/>
+<Border Grid.Column="1" Background="#172C3C" BorderBrush="#294658" BorderThickness="1" CornerRadius="7" Padding="8,3" HorizontalAlignment="Right" Margin="12,0,0,0" MaxWidth="240">
+<TextBlock x:Name="Client1AudioStateText" Text="Não iniciado" FontSize="10" Foreground="#9FC0D8" TextTrimming="CharacterEllipsis" ToolTip="Estado da proteção de áudio"/></Border></Grid>
+<TextBlock x:Name="Client1ActivityText" Text="Aguardando execução" FontSize="14" Foreground="#E1ECF9" TextWrapping="Wrap" MaxHeight="48"/>
+<TextBlock x:Name="Client1AgendaLiveText" Foreground="#54D5EA" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0"/>
 </StackPanel><StackPanel Grid.Column="2">
-<DockPanel><TextBlock Text="Cliente 2" FontWeight="SemiBold" Margin="0,0,12,0"/><TextBlock x:Name="Client2AudioStateText" Text="Aguardando início" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"/></DockPanel>
-<TextBlock x:Name="Client2ActivityText" Text="Aguardando início" Style="{StaticResource DiscreetHelp}" MaxHeight="48"/>
-<TextBlock x:Name="Client2AgendaLiveText" Foreground="#65CEFA" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+<Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<TextBlock Text="CLIENTE 2" FontSize="11" FontWeight="SemiBold" Foreground="#9CB8D3" VerticalAlignment="Center"/>
+<Border Grid.Column="1" Background="#172C3C" BorderBrush="#294658" BorderThickness="1" CornerRadius="7" Padding="8,3" HorizontalAlignment="Right" Margin="12,0,0,0" MaxWidth="240">
+<TextBlock x:Name="Client2AudioStateText" Text="Não iniciado" FontSize="10" Foreground="#9FC0D8" TextTrimming="CharacterEllipsis" ToolTip="Estado da proteção de áudio"/></Border></Grid>
+<TextBlock x:Name="Client2ActivityText" Text="Aguardando execução" FontSize="14" Foreground="#E1ECF9" TextWrapping="Wrap" MaxHeight="48"/>
+<TextBlock x:Name="Client2AgendaLiveText" Foreground="#54D5EA" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0"/>
 </StackPanel></Grid></StackPanel></Border>
 <TextBlock Text="Durante o farm, a vigilância é em segundo plano. A janela só é acionada quando uma ação é necessária." Style="{StaticResource DiscreetHelp}"/>
 <Border  Background="#101A2C" Visibility="Collapsed"
@@ -275,7 +309,24 @@
 </StackPanel></ScrollViewer>
 <TextBlock x:Name="DatabasePathText" Grid.Row="3" FontSize="9" Foreground="#52647A" TextTrimming="CharacterEllipsis" Margin="0,8,0,0"/>
 </Grid>
-<Grid x:Name="TaSettingsPanel" Grid.Column="1" Margin="28,22,28,18" Visibility="Collapsed">
+<Grid x:Name="TaDestinationPanel" Grid.Column="1" Grid.Row="1" Margin="38,32,34,20" Visibility="Collapsed">
+<StackPanel><TextBlock x:Name="TaDetailsTitle" FontSize="32" FontWeight="Bold"/>
+<TextBlock Text="Pontos independentes por cliente. O destino usado pelo bot continua sendo o escolhido no Início." Style="{StaticResource DiscreetHelp}" Margin="0,8,0,24"/>
+<Border Style="{StaticResource CompactCard}"><StackPanel>
+<Grid Margin="0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="170"/><ColumnDefinition Width="155"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<TextBlock Text="Cliente 1" VerticalAlignment="Center" FontWeight="SemiBold"/>
+<CheckBox x:Name="TaPageClient1Enabled" Grid.Column="1" Content="Usar ponto personalizado" Tag="1" FontSize="12" Checked="OnTaPageEnabled" Unchecked="OnTaPageEnabled"/>
+<Button Grid.Column="2" Content="Capturar ponto" Tag="1" Click="OnTaPageCapture" Margin="10,0"/>
+<TextBlock x:Name="TaPageClient1Point" Grid.Column="3" VerticalAlignment="Center" Foreground="#9CB4CE"/>
+</Grid><Grid Margin="0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="170"/><ColumnDefinition Width="155"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<TextBlock Text="Cliente 2" VerticalAlignment="Center" FontWeight="SemiBold"/>
+<CheckBox x:Name="TaPageClient2Enabled" Grid.Column="1" Content="Usar ponto personalizado" Tag="2" FontSize="12" Checked="OnTaPageEnabled" Unchecked="OnTaPageEnabled"/>
+<Button Grid.Column="2" Content="Capturar ponto" Tag="2" Click="OnTaPageCapture" Margin="10,0"/>
+<TextBlock x:Name="TaPageClient2Point" Grid.Column="3" VerticalAlignment="Center" Foreground="#9CB4CE"/>
+</Grid>
+<TextBlock x:Name="TaPageHelp" Style="{StaticResource DiscreetHelp}" Margin="0,15,0,0"/>
+</StackPanel></Border></StackPanel></Grid>
+<Grid x:Name="TaSettingsPanel" Grid.Column="1" Grid.Row="1" Margin="28,22,28,18" Visibility="Collapsed">
 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="18"/><RowDefinition Height="*"/></Grid.RowDefinitions>
 <StackPanel><TextBlock Text="Terra Avassaladora" FontSize="30" FontWeight="SemiBold"/><TextBlock Text="Configure o ponto de cada cliente para o destino escolhido. T.A 1, T.A 2 e T.A 3 mantêm pontos separados." Style="{StaticResource DiscreetHelp}"/></StackPanel>
 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="0,0,6,0"><Border  Style="{StaticResource CompactCard}"><StackPanel><Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -329,7 +380,7 @@
                                 </StackPanel>
                             </Border>
 <TextBlock Text="T.A 1: abra o mapa no zoom mínimo e capture o ponto. T.A 2/3: sem ponto personalizado, mantenha o farm na primeira posição dos favoritos e o teleporte opcional na segunda." Style="{StaticResource DiscreetHelp}"/></StackPanel></Border></StackPanel></ScrollViewer></Grid>
-<Grid x:Name="SapherasPanel" Grid.Column="1" Margin="28,22,28,18" Visibility="Collapsed">
+<Grid x:Name="SapherasPanel" Grid.Column="1" Grid.Row="1" Margin="28,22,28,18" Visibility="Collapsed">
 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="18"/><RowDefinition Height="*"/></Grid.RowDefinitions>
 <StackPanel><TextBlock Text="Sapheras" FontSize="27" FontWeight="Bold"/><TextBlock Text="Horário, duração e ponto de farm. A ativação de cada cliente fica no Início." Style="{StaticResource DiscreetHelp}"/></StackPanel>
 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="0,0,6,0"><Border  Style="{StaticResource CompactCard}"><StackPanel><StackPanel Margin="0,0,0,14">
@@ -411,20 +462,16 @@
                                        Foreground="#7F91A6" FontSize="11" Margin="0,10,0,0"
                                        TextWrapping="Wrap" /></StackPanel></Border></StackPanel></ScrollViewer></Grid>
 
-<Border Grid.Column="1" Grid.Row="1" Background="#0C1725" BorderBrush="#263C50" BorderThickness="0,1,0,0" Padding="24,12">
-<Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="8"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-<DockPanel><Border x:Name="StatusBadge" Background="#142237" CornerRadius="8" Padding="8,3" Margin="0,0,10,0"><StackPanel Orientation="Horizontal"><Ellipse x:Name="StatusDot" Width="7" Height="7" Fill="#7F91A6" Margin="0,0,6,0"/><TextBlock x:Name="StatusBadgeText" Text="PARADO" FontSize="9"/></StackPanel></Border>
-<TextBlock x:Name="CurrentStateText" Text="Bot parado" FontWeight="SemiBold" Margin="0,0,12,0" VerticalAlignment="Center"/>
-<TextBlock x:Name="CurrentDetailText" Text="Configure os clientes e clique em Iniciar." FontSize="11" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></DockPanel>
-<Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="185"/><ColumnDefinition Width="10"/><ColumnDefinition Width="100"/><ColumnDefinition Width="10"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
-<StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Em (min)" FontSize="11" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/><TextBox x:Name="StartDelayMinutesTextBox" Text="0" Width="48" Height="36"/>
-<Button x:Name="ScheduleStartButton" Content="Programar" Click="OnScheduleStart" Margin="6,0,0,0" Padding="10,8"/>
-<Button x:Name="RestoreStartPreviewButton" Content="Resumo" Visibility="Collapsed" FontSize="10" Padding="5,3" Margin="4,0,0,0" Background="Transparent" Click="OnRestoreStartPreview"/></StackPanel>
-<Button x:Name="StartButton" Grid.Column="2" Content="▶  Iniciar PEXBOT" Background="#25C7E0" Foreground="#051722" BorderThickness="0" Height="42" Click="OnPreviewStart"/>
-<Button x:Name="PauseButton" Grid.Column="4" Content="Pausar" Opacity="0.45" IsHitTestVisible="False" Click="OnPauseResume"/>
-<Button x:Name="StopButton" Grid.Column="6" Content="Parar" Opacity="0.45" IsHitTestVisible="False" Background="#291A29" Foreground="#FF728A" BorderBrush="#B74761" Click="OnStopBot"/>
-</Grid></Grid></Border>
-<Grid x:Name="RoutinesPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
+<Border Grid.Column="1" Grid.Row="2" Background="#0B1523" BorderBrush="#22344B" BorderThickness="0,1,0,0" Padding="24,12">
+<Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="174"/><ColumnDefinition Width="12"/><ColumnDefinition Width="164"/><ColumnDefinition Width="12"/><ColumnDefinition Width="112"/><ColumnDefinition Width="12"/><ColumnDefinition Width="105"/></Grid.ColumnDefinitions>
+<StackPanel VerticalAlignment="Center"><DockPanel><Border x:Name="StatusBadge" Margin="0,0,12,0" VerticalAlignment="Center"><Ellipse x:Name="StatusDot" Fill="#6E829E" Width="12" Height="12"/></Border><TextBlock x:Name="CurrentStateText" Text="Bot parado" FontSize="13" TextTrimming="CharacterEllipsis"/></DockPanel><TextBlock x:Name="CurrentDetailText" FontSize="10" Foreground="#8398B0" TextTrimming="CharacterEllipsis" Margin="24,3,0,0"/><TextBlock x:Name="StatusBadgeText" Visibility="Collapsed"/></StackPanel>
+<Grid Grid.Column="1"><Button x:Name="ScheduleStartButton" Content="◷   Programar início" Click="OnToggleSchedulePopup" Background="Transparent" BorderThickness="0" FontWeight="Normal" Padding="4"/>
+<Popup x:Name="ScheduleStartPopup" Placement="Top" PlacementTarget="{Binding ElementName=ScheduleStartButton}" StaysOpen="False" AllowsTransparency="True"><Border Background="#132337" BorderBrush="#36536D" BorderThickness="1" CornerRadius="10" Padding="16"><StackPanel><TextBlock Text="Iniciar depois de (minutos)" FontSize="12"/><TextBox x:Name="StartDelayMinutesTextBox" Text="0" Height="36" Margin="0,8"/><Button Content="Confirmar horário" Click="OnScheduleStart"/><Button x:Name="RestoreStartPreviewButton" Content="Mostrar resumo ao iniciar" Click="OnRestoreStartPreview" Visibility="Collapsed" Margin="0,8,0,0"/></StackPanel></Border></Popup></Grid>
+<Button x:Name="StartButton" Grid.Column="3" Content="▶  Iniciar PEXBOT" Foreground="#061824" Background="#30D4EF" Height="44" Click="OnPreviewStart"/>
+<Button x:Name="PauseButton" Grid.Column="5" Content="Ⅱ   Pausar" Height="44" Opacity="0.45" IsHitTestVisible="False" Click="OnPauseResume"/>
+<Button x:Name="StopButton" Grid.Column="7" Content="■   Parar" Height="44" Background="#211A2A" Foreground="#F65C7B" BorderBrush="#AB3D55" Opacity="0.45" IsHitTestVisible="False" Click="OnStopBot"/>
+</Grid></Border>
+<Grid x:Name="RoutinesPanel" Grid.Column="1" Grid.Row="1" Margin="28,22,28,24" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="18" />
@@ -543,7 +590,7 @@
             </ScrollViewer>
         </Grid>
 
-        <Grid x:Name="AbbeyPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
+        <Grid x:Name="AbbeyPanel" Grid.Column="1" Grid.Row="1" Margin="28,22,28,24" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="18" />
@@ -629,7 +676,7 @@
             </ScrollViewer>
         </Grid>
 
-        <Grid x:Name="ProtectionPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
+        <Grid x:Name="ProtectionPanel" Grid.Column="1" Grid.Row="1" Margin="28,22,28,24" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="18" />
@@ -675,117 +722,27 @@
             </Border>
         </Grid>
 
-        <Grid x:Name="FarmSchedulePanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="18" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-            <StackPanel>
-                <TextBlock Text="Agenda de farm" FontSize="27" FontWeight="Bold" />
-                <TextBlock Text="Organize destinos e duração. Proteções e rotinas prioritárias pausam a etapa e depois retomam o plano."
-                           Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
-            </StackPanel>
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                <StackPanel>
-                    <Border Style="{StaticResource CardContainer}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Plano sequencial" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
-                                <TextBlock Text="Execute Abadia, Estreito de Tenerys e T.A 1 na ordem escolhida. A T.A 1 usa seu ponto capturado, sem Favoritos. Ao concluir, retorna à T.A configurada."
-                                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,20,0" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock Text="USAR AGENDA PARA" Style="{StaticResource FieldLabel}" Margin="0,0,0,5" />
-                                <ComboBox x:Name="FarmScheduleScopeComboBox" Width="180" Height="40" />
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-                    <Grid x:Name="FarmScheduleEditorGrid">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="16" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Border Style="{StaticResource CardContainer}">
-                            <StackPanel>
-                                <TextBlock Text="Cliente 1" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
-                                <Grid Margin="0,14,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="10" />
-                                        <ColumnDefinition Width="82" />
-                                        <ColumnDefinition Width="10" />
-                                        <ColumnDefinition Width="82" />
-                                        <ColumnDefinition Width="10" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <ComboBox x:Name="Client1ScheduleDestinationComboBox" Height="40" SelectionChanged="OnScheduleDestinationChanged" />
-                                    <TextBox x:Name="Client1ScheduleDurationTextBox" Grid.Column="2" Height="40" Text="60" />
-                                    <ComboBox x:Name="Client1AnonymousLevelComboBox" Grid.Column="4" Height="40" ToolTip="Nível do Estreito" />
-                                    <Button Grid.Column="6" Content="Adicionar" Click="OnAddClient1ScheduleStep" />
-                                </Grid>
-                                <TextBlock Text="DESTINO · DURAÇÃO EM MINUTOS" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
-                                <ListBox x:Name="Client1ScheduleListBox" MinHeight="90" MaxHeight="210"
-                                         ItemsSource="{Binding Client1ScheduleSteps}" DisplayMemberPath="DisplayText"
-                                         Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
-                                <TextBlock x:Name="Client1ScheduleTotalText" Text="Tempo total: 0 min" Margin="0,9,0,0" Foreground="#AFC2D9" />
-                                <TextBlock x:Name="Client1ScheduleLiveText" TextWrapping="Wrap" Foreground="#65CEFA" Margin="0,8,0,0" />
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-                                    <Button Content="Subir" Padding="12,7" Click="OnMoveClient1ScheduleUp" />
-                                    <Button Content="Descer" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient1ScheduleDown" />
-                                    <Button Content="Remover" Padding="12,7" Margin="7,0,0,0" Click="OnRemoveClient1ScheduleStep" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="2" Style="{StaticResource CardContainer}">
-                            <StackPanel>
-                                <TextBlock Text="Cliente 2" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
-                                <Grid Margin="0,14,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="10" />
-                                        <ColumnDefinition Width="82" />
-                                        <ColumnDefinition Width="10" />
-                                        <ColumnDefinition Width="82" />
-                                        <ColumnDefinition Width="10" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <ComboBox x:Name="Client2ScheduleDestinationComboBox" Height="40" SelectionChanged="OnScheduleDestinationChanged" />
-                                    <TextBox x:Name="Client2ScheduleDurationTextBox" Grid.Column="2" Height="40" Text="60" />
-                                    <ComboBox x:Name="Client2AnonymousLevelComboBox" Grid.Column="4" Height="40" ToolTip="Nível do Estreito" />
-                                    <Button Grid.Column="6" Content="Adicionar" Click="OnAddClient2ScheduleStep" />
-                                </Grid>
-                                <TextBlock Text="DESTINO · DURAÇÃO EM MINUTOS" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
-                                <ListBox x:Name="Client2ScheduleListBox" MinHeight="90" MaxHeight="210"
-                                         ItemsSource="{Binding Client2ScheduleSteps}" DisplayMemberPath="DisplayText"
-                                         Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
-                                <TextBlock x:Name="Client2ScheduleTotalText" Text="Tempo total: 0 min" Margin="0,9,0,0" Foreground="#AFC2D9" />
-                                <TextBlock x:Name="Client2ScheduleLiveText" TextWrapping="Wrap" Foreground="#65CEFA" Margin="0,8,0,0" />
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-                                    <Button Content="Subir" Padding="12,7" Click="OnMoveClient2ScheduleUp" />
-                                    <Button Content="Descer" Padding="12,7" Margin="7,0,0,0" Click="OnMoveClient2ScheduleDown" />
-                                    <Button Content="Remover" Padding="12,7" Margin="7,0,0,0" Click="OnRemoveClient2ScheduleStep" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-                    <Border Style="{StaticResource CardContainer}" Background="#102035">
-                        <StackPanel>
-                            <TextBlock Text="A Agenda não limita entradas. O tempo só é consumido durante o farm na masmorra da etapa. Fora dela, a contagem pausa. Ao acabar a Agenda ou o tempo disponível da masmorra, segue para a T.A configurada."
-                                       Foreground="#AFC2D9" TextWrapping="Wrap" />
-                            <Button Content="Salvar agenda" Width="150" HorizontalAlignment="Right" Margin="0,12,0,0" Click="OnSaveFarmSchedule" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </ScrollViewer>
-        </Grid>
+        <Grid x:Name="FarmSchedulePanel" Grid.Column="1" Grid.Row="1" Margin="38,32,34,20" Visibility="Collapsed">
+<Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+<StackPanel><TextBlock Text="Agenda de farm" FontSize="32" FontWeight="Bold"/><TextBlock Text="Defina a sequência e o tempo de cada destino." Foreground="#9BAFCA" FontSize="16" Margin="0,8,0,0"/></StackPanel>
+<ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,24,0,0"><StackPanel Margin="0,0,6,0">
+<StackPanel Orientation="Horizontal" Margin="0,0,0,25"><TextBlock Text="Usar agenda para" FontSize="14" Foreground="#B0C3DC" VerticalAlignment="Center" Margin="0,0,22,0"/><ComboBox x:Name="FarmScheduleScopeComboBox" Width="290" Height="42"/></StackPanel>
+<Grid x:Name="FarmScheduleEditorGrid"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="#233C51" BorderThickness="1" CornerRadius="14" Padding="20" VerticalAlignment="Top"><StackPanel>
+<TextBlock Text="Cliente 1" FontSize="21" FontWeight="SemiBold" Margin="3,0,0,16"/>
+<ListBox x:Name="Client1ScheduleListBox" Style="{StaticResource AgendaList}" ItemsSource="{Binding Client1ScheduleSteps}" ItemTemplate="{StaticResource AgendaStepTemplate}" PreviewKeyDown="OnStageKeyDown"/>
+<Button Content="＋   Adicionar etapa" Style="{StaticResource AddStageButton}" Tag="1" Click="OnAddEditableStage" Margin="0,6,0,0"/>
+<TextBlock x:Name="Client1ScheduleTotalText" FontSize="11" Foreground="#839BB7" Margin="0,9,0,0"/><TextBlock x:Name="Client1ScheduleLiveText" FontSize="11" Foreground="#47D5ED" TextWrapping="Wrap"/>
+</StackPanel></Border><Border Grid.Column="2" Background="{StaticResource CardBrush}" BorderBrush="#233C51" BorderThickness="1" CornerRadius="14" Padding="20" VerticalAlignment="Top"><StackPanel>
+<TextBlock Text="Cliente 2" FontSize="21" FontWeight="SemiBold" Margin="3,0,0,16"/>
+<ListBox x:Name="Client2ScheduleListBox" Style="{StaticResource AgendaList}" ItemsSource="{Binding Client2ScheduleSteps}" ItemTemplate="{StaticResource AgendaStepTemplate}" PreviewKeyDown="OnStageKeyDown"/>
+<Button Content="＋   Adicionar etapa" Style="{StaticResource AddStageButton}" Tag="2" Click="OnAddEditableStage" Margin="0,6,0,0"/>
+<TextBlock x:Name="Client2ScheduleTotalText" FontSize="11" Foreground="#839BB7" Margin="0,9,0,0"/><TextBlock x:Name="Client2ScheduleLiveText" FontSize="11" Foreground="#47D5ED" TextWrapping="Wrap"/>
+</StackPanel></Border></Grid>
+<Grid Margin="0,24,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="180"/></Grid.ColumnDefinitions><StackPanel VerticalAlignment="Center" Margin="0,0,18,0"><TextBlock Text="ⓘ   O tempo é descontado apenas durante o farm da etapa." FontSize="12" Foreground="#899FBA" TextWrapping="Wrap"/><TextBlock Text="Proteções e rotinas prioritárias pausam a etapa. Ao concluir, retorna ao destino de farm." FontSize="10" Foreground="#748BA6" TextWrapping="Wrap" Margin="22,6,0,0"/></StackPanel><Button Grid.Column="1" Content="▣   Salvar agenda" Height="43" Foreground="#49E1F4" Background="#091521" BorderBrush="#36D3ED" Click="OnSaveFarmSchedule"/></Grid>
+<StackPanel Visibility="Collapsed"><ComboBox x:Name="Client1ScheduleDestinationComboBox"/><TextBox x:Name="Client1ScheduleDurationTextBox" Text="60"/><ComboBox x:Name="Client1AnonymousLevelComboBox"/><ComboBox x:Name="Client2ScheduleDestinationComboBox"/><TextBox x:Name="Client2ScheduleDurationTextBox" Text="60"/><ComboBox x:Name="Client2AnonymousLevelComboBox"/></StackPanel>
+</StackPanel></ScrollViewer></Grid>
 
-        <Grid x:Name="UpdatesPanel" Grid.Column="1" Margin="28,22,28,24"
+        <Grid x:Name="UpdatesPanel" Grid.Column="1" Grid.Row="1" Margin="28,22,28,24"
               Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -836,7 +793,7 @@
                 </StackPanel>
             </Border>
         </Grid>
-        <Grid x:Name="ExpandedLogOverlay" Grid.Column="1" Panel.ZIndex="90" Background="#081020" Visibility="Collapsed" Margin="28,22,28,24">
+        <Grid x:Name="ExpandedLogOverlay" Grid.Column="1" Grid.Row="1" Panel.ZIndex="90" Background="#081020" Visibility="Collapsed" Margin="28,22,28,24">
             <Border CornerRadius="24" Background="#122238" Padding="24" BorderBrush="#35516B" BorderThickness="1">
                 <Grid>
                       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
@@ -853,7 +810,7 @@
                 </Grid>
             </Border>
         </Grid>
-        <Grid x:Name="StartPreviewOverlay" Grid.ColumnSpan="2" Grid.RowSpan="2" Panel.ZIndex="100"
+        <Grid x:Name="StartPreviewOverlay" Grid.ColumnSpan="2" Grid.RowSpan="3" Panel.ZIndex="100"
               Background="#C0081020" Visibility="Collapsed">
             <Border Width="620" Padding="30" CornerRadius="24" VerticalAlignment="Center" HorizontalAlignment="Center"
                     Background="#14263D" BorderBrush="#3C6888" BorderThickness="1">
