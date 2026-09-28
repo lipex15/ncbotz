@@ -3669,6 +3669,7 @@ public sealed partial class BotAutomationEngine(
             if (sidebar.State == GuildDirectiveSidebarState.Available)
             {
                 session.DirectiveCycle = null;
+                session.QuietRoutineGate.NewWorkObserved("directive");
                 WriteLog(session, "Nova Diretiva disponível após a anterior; conferindo a próxima, sem repetir uma concluída.");
             }
         }
@@ -3688,6 +3689,13 @@ public sealed partial class BotAutomationEngine(
                               DateTime.UtcNow >= session.NextGuildCheckinAttemptAt &&
                               now.TimeOfDay >= options.GuildCheckinAt;
 
+        var farming = session.IsFarmingTa || session.SapherasFarmConfirmed;
+        var foreground = gameWindows.IsForeground(session.Options.Target);
+        dailyDue &= session.QuietRoutineGate.CanRun("daily", cycle, farming, foreground);
+        directiveDue &= session.QuietRoutineGate.CanRun("directive", cycle, farming, foreground);
+        dailyShopDue &= session.QuietRoutineGate.CanRun("shop", shopCycle, farming, foreground);
+        guildCheckinDue &= session.QuietRoutineGate.CanRun("guild", guildCheckinCycle, farming, foreground);
+
         if (!dailyDue && !directiveDue && !dailyShopDue && !guildCheckinDue)
         {
             return false;
@@ -3703,12 +3711,14 @@ public sealed partial class BotAutomationEngine(
 
         if (dailyShopDue)
         {
+            session.QuietRoutineGate.Started("shop", shopCycle);
             try
             {
                 await PurchaseDailyShopAsync(session, pause, cancellationToken);
                 await MarkDailyShopHandledAsync(session, shopCycle);
                 WriteLog(session, "Compra diária da Loja concluída ou já esgotada e registrada para este ciclo.");
             }
+            catch (HumanInteractionException) { throw; }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
@@ -3725,6 +3735,7 @@ public sealed partial class BotAutomationEngine(
 
         if (guildCheckinDue)
         {
+            session.QuietRoutineGate.Started("guild", guildCheckinCycle);
             try
             {
                 await CompleteGuildCheckinAsync(session, pause, cancellationToken);
@@ -3732,6 +3743,7 @@ public sealed partial class BotAutomationEngine(
                 await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.guildCheckinCycle", guildCheckinCycle);
                 WriteLog(session, "Check-in e doações em ouro da Guilda concluídos ou já realizados neste ciclo.");
             }
+            catch (HumanInteractionException) { throw; }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
@@ -3759,6 +3771,8 @@ public sealed partial class BotAutomationEngine(
         }
 
         var wasFarming = session.IsFarmingTa;
+        if (dailyDue) session.QuietRoutineGate.Started("daily", cycle);
+        if (directiveDue) session.QuietRoutineGate.Started("directive", cycle);
         session.Audio.Armed = false;
         session.SafeInRest = false;
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
@@ -3771,6 +3785,7 @@ public sealed partial class BotAutomationEngine(
                 directiveHandled = await AcceptGuildDirectiveAsync(
                     session, options.GuildDirectiveArea, pause, cancellationToken);
             }
+            catch (HumanInteractionException) { throw; }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
@@ -4262,6 +4277,15 @@ public sealed partial class BotAutomationEngine(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (HumanInteractionException)
+        {
+            // Manual PC use is not a broken route. Keep the farm and protection
+            // intact; the routine gate defers another background focus request.
+            session.Audio.Armed = !session.InAgenda;
+            session.NextDailyRoutineAttemptAt = DateTime.UtcNow.AddMinutes(2);
+            WritePersistentOnly(session, "routine_deferred=human; farmPreserved=true; recoveryRequested=false");
+            return false;
         }
         catch (Exception exception)
         {
@@ -8384,6 +8408,7 @@ public sealed partial class BotAutomationEngine(
         public bool SafeInRest { get; set; }
         public DateTime NextRestPreferenceCheck { get; set; }
         public RestPreferenceRuntime RestPreference { get; } = new();
+        public QuietFarmRoutineGate QuietRoutineGate { get; } = new();
         public DateTimeOffset? LastBoostBuffAt { get; set; }
         public DateTime NextBoostAttemptAt { get; set; }
         public bool GlobalInside { get; set; }

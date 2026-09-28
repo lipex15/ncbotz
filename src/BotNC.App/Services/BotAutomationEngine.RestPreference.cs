@@ -17,6 +17,11 @@ public sealed partial class BotAutomationEngine
                 !(session.IsFarmingTa || session.SapherasFarmConfirmed || session.InDailyCampaign) ||
                 DateTime.UtcNow < session.NextRestPreferenceCheck) continue;
             session.NextRestPreferenceCheck = DateTime.UtcNow.AddSeconds(10);
+            if (session.Options.KeepRestMode && session.SafeInRest)
+            {
+                session.RestPreference.Complete();
+                continue;
+            }
             var previousInterruptible = _interruptibleAction.Value;
             _interruptibleAction.Value = session;
             try
@@ -60,7 +65,13 @@ public sealed partial class BotAutomationEngine
             {
                 WritePersistentOnly(session, $"rest_preference_retry error={error.GetType().Name}; routeUnchanged=true");
             }
-            finally { _interruptibleAction.Value = previousInterruptible; }
+            finally
+            {
+                // A preference is a transition, not an idle watchdog. Even a
+                // manual interruption must not generate recurring focus grabs.
+                session.RestPreference.Complete();
+                _interruptibleAction.Value = previousInterruptible;
+            }
         }
     }
 

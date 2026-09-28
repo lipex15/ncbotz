@@ -9,6 +9,17 @@ internal static class PartyRegression
         foreach (var hud in new[] { OpenHudHuntState.Active, OpenHudHuntState.Inactive })
             Check(!RestPreferencePolicy.ShouldClose(false, "caca_automatica", false, hud), "HUD aberto não pode provocar L/foco por falso descanso");
         var preference = new RestPreferenceRuntime();
+        var quiet = new QuietFarmRoutineGate();
+        Check(quiet.CanRun("directive", "today", true, false), "horário agendado permite primeira execução");
+        quiet.Started("directive", "today");
+        for (var tick = 0; tick < 600; tick++)
+            Check(!quiet.CanRun("directive", "today", true, false), "retentativa não rouba foco durante farm");
+        Check(quiet.CanRun("directive", "tomorrow", true, false), "novo ciclo mantém horário");
+        Check(quiet.CanRun("daily", "today", true, false), "rotinas independentes");
+        Check(quiet.CanRun("directive", "today", true, true), "retomar com jogo já visível");
+        Check(quiet.CanRun("directive", "today", false, false), "retomar fora do farm");
+        quiet.NewWorkObserved("directive");
+        Check(quiet.CanRun("directive", "today", true, false), "nova tarefa comprovada permite ação");
         Check(preference.Pending, "preferência deve ser aplicada no início");
         preference.Complete();
         for (var idleTick = 0; idleTick < 600; idleTick++)
