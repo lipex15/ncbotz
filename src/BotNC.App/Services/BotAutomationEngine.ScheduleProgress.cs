@@ -51,6 +51,14 @@ public sealed partial class BotAutomationEngine
             new BotNC.App.Models.GameWindowTarget(0, "Teste", 1, false, true),
             BotNC.App.Models.TaDestination.Ta1Codex, false, 1, null);
         var first = new ClientSession(options);
+        var ta = new ClientSession(options) { IsFarmingTa = true,
+            FarmScheduleSteps = [new(BotNC.App.Models.FarmScheduleDestination.Ta1, TimeSpan.FromMinutes(30))] };
+        if (!IsScheduleFarmActive(ta)) throw new InvalidOperationException("Agenda T.A 1 não contabiliza farm.");
+        ta.GlobalInside = true;
+        if (IsScheduleFarmActive(ta)) throw new InvalidOperationException("Global descontou agenda da T.A 1.");
+        ta.GlobalInside = false;
+        ta.SpecialRoutineBusy = true;
+        if (IsScheduleFarmActive(ta)) throw new InvalidOperationException("Buff descontou agenda da T.A 1.");
         var second = new ClientSession(options with { Label = "Cliente 2", Priority = 2 });
         var now = DateTime.UtcNow;
         for (var secondIndex = 0; secondIndex <= 60; secondIndex++)
@@ -95,10 +103,11 @@ public sealed partial class BotAutomationEngine
     private static bool IsScheduleFarmActive(ClientSession session) =>
         !session.FarmScheduleCompleted && session.IsFarmingTa &&
         !session.InDailyCampaign && !session.HandlingDeath && !session.NeedsDeathRestoration &&
-        !session.LoveBossInside && !session.InAgenda && session.NextRecoveryAttemptAt == default &&
+        !session.LoveBossInside && !session.GlobalInside && !session.SpecialRoutineBusy && !session.InAgenda && session.NextRecoveryAttemptAt == default &&
         Volatile.Read(ref session.PendingVisualDeath) == 0 && Volatile.Read(ref session.PendingVisualLowHp) == 0 &&
         (WantsAbbey(session) && session.AbbeyInside && !session.AbbeyTimeExhausted ||
-         WantsAnonymousDungeon(session) && session.AnonymousDungeonInside && !session.AnonymousDungeonExhausted);
+         WantsAnonymousDungeon(session) && session.AnonymousDungeonInside && !session.AnonymousDungeonExhausted ||
+         CurrentFarmScheduleStep(session)?.Destination == BotNC.App.Models.FarmScheduleDestination.Ta1);
 
     private void PublishFarmScheduleProgress(ClientSession session)
     {

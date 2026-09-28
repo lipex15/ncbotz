@@ -260,6 +260,14 @@ public sealed class AppDatabase
     {
         public static readonly ReferenceDefinition[] All =
         [
+            new("global_page", "Grande Deserto Candellium — seleção", "global_page.png", 443, 205, 330, 31, 380, 175, 580, 110, .83),
+            new("global_enter", "Entrar Global disponível", "global_enter.png", 13, 14, 188, 43, 1670, 943, 237, 83, .91),
+            new("global_confirm", "Confirmar Grande Deserto Candellium", "global_confirm.png", 763, 397, 397, 33, 700, 352, 520, 135, .85),
+            new("global_map", "Mapa Grande Deserto Candellium", "global_map.png", 1540, 103, 345, 37, 1500, 80, 410, 93, .84),
+            new("global_spawn_south", "Alicerce do Posto Avançado", "global_spawn_south.png", 61, 26, 230, 25, 20, 75, 320, 80, .80),
+            new("global_spawn_north", "Alicerce do Avanço", "global_spawn_north.png", 74, 23, 190, 26, 20, 75, 320, 80, .80),
+            new("boost_npc", "Patrocinador da Base", "boost_npc.png", 15, 12, 226, 30, 6, 90, 310, 460, .80),
+            new("boost_buff", "Buff servidor Boost", "boost_icon.png", 2, 2, 26, 27, 65, 875, 470, 93, .86),
             new("party_panel", "Gestão de Equipe", "party_panel.png", 120, 109, 178, 25, 30, 75, 340, 90, .82),
             new("party_empty", "Nenhuma equipe", "party_create.png", 76, 440, 273, 26, 25, 390, 355, 120, .80),
             new("party_create_confirm", "Confirmar criar equipe", "party_create.png", 885, 479, 150, 28, 810, 440, 310, 110, .84),

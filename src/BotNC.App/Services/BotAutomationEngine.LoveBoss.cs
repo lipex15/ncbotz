@@ -12,6 +12,7 @@ public sealed partial class BotAutomationEngine
         CancellationToken cancellationToken,
         DateTime? nextSapheras)
     {
+        if (GlobalHasPriority(session) || session.GlobalInside || session.SpecialRoutineBusy) return false;
         if (!options.EnableLoveBoss || !session.Options.EnableLoveBoss ||
             session.HandlingDeath || session.NeedsDeathRestoration || !session.StartupRestorationChecked ||
             session.InAgenda || DateTime.UtcNow < session.NextLoveBossAttemptAt)

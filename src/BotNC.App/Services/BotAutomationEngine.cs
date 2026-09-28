@@ -148,6 +148,7 @@ public sealed partial class BotAutomationEngine(
             if (DateTimeOffset.TryParse(await database.GetSettingAsync($"{SessionSettingPrefix(session)}.storage.lastAction"),
                     CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var storageVisit))
                 session.LastAutoStorageAt = storageVisit;
+            await LoadSpecialRuntimeAsync(session);
             session.DailyShopCommonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopCommonCycle");
             session.DailyShopSummonCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopSummonCycle");
             session.DailyShopAttemptCycle = await database.GetSettingAsync($"{SessionSettingPrefix(session)}.routines.dailyShopAttemptCycle");
@@ -360,11 +361,11 @@ public sealed partial class BotAutomationEngine(
         }
 
         configured = configured
-            .Where(step => step.Destination is FarmScheduleDestination.Abbey or FarmScheduleDestination.AnonymousDungeon)
+            .Where(step => step.Destination is FarmScheduleDestination.Abbey or FarmScheduleDestination.AnonymousDungeon or FarmScheduleDestination.Ta1)
             .ToArray();
         if (configured.Count == 0)
         {
-            WriteLog(session, "A Agenda antiga não contém Abadia ou Estreito de Tenerys; usando a T.A configurada.");
+            WriteLog(session, "A Agenda não contém destino disponível; usando a T.A configurada.");
             return;
         }
 
@@ -465,6 +466,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        if (GlobalHasPriority(session) || session.GlobalInside || session.SpecialRoutineBusy) return false;
         var wasWaitingForReset = session.FarmScheduleWaitingForWeeklyReset;
         await RefreshAbbeyWeekAsync(session);
         if (wasWaitingForReset && !session.FarmScheduleWaitingForWeeklyReset)
@@ -532,7 +534,8 @@ public sealed partial class BotAutomationEngine(
         }
 
         if (session.FarmScheduleSteps.Count == 0 || session.FarmScheduleCompleted ||
-            !(session.AbbeyInside || session.AnonymousDungeonInside))
+            !(session.AbbeyInside || session.AnonymousDungeonInside ||
+              CurrentFarmScheduleStep(session)?.Destination == FarmScheduleDestination.Ta1 && session.IsFarmingTa))
         {
             return false;
         }
@@ -604,6 +607,7 @@ public sealed partial class BotAutomationEngine(
     {
         return destination switch
         {
+            FarmScheduleDestination.Ta1 => true,
             FarmScheduleDestination.Abbey =>
                 !session.AbbeyTimeExhausted,
             FarmScheduleDestination.AnonymousDungeon =>
@@ -1236,6 +1240,7 @@ public sealed partial class BotAutomationEngine(
                 await CheckpointAsync(pause, cancellationToken);
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
+                await ServiceSpecialRoutinesAsync(sessions, sapheras, pause, cancellationToken);
                 await ServiceRestPreferenceAsync(sessions, pause, cancellationToken);
                 await ServicePartiesAsync(sessions, pause, cancellationToken);
                 if (!HumanOwnsInterface && !HasPendingProtection)
@@ -1589,6 +1594,11 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        if (GlobalHasPriority(session))
+        {
+            await EnterGlobalAndFarmAsync(session, pause, cancellationToken);
+            return;
+        }
         session.AwaitingHuntActivationAtSpot = false;
         await ExitRestIfNeededAsync(session, pause, cancellationToken);
         if (!(await recognition.FindAsync("atalaia_erodida", cancellationToken)).Found)
@@ -1676,6 +1686,20 @@ public sealed partial class BotAutomationEngine(
         if (session.NeedsDeathRestoration)
             throw new InvalidOperationException(
                 $"{session.Options.Label}: retorno ao farm bloqueado enquanto a restauração de morte está pendente.");
+
+        if (GlobalHasPriority(session) && DateTime.UtcNow >= session.NextGlobalAttemptAt)
+        {
+            session.NextGlobalAttemptAt = DateTime.UtcNow.AddMinutes(2);
+            await EnterGlobalAndFarmAsync(session, pause, cancellationToken);
+            return;
+        }
+        // Emergency/reconnect recovery of an already confirmed Global must not
+        // be redirected to T.A by the entry retry timer.
+        if (GlobalHasPriority(session) && session.GlobalInside)
+        {
+            await EnterGlobalAndFarmAsync(session, pause, cancellationToken);
+            return;
+        }
 
         await RefreshAbbeyWeekAsync(session);
         await SkipUnavailableFarmScheduleStepsAsync(session);
@@ -3628,6 +3652,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        if (GlobalHasPriority(session) || session.GlobalInside || session.SpecialRoutineBusy) return false;
         if (session.InAgenda || session.HandlingDeath || session.InDailyCampaign || session.LoveBossInside || session.NextRecoveryAttemptAt != default)
         {
             return false;
@@ -4302,6 +4327,7 @@ public sealed partial class BotAutomationEngine(
         PauseController pause,
         CancellationToken cancellationToken)
     {
+        if (GlobalHasPriority(session) || session.GlobalInside || session.SpecialRoutineBusy) return false;
         var currentCycle = DailyCycleKey(DateTime.Now);
         if (!options.EnableDailyMissions || !session.Options.EnableDailyMissions || session.InAgenda || session.HandlingDeath || session.LoveBossInside ||
             session.DailyCompletedCycle == currentCycle || _humanInteraction?.IsBusy == true ||
@@ -5498,6 +5524,7 @@ public sealed partial class BotAutomationEngine(
 
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
+                await ServiceSpecialRoutinesAsync(sessions, sapheras, pause, cancellationToken);
                 await ServiceRestPreferenceAsync(sessions, pause, cancellationToken);
                 await ServicePartiesAsync(sessions, pause, cancellationToken);
                 if (await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, cancellationToken))
@@ -8165,7 +8192,7 @@ public sealed partial class BotAutomationEngine(
     {
         FarmScheduleDestination.Abbey => "Abadia",
         FarmScheduleDestination.AnonymousDungeon => "Estreito de Tenerys",
-        FarmScheduleDestination.Ta1 => "T.A 1 (legado)",
+        FarmScheduleDestination.Ta1 => "T.A 1 (Codex)",
         FarmScheduleDestination.Ta2 => "T.A 2 (legado)",
         _ => "T.A 3 (legado)"
     };
@@ -8178,7 +8205,7 @@ public sealed partial class BotAutomationEngine(
     }
 
     private static string ConfiguredFarmName(ClientSession session) =>
-        WantsAnonymousDungeon(session)
+        session.GlobalInside || GlobalHasPriority(session) ? "a Global · Grande Deserto Candellium" : WantsAnonymousDungeon(session)
             ? "o Estreito de Tenerys"
             : WantsAbbey(session) && AbbeyIsAvailable(session) &&
               (session.AbbeyInside || (!session.AbbeyEntryMayHaveBeenCharged && CanPayAgendaEntry(session)))
@@ -8357,6 +8384,14 @@ public sealed partial class BotAutomationEngine(
         public bool SafeInRest { get; set; }
         public DateTime NextRestPreferenceCheck { get; set; }
         public RestPreferenceRuntime RestPreference { get; } = new();
+        public DateTimeOffset? LastBoostBuffAt { get; set; }
+        public DateTime NextBoostAttemptAt { get; set; }
+        public bool GlobalInside { get; set; }
+        public bool SpecialRoutineBusy { get; set; }
+        public DateTimeOffset? GlobalUntil { get; set; }
+        public string? GlobalRunDay { get; set; }
+        public string? GlobalCompletedDay { get; set; }
+        public DateTime NextGlobalAttemptAt { get; set; }
         public bool SapherasFarmConfirmed { get; set; }
         public volatile bool ReconnectPending;
         public bool StartupSkillChecked;

@@ -5,7 +5,7 @@ public sealed partial class BotAutomationEngine
     private sealed class RecoveryObservationPendingException(string reason) : InvalidOperationException(reason);
 
     private static bool IsSapherasSessionActive(ClientSession session) =>
-        session.Options.UseSapheras && !session.SapherasExitedEarly;
+        session.Options.UseSapheras && !session.SapherasExitedEarly && !session.GlobalInside && !GlobalHasPriority(session);
 
     internal static bool IsConfirmedCityExit(bool fixedPoint, bool liveHp, string heading) =>
         fixedPoint && liveHp && heading.Contains("CASTELO DE ABILIUS", StringComparison.Ordinal);

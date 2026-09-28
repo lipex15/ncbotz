@@ -35,6 +35,7 @@ public partial class MainWindow
 
     private async Task LoadPartySettingsAsync()
     {
+        await LoadSpecialRoutineSettingsAsync();
         foreach (var client in new[] { 1, 2 })
         {
             var prefix = $"client{client}.party";
@@ -49,6 +50,7 @@ public partial class MainWindow
 
     private async Task SavePartySettingsAsync()
     {
+        await SaveSpecialRoutineSettingsAsync();
         foreach (var client in new[] { 1, 2 })
         {
             var prefix = $"client{client}.party";

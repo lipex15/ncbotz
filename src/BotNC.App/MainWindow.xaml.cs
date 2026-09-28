@@ -118,7 +118,7 @@ public partial class MainWindow : Window
         LoveBossScopeComboBox.SelectedItem = "Nenhum";
         AntiOverkillScopeComboBox.SelectedItem = "Ambos";
         FarmScheduleScopeComboBox.SelectedItem = "Nenhum";
-        var scheduleDestinations = new[] { "Abadia da Lembrança", "Masmorra Anônima · Estreito de Tenerys" };
+        var scheduleDestinations = new[] { "Abadia da Lembrança", "Masmorra Anônima · Estreito de Tenerys", "T.A 1 (Codex)" };
         Client1ScheduleDestinationComboBox.ItemsSource = scheduleDestinations;
         Client2ScheduleDestinationComboBox.ItemsSource = scheduleDestinations;
         var anonymousLevels = new[] { "Nv. 86", "Nv. 97", "Nv. 110" };
@@ -709,7 +709,7 @@ public partial class MainWindow : Window
     private async void OnCaptureClient2AnonymousCoordinate(object sender, RoutedEventArgs e) =>
         await CaptureCustomCoordinateAsync(2, anonymous: true);
 
-    private async Task CaptureCustomCoordinateAsync(int clientNumber, bool abbey = false, bool sapheras = false, bool anonymous = false)
+    private async Task CaptureCustomCoordinateAsync(int clientNumber, bool abbey = false, bool sapheras = false, bool anonymous = false, bool global = false)
     {
         if (_capturingCustomCoordinate || _runCancellation is not null)
         {
@@ -750,7 +750,13 @@ public partial class MainWindow : Window
                 CancellationToken.None);
             var mapped = _gameWindows.MapScreenPointToReference(target, clicked.X, clicked.Y);
             var coordinate = new FarmCoordinate(mapped.X, mapped.Y);
-            if (anonymous)
+            if (global)
+            {
+                if (coordinate.X < 400 || coordinate.X > 1480 || coordinate.Y < 180 || coordinate.Y > 920)
+                    throw new InvalidOperationException("Selecione um ponto dentro do mapa da Global, não nas abas laterais.");
+                SetGlobalPoint(clientNumber, coordinate);
+            }
+            else if (anonymous)
             {
                 if (clientNumber == 1) { _client1AnonymousCoordinate = coordinate; Client1AnonymousCustomCheckBox.IsChecked = true; }
                 else { _client2AnonymousCoordinate = coordinate; Client2AnonymousCustomCheckBox.IsChecked = true; }
@@ -785,7 +791,12 @@ public partial class MainWindow : Window
                 Client2CustomCoordinateCheckBox.IsChecked = true;
             }
 
-            if (anonymous)
+            if (global)
+            {
+                await _database.SaveSettingAsync($"client{clientNumber}.global.x", coordinate.X.ToString());
+                await _database.SaveSettingAsync($"client{clientNumber}.global.y", coordinate.Y.ToString());
+            }
+            else if (anonymous)
                 await SaveAnonymousCoordinateAsync(clientNumber, coordinate, true);
             else if (sapheras)
                 await SaveSapherasCoordinateAsync(clientNumber, coordinate, true);
@@ -1203,6 +1214,8 @@ public partial class MainWindow : Window
         {
             if (enableClient1) _ = ReadPartyOptions(1);
             if (enableClient2) _ = ReadPartyOptions(2);
+            if (enableClient1) _ = ReadGlobalOptions(1);
+            if (enableClient2) _ = ReadGlobalOptions(2);
         }
         catch (ArgumentException error) { ShowValidation(error.Message); return; }
         var clients = new List<AutomationClientOptions>();
@@ -1226,7 +1239,7 @@ public partial class MainWindow : Window
                 ScopeIncludesClient(MailScopeComboBox.SelectedItem, 1),
                 ScopeIncludesClient(AntiOverkillScopeComboBox.SelectedItem, 1),
                 ScopeIncludesClient(DailyShopScopeComboBox.SelectedItem, 1),
-                _client1TaCoordinates.Where(pair => _client1TaCoordinatesEnabled.Contains(pair.Key))
+                _client1TaCoordinates.Where(pair => _client1TaCoordinatesEnabled.Contains(pair.Key) || pair.Key == TaDestination.Ta1Codex && ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 1))
                     .ToDictionary(pair => pair.Key, pair => pair.Value),
                 ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 1),
                 ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 1),
@@ -1235,7 +1248,8 @@ public partial class MainWindow : Window
                 Client1SapherasCustomCheckBox.IsChecked == true ? _client1SapherasCoordinate : null,
                 ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 1), storageInterval,
                 Client1AnonymousCustomCheckBox.IsChecked == true ? _client1AnonymousCoordinate : null,
-                ReadPartyOptions(1), Client1KeepRestCheckBox.IsChecked == true));
+                ReadPartyOptions(1), Client1KeepRestCheckBox.IsChecked == true,
+                ScopeIncludesClient(BoostBuffScopeComboBox.SelectedItem, 1), ReadGlobalOptions(1)));
         }
 
         if (client2 is not null)
@@ -1259,7 +1273,7 @@ public partial class MainWindow : Window
                     ScopeIncludesClient(MailScopeComboBox.SelectedItem, 2),
                     ScopeIncludesClient(AntiOverkillScopeComboBox.SelectedItem, 2),
                     ScopeIncludesClient(DailyShopScopeComboBox.SelectedItem, 2),
-                    _client2TaCoordinates.Where(pair => _client2TaCoordinatesEnabled.Contains(pair.Key))
+                    _client2TaCoordinates.Where(pair => _client2TaCoordinatesEnabled.Contains(pair.Key) || pair.Key == TaDestination.Ta1Codex && ScopeIncludesClient(FarmScheduleScopeComboBox.SelectedItem, 2))
                         .ToDictionary(pair => pair.Key, pair => pair.Value),
                     ScopeIncludesClient(LoveBossScopeComboBox.SelectedItem, 2),
                     ScopeIncludesClient(GuildCheckinScopeComboBox.SelectedItem, 2),
@@ -1268,7 +1282,8 @@ public partial class MainWindow : Window
                     Client2SapherasCustomCheckBox.IsChecked == true ? _client2SapherasCoordinate : null,
                     ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 2), storageInterval,
                     Client2AnonymousCustomCheckBox.IsChecked == true ? _client2AnonymousCoordinate : null,
-                    ReadPartyOptions(2), Client2KeepRestCheckBox.IsChecked == true));
+                    ReadPartyOptions(2), Client2KeepRestCheckBox.IsChecked == true,
+                    ScopeIncludesClient(BoostBuffScopeComboBox.SelectedItem, 2), ReadGlobalOptions(2)));
         }
 
         var antiOverkill = new AntiOverkillOptions(deathThreshold, deathWindow, agendaDuration);
@@ -1703,6 +1718,8 @@ public partial class MainWindow : Window
         GuildCheckinTimeTextBox.IsEnabled = !isRunning;
         MailScopeComboBox.IsEnabled = !isRunning;
         AutoStorageScopeComboBox.IsEnabled = !isRunning;
+        BoostBuffScopeComboBox.IsEnabled = GlobalScopeComboBox.IsEnabled = GlobalDurationTextBox.IsEnabled = !isRunning;
+        CaptureGlobal1Button.IsEnabled = CaptureGlobal2Button.IsEnabled = !isRunning;
         AutoStorageIntervalTextBox.IsEnabled = !isRunning;
         foreach (var control in new System.Windows.Controls.Control[] { Client1PartyRole, Client2PartyRole,
             Client1PartyNames, Client2PartyNames, Client1PartyInviter, Client2PartyInviter,
@@ -2008,7 +2025,7 @@ public partial class MainWindow : Window
             {
                 if (step.Duration > TimeSpan.Zero)
                 {
-                    if (step.Destination is FarmScheduleDestination.Abbey or FarmScheduleDestination.AnonymousDungeon)
+                    if (step.Destination is FarmScheduleDestination.Abbey or FarmScheduleDestination.AnonymousDungeon or FarmScheduleDestination.Ta1)
                         target.Add(new FarmScheduleStepEditor(step.Destination, step.Duration.TotalMinutes, step.AnonymousDungeonLevel));
                 }
             }
@@ -2138,6 +2155,7 @@ public partial class MainWindow : Window
 
     private static FarmScheduleDestination ParseFarmScheduleDestination(object? selectedItem) => selectedItem?.ToString() switch
     {
+        "T.A 1 (Codex)" => FarmScheduleDestination.Ta1,
         "Masmorra Anônima · Estreito de Tenerys" => FarmScheduleDestination.AnonymousDungeon,
         _ => FarmScheduleDestination.Abbey
     };
@@ -2264,6 +2282,7 @@ public partial class MainWindow : Window
 
         private static string DestinationName(FarmScheduleDestination destination) => destination switch
         {
+            FarmScheduleDestination.Ta1 => "T.A 1 (Codex)",
             FarmScheduleDestination.Abbey => "Abadia da Lembrança",
             FarmScheduleDestination.AnonymousDungeon => "Estreito de Tenerys",
             _ => "Destino antigo"

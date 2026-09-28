@@ -66,6 +66,11 @@ public sealed partial class BotAutomationEngine
     {
         if (session.ReconnectPending && !session.HandlingReconnect) return;
         if (await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, token)) return;
+        if (GlobalHasPriority(session) && (session.GlobalInside || DateTime.UtcNow >= session.NextGlobalAttemptAt))
+        {
+            await EnterConfiguredFarmAsync(session, pause, token, isEmergency: false);
+            return;
+        }
         if (await TryAdoptScheduledDungeonFarmAsync(session, pause, token)) return;
         // Adopt an existing automatic campaign BEFORE opening mail, guild or the TA selector.
         if (await RunLoveBossSafelyAsync(session, sessions, routines, pause, token, nextSapheras)) return;

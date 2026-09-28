@@ -549,13 +549,33 @@
             </Grid.RowDefinitions>
             <StackPanel>
                 <TextBlock Text="Rotinas" FontSize="27" FontWeight="Bold" />
-                <TextBlock Text="Atividades programadas por cliente, respeitando a prioridade de Sapheras."
+                <TextBlock Text="Atividades por cliente. Global habilitada tem prioridade; buff e proteção permanecem ativos."
                            Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
             </StackPanel>
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Border Grid.Row="4" Grid.ColumnSpan="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,12,0,0">
+                        <StackPanel>
+                            <WrapPanel><TextBlock Text="Buff da cidade" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" Margin="0,0,18,0"/><TextBlock Text="⚠ SOMENTE SERVIDOR BOOST" Foreground="#FFD166" FontWeight="Bold" VerticalAlignment="Center"/></WrapPanel>
+                            <ComboBox x:Name="BoostBuffScopeComboBox" Width="180" Height="36" HorizontalAlignment="Left" Margin="0,10,0,8"/>
+                            <TextBlock Text="Renova gratuitamente no Patrocinador a cada 24h após confirmação. Usa teleporte 7 e retorna ao farm. Pode interromper a Global e consumir uma nova entrada ao voltar a uma masmorra." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="GlobalRoutineCard" Grid.Row="5" Grid.ColumnSpan="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Masmorra Global · Grande Deserto Candellium" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock Text="Quintas e domingos · 21:01–23:00 (UTC−3). Prioridade sobre farm e diárias; proteção e renovação do buff continuam ativas." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,6,0,10"/>
+                            <WrapPanel>
+                                <StackPanel Margin="0,0,18,8"><TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}"/><ComboBox x:Name="GlobalScopeComboBox" Width="180" Height="36" Margin="0,6,0,0"/></StackPanel>
+                                <StackPanel Margin="0,0,0,8"><TextBlock Text="DURAÇÃO (MIN) · MÁX. 120" Style="{StaticResource FieldLabel}"/><TextBox x:Name="GlobalDurationTextBox" Text="120" Width="180" Height="36" Margin="0,6,0,0"/></StackPanel>
+                            </WrapPanel>
+                            <TextBlock Text="Abra M na Global e capture o ponto. Mantenha o mesmo zoom e a aba Inform. de Área aberta. Coordenadas independentes por cliente." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,3,0,8"/>
+                            <WrapPanel><Button x:Name="CaptureGlobal1Button" Content="Cliente 1 · Capturar ponto" Click="OnCaptureGlobal1"/><TextBlock x:Name="Global1PointText" Text="Não definida" Margin="12,0" VerticalAlignment="Center"/></WrapPanel>
+                            <WrapPanel><Button x:Name="CaptureGlobal2Button" Content="Cliente 2 · Capturar ponto" Click="OnCaptureGlobal2"/><TextBlock x:Name="Global2PointText" Text="Não definida" Margin="12,0" VerticalAlignment="Center"/></WrapPanel>
+                        </StackPanel>
+                    </Border>
                     <Border Grid.Row="3" Grid.ColumnSpan="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
                             BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,14,0,0">
                         <StackPanel>
@@ -823,7 +843,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="Plano sequencial" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
-                                <TextBlock Text="Execute Abadia e Estreito de Tenerys na ordem escolhida. Ao concluir, o cliente retorna à T.A configurada."
+                                <TextBlock Text="Execute Abadia, Estreito de Tenerys e T.A 1 na ordem escolhida. A T.A 1 usa seu ponto capturado, sem Favoritos. Ao concluir, retorna à T.A configurada."
                                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,20,0" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">

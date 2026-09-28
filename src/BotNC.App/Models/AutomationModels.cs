@@ -43,8 +43,8 @@ public sealed record DailyRoutineOptions(
 public enum FarmScheduleDestination
 {
     Abbey,
-    // Valores legados são mantidos para que configurações antigas possam ser
-    // lidas e descartadas com segurança durante a migração da Agenda.
+    // T.A 1 is supported again using its captured coordinate, without Favorites.
+    // T.A 2/3 remain legacy values and are filtered from scheduled destinations.
     Ta1,
     Ta2,
     Ta3,
@@ -90,7 +90,11 @@ public sealed record AutomationClientOptions(
     int AutoStorageIntervalMinutes = 120,
     FarmCoordinate? AnonymousDungeonCustomFarmCoordinate = null,
     PartyOptions? Party = null,
-    bool KeepRestMode = true);
+    bool KeepRestMode = true,
+    bool EnableBoostBuff = false,
+    GlobalDungeonOptions? GlobalDungeon = null);
+
+public sealed record GlobalDungeonOptions(bool Enabled, int DurationMinutes, FarmCoordinate? Coordinate);
 
 public enum PartyRole { Disabled, Leader, Receiver }
 public sealed record PartyOptions(PartyRole Role, IReadOnlyList<string> InviteNames, string PreferredInviter = "");

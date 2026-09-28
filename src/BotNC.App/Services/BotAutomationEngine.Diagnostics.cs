@@ -11,6 +11,7 @@ public sealed partial class BotAutomationEngine
         auto = session.OpenHudHunt.ToString(), session.RestHudVisible,
         session.InDailyCampaign, session.DailyCycle, session.DailyCompletedCycle,
         session.LoveBossInside, session.LoveBossRewardCycle, session.InAgenda,
+        session.GlobalInside, session.GlobalUntil, session.GlobalCompletedDay, session.SpecialRoutineBusy, session.LastBoostBuffAt,
         session.NeedsDeathRestoration, session.HandlingDeath, session.HandlingProtection,
         session.RestorationResourcesCleared, residualHpAlertSuppressed = session.ResidualHp.IsActive,
         session.ReconnectPending, session.ReconnectAfterLogin, session.ReconnectSkillSent,

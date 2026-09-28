@@ -476,6 +476,8 @@ public partial class App : Application
             window.ShowStartPreviewForScreenshot();
         if (e.Args.Contains("--party-preview", StringComparer.Ordinal))
             window.ShowPartyForScreenshot();
+        if (e.Args.Contains("--special-routines-preview", StringComparer.Ordinal))
+            window.ShowSpecialRoutinesForScreenshot();
         var outputPath = Path.GetFullPath(e.Args[screenshotIndex + 1]);
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         window.UpdateLayout();
@@ -533,6 +535,7 @@ public partial class App : Application
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
         await BotAutomationEngine.VerifyReconnectFixturesAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         await PartyRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
+        await SpecialRoutineRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         await FlowVisualRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         foreach (var loadingFixture in new[] { "regression_loading_city.png", "regression_loading_landscape.png" })
             if (!await LoadingScreenReader.IsLoadingAsync(LoadReferenceFrame(Path.Combine(referenceDirectory, loadingFixture)), CancellationToken.None))
