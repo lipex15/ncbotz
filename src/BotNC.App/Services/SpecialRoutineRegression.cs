@@ -18,6 +18,11 @@ internal static class SpecialRoutineRegression
         foreach (var id in new[] { "global_spawn_north", "global_spawn_south" })
             Check((await visual.FindAsync(id, Place(load(id + ".png"), 0, 72))).Found, "entrada por " + id);
         Check((await visual.FindAsync("boost_npc", Place(load("boost_npc.png"), 10, 352))).Found, "NPC no fim da lista");
+        foreach (var file in new[] { "boost_list_end.png", "boost_npc.png", "boost_npc_scrolled.png" })
+        {
+            var frame = Place(load(file), 10, file == "boost_list_end.png" ? 90 : 352);
+            Check((await visual.FindAsync("boost_npc_icon", frame)).Found, "ícone fixo independente do texto: " + file);
+        }
         foreach (var x in new[] { 108, 137, 200, 330 })
             Check((await visual.FindAsync("boost_buff", Place(load("boost_icon.png"), x, 922))).Found, "buff deslocado " + x);
         var active = Place(load("global_enter.png"), 1688, 953);
@@ -25,6 +30,7 @@ internal static class SpecialRoutineRegression
         Check(!await GlobalEntryReader.ReadyAsync(visual, load("global_page.png"), CancellationToken.None), "botão apagado antes do horário");
         foreach (var file in new[] { "party_member.png", "reconnect_world.png", "global_map.png", "global_confirm.png" })
         {
+            Check(!(await visual.FindAsync("boost_npc_icon", load(file))).Found, "falso Patrocinador em " + file);
             Check(!(await visual.FindAsync("boost_buff", load(file))).Found, "falso buff em " + file);
             Check(!await GlobalEntryReader.ReadyAsync(visual, load(file), CancellationToken.None), "falsa entrada em " + file);
         }

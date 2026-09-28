@@ -267,6 +267,7 @@ public sealed class AppDatabase
             new("global_spawn_south", "Alicerce do Posto Avançado", "global_spawn_south.png", 61, 26, 230, 25, 20, 75, 320, 80, .80),
             new("global_spawn_north", "Alicerce do Avanço", "global_spawn_north.png", 74, 23, 190, 26, 20, 75, 320, 80, .80),
             new("boost_npc", "Patrocinador da Base", "boost_npc.png", 15, 12, 226, 30, 6, 90, 310, 460, .80),
+            new("boost_npc_icon", "Símbolo fixo do Patrocinador", "boost_list_end.png", 17, 282, 35, 33, 6, 90, 80, 460, .88),
             new("boost_buff", "Buff servidor Boost", "boost_icon.png", 2, 2, 26, 27, 65, 875, 470, 93, .86),
             new("party_panel", "Gestão de Equipe", "party_panel.png", 120, 109, 178, 25, 30, 75, 340, 90, .82),
             new("party_empty", "Nenhuma equipe", "party_create.png", 76, 440, 273, 26, 25, 390, 355, 120, .80),

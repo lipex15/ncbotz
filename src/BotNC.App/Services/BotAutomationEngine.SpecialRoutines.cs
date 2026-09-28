@@ -114,7 +114,7 @@ public sealed partial class BotAutomationEngine
                 await CheckpointAsync(pause, token);
                 await AbortWorkflowIfDeathDetectedAsync(session, "retorno para rotina de cidade", token);
                 var frame = await CaptureClientFrameAsync(session, token);
-                if (await IsStorageCityAsync(recognition, frame, token) || (await recognition.FindAsync("boost_npc", frame, token)).Found) break;
+                if (await IsStorageCityAsync(recognition, frame, token) || (await recognition.FindAsync("boost_npc_icon", frame, token)).Found) break;
                 if ((await recognition.FindAsync("anonymous_exit_confirmation", frame, token)).Found)
                     await input.PressKeyAsync(KeyY, cancellationToken: token);
                 await Task.Delay(500, token);
@@ -140,7 +140,7 @@ public sealed partial class BotAutomationEngine
     private async Task<bool> IsSpecialCityAsync(ClientSession session, CancellationToken token)
     {
         var frame = await CaptureClientFrameAsync(session, token);
-        return await IsStorageCityAsync(recognition, frame, token) || (await recognition.FindAsync("boost_npc", frame, token)).Found;
+        return await IsStorageCityAsync(recognition, frame, token) || (await recognition.FindAsync("boost_npc_icon", frame, token)).Found;
     }
 
     private async Task RenewBoostBuffAsync(ClientSession session, PauseController pause, CancellationToken token)
@@ -148,12 +148,15 @@ public sealed partial class BotAutomationEngine
         SetStatus(BotRunState.Running, $"{session.Options.Label}: buff Boost", "Renovando gratuitamente no Patrocinador");
         await ReturnToSpecialCityAsync(session, pause, token);
         RecognitionResult? npc = null;
-        for (var scroll = 0; scroll < 8; scroll++)
+        for (var scroll = 0; scroll <= 4; scroll++)
         {
             await CheckpointAsync(pause, token);
-            var found = await recognition.FindAsync("boost_npc", await CaptureClientFrameAsync(session, token), token);
+            var found = await recognition.FindAsync("boost_npc_icon", await CaptureClientFrameAsync(session, token), token);
+            WriteLog(session, $"Patrocinador: observação após {scroll}/4 rolagens; reconhecido={found.Found}; confiança={found.Confidence:F3}.");
             if (found.Found) { npc = found; break; }
+            if (scroll == 4) break;
             // Drag the list content upwards to reach its final NPC rows.
+            await EnsureGameForegroundAsync(session, token);
             var start = gameWindows.MapReferencePoint(session.Options.Target, 180, 424);
             var end = gameWindows.MapReferencePoint(session.Options.Target, 180, 150);
             await input.DragAsync(start.X, start.Y, end.X, end.Y, token);
@@ -162,9 +165,10 @@ public sealed partial class BotAutomationEngine
         if (npc is null) throw new InvalidOperationException("Patrocinador não reconhecido na lista; confirme servidor Boost.");
         for (var attempt = 1; attempt <= 3; attempt++)
         {
-            var current = await recognition.FindAsync("boost_npc", await CaptureClientFrameAsync(session, token), token);
+            var current = await recognition.FindAsync("boost_npc_icon", await CaptureClientFrameAsync(session, token), token);
             if (!current.Found) throw new InvalidOperationException("Lista do Patrocinador deixou de estar visível.");
-            await SpecialClickAsync(session, current.X, current.Y, token);
+            // Click the row beside its fixed icon, not the horizontally scrolling name.
+            await SpecialClickAsync(session, 171, current.Y, token);
             // The click starts NPC pathing. Never call it success from the click alone.
             await Task.Delay(2500, token);
             var deadline = DateTime.UtcNow.AddSeconds(45);
