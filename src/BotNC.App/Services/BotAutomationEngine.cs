@@ -195,6 +195,7 @@ public sealed partial class BotAutomationEngine(
             {
                 try
                 {
+                    gameWindows.PrepareWindow(session.Options.Target);
                     session.WindowCapture = new GameWindowCaptureSession(session.Options.Target);
                     WriteLog(session, "Vigilância visual independente conectada à janela (funciona em segundo plano).");
                 }
@@ -1242,7 +1243,6 @@ public sealed partial class BotAutomationEngine(
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
                 await ServiceSpecialRoutinesAsync(sessions, sapheras, pause, cancellationToken);
                 await ServiceRestPreferenceAsync(sessions, pause, cancellationToken);
-                await ServicePartiesAsync(sessions, pause, cancellationToken);
                 if (!HumanOwnsInterface && !HasPendingProtection)
                 {
                     foreach (var raidSession in protectedSessions.Where(s => !s.ReconnectPending && !IsSapherasSessionActive(s)))
@@ -5550,7 +5550,6 @@ public sealed partial class BotAutomationEngine(
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
                 await ServiceSpecialRoutinesAsync(sessions, sapheras, pause, cancellationToken);
                 await ServiceRestPreferenceAsync(sessions, pause, cancellationToken);
-                await ServicePartiesAsync(sessions, pause, cancellationToken);
                 if (await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, cancellationToken))
                     continue;
 
@@ -6126,6 +6125,17 @@ public sealed partial class BotAutomationEngine(
                     await TryRestartAudioCaptureAsync(session, cancellationToken);
                 }
 
+                if (!gameWindows.IsCurrent(session.Options.Target))
+                {
+                    if (!session.ReconnectPending) session.DisconnectedAt = DateTime.UtcNow;
+                    session.UserInterfaceBusy = false;
+                    session.Audio.Armed = false;
+                    _ = session.Audio.TryConsumeAlert(out _);
+                    Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
+                    Interlocked.Exchange(ref session.PendingVisualDeath, 0);
+                    session.ReconnectPending = true;
+                    throw new InvalidOperationException("Jogo fechado; aguardando uma janela de substituição segura.");
+                }
                 if (session.WindowCapture is null)
                 {
                     await ReconnectWindowCaptureAsync(session, cancellationToken);
@@ -6393,13 +6403,37 @@ public sealed partial class BotAutomationEngine(
         try
         {
             var target = session.Options.Target;
-            var current = gameWindows.Discover().SingleOrDefault(window =>
-                window.ProcessId == target.ProcessId && window.Title == target.Title);
+            var current = WindowRebindPolicy.Resolve(target, gameWindows.Discover(),
+                _manualSessions.Where(other => other != session).Select(other => other.Options.Target).ToArray());
             if (current is null)
-                throw new InvalidOperationException($"Janela {target.Title} indisponível; selecione novamente o cliente se o jogo foi reiniciado. Nenhuma outra conta será assumida automaticamente.");
-            if (current.Handle != target.Handle)
+                throw new InvalidOperationException($"Aguardando {target.Title}. Se ambas as contas foram reabertas ou há ambiguidade, pare o bot e selecione as janelas novamente. O outro cliente continua independente.");
+            if (current.Handle != target.Handle || current.ProcessId != target.ProcessId || current.ProcessStartedAt != target.ProcessStartedAt)
             {
                 session.Options = session.Options with { Target = current };
+                _humanInteraction?.ReplaceWindow(target.Handle, current.Handle);
+                gameWindows.PrepareWindow(current);
+                session.UserInterfaceBusy = false;
+                session.ReconnectPending = true;
+                session.ReconnectAfterLogin = false;
+                session.ReconnectWorldInitialized = false;
+                session.ReconnectSkillSent = false;
+                session.ReconnectSkillAttempts = 0;
+                session.ReconnectWorldHits = 0;
+                session.ReconnectStepAttempts = 0;
+                session.LastReconnectActionScreen = ReconnectScreen.Unknown;
+                session.NextReconnectAction = DateTime.UtcNow;
+                if (session.DisconnectedAt == default) session.DisconnectedAt = DateTime.UtcNow;
+                session.StartupSkillChecked = false;
+                session.RestPreference.Request();
+                session.ScheduleHuntConfirmed = false;
+                session.SchedulePreviousObservationActive = false;
+                session.Audio.Armed = false;
+                _ = session.Audio.TryConsumeAlert(out _);
+                Interlocked.Exchange(ref session.PendingVisualLowHp, 0);
+                Interlocked.Exchange(ref session.PendingVisualDeath, 0);
+                await TryRestartAudioCaptureAsync(session, cancellationToken);
+                WindowTargetChanged?.Invoke(session.Options.Label, current);
+                WriteLog(session, "Jogo reaberto: janela e áudio atualizados. Retomando pela reconexão.");
                 WritePersistentOnly(session, $"window_rebound old={target.Handle}; new={current.Handle}; pid={current.ProcessId}");
             }
             if (session.WindowCapture is not null)
@@ -8376,7 +8410,6 @@ public sealed partial class BotAutomationEngine(
 
     private sealed class ClientSession(AutomationClientOptions options)
     {
-        public PartyRuntime Party { get; } = new();
         public AutomationClientOptions Options { get; set; } = options;
         public HpAudioAlertService Audio { get; } = new();
         public SemaphoreSlim WindowCaptureGate { get; } = new(1, 1);

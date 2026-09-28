@@ -469,13 +469,19 @@ public partial class App : Application
             return;
         }
 
-        await Task.Delay(e.Args.Contains("--statistics-tab", StringComparer.Ordinal) ? 5000 : 1600);
+        for (var readinessAttempt = 0; readinessAttempt < 120 && !window.IsReadyForPreview; readinessAttempt++)
+            await Task.Delay(250);
+        if (e.Args.Contains("--small-preview", StringComparer.Ordinal))
+        {
+            window.Width = window.MinWidth;
+            window.Height = window.MinHeight;
+        }
         if (e.Args.Contains("--execution-view", StringComparer.Ordinal))
             window.ShowExecutionPreviewForScreenshot();
+        if (e.Args.Contains("--ta-preview", StringComparer.Ordinal)) window.ShowTaForScreenshot();
+        if (e.Args.Contains("--sapheras-preview", StringComparer.Ordinal)) window.ShowSapherasForScreenshot();
         if (e.Args.Contains("--start-preview", StringComparer.Ordinal))
             window.ShowStartPreviewForScreenshot();
-        if (e.Args.Contains("--party-preview", StringComparer.Ordinal))
-            window.ShowPartyForScreenshot();
         if (e.Args.Contains("--special-routines-preview", StringComparer.Ordinal))
             window.ShowSpecialRoutinesForScreenshot();
         var outputPath = Path.GetFullPath(e.Args[screenshotIndex + 1]);
@@ -535,7 +541,8 @@ public partial class App : Application
         var recognition = new VisualRecognitionService(database, new ScreenCaptureService());
         var referenceDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "References");
         await BotAutomationEngine.VerifyReconnectFixturesAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
-        await PartyRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
+        FarmPreferenceRegression.Verify();
+        WindowRebindPolicy.Verify();
         await SpecialRoutineRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         await FlowVisualRegression.VerifyAsync(recognition, file => LoadReferenceFrame(Path.Combine(referenceDirectory, file)));
         foreach (var loadingFixture in new[] { "regression_loading_city.png", "regression_loading_landscape.png" })

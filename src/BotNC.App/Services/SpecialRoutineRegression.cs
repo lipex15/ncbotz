@@ -28,7 +28,7 @@ internal static class SpecialRoutineRegression
         var active = Place(load("global_enter.png"), 1688, 953);
         Check(await GlobalEntryReader.ReadyAsync(visual, active, CancellationToken.None), "botão Entrar ativo");
         Check(!await GlobalEntryReader.ReadyAsync(visual, load("global_page.png"), CancellationToken.None), "botão apagado antes do horário");
-        foreach (var file in new[] { "party_member.png", "reconnect_world.png", "global_map.png", "global_confirm.png" })
+        foreach (var file in new[] { "reconnect_world.png", "global_map.png", "global_confirm.png" })
         {
             Check(!(await visual.FindAsync("boost_npc_icon", load(file))).Found, "falso Patrocinador em " + file);
             Check(!(await visual.FindAsync("boost_buff", load(file))).Found, "falso buff em " + file);

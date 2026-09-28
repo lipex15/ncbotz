@@ -31,13 +31,22 @@ public sealed class GameWindowService
                 }
 
                 NativeMethods.GetWindowThreadProcessId(handle, out var processId);
+                string? executable = null;
+                DateTime? started = null;
+                try
+                {
+                    using var process = System.Diagnostics.Process.GetProcessById(checked((int)processId));
+                    executable = process.MainModule?.FileName;
+                    started = process.StartTime.ToUniversalTime();
+                }
+                catch (Exception) { /* Access-denied identity is never used for a cross-process rebind. */ }
                 windows.Add(
                     new GameWindowTarget(
                         handle,
                         title,
                         checked((int)processId),
                         NativeMethods.IsIconic(handle),
-                        NativeMethods.IsWindowVisible(handle)));
+                        NativeMethods.IsWindowVisible(handle), executable, started));
                 return true;
             },
             IntPtr.Zero);
@@ -47,9 +56,31 @@ public sealed class GameWindowService
             .ToArray();
     }
 
+    public bool IsCurrent(GameWindowTarget target)
+    {
+        if (!NativeMethods.IsWindow(target.Handle)) return false;
+        NativeMethods.GetWindowThreadProcessId(target.Handle, out var pid);
+        if (pid != target.ProcessId || ReadTitle(target.Handle) != target.Title) return false;
+        if (target.ProcessStartedAt is not { } expected) return true;
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(target.ProcessId);
+            return process.StartTime.ToUniversalTime() == expected;
+        }
+        catch (Exception) { return false; }
+    }
+
+    // Called only at session start or after replacing a lost window, never on an idle-farm timer.
+    public void PrepareWindow(GameWindowTarget target)
+    {
+        if (!IsCurrent(target)) throw new InvalidOperationException("Janela do jogo não está mais disponível.");
+        if (!NativeMethods.IsZoomed(target.Handle))
+            NativeMethods.ShowWindow(target.Handle, NativeMethods.SwMaximize);
+    }
+
     public bool Activate(GameWindowTarget target)
     {
-        if (!NativeMethods.IsWindow(target.Handle))
+        if (!IsCurrent(target))
         {
             return false;
         }

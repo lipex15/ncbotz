@@ -8,7 +8,7 @@
             <GradientStop Color="#07101D" Offset="1" />
         </LinearGradientBrush>
         <SolidColorBrush x:Key="PanelBrush" Color="#0B1728" />
-        <SolidColorBrush x:Key="CardBrush" Color="#122238" />
+        <LinearGradientBrush x:Key="CardBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#132337" Offset="0"/><GradientStop Color="#101C2C" Offset="1"/></LinearGradientBrush>
         <SolidColorBrush x:Key="BorderBrush" Color="#23374C" />
         <SolidColorBrush x:Key="TextBrush" Color="#F2F6FF" />
         <SolidColorBrush x:Key="MutedBrush" Color="#A2B1C8" />
@@ -25,8 +25,8 @@
             <Setter Property="Background" Value="#142239" />
             <Setter Property="BorderBrush" Value="#2B405E" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="26" />
-            <Setter Property="Padding" Value="22" />
+            <Setter Property="CornerRadius" Value="16" />
+            <Setter Property="Padding" Value="16" />
             <Setter Property="Margin" Value="0,0,0,14" />
             <Setter Property="Effect">
                 <Setter.Value>
@@ -60,7 +60,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="15">
+                                CornerRadius="10">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                               Margin="{TemplateBinding Padding}" />

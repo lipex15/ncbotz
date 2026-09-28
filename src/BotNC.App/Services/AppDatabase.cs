@@ -82,6 +82,10 @@ public sealed class AppDatabase
             """;
         await command.ExecuteNonQueryAsync();
 
+        // One-time-compatible cleanup of the retired team module; no live team logic remains.
+        command.CommandText = "DELETE FROM visual_references WHERE id GLOB 'party_*'; DELETE FROM bot_settings WHERE key GLOB 'client*.party.*';";
+        await command.ExecuteNonQueryAsync();
+
         foreach (var definition in ReferenceDefinitions.All)
         {
             await UpsertReferenceAsync(connection, definition);
@@ -269,16 +273,6 @@ public sealed class AppDatabase
             new("boost_npc", "Patrocinador da Base", "boost_npc.png", 15, 12, 226, 30, 6, 90, 310, 460, .80),
             new("boost_npc_icon", "Símbolo fixo do Patrocinador", "boost_list_end.png", 17, 282, 35, 33, 6, 90, 80, 460, .88),
             new("boost_buff", "Buff servidor Boost", "boost_icon.png", 2, 2, 26, 27, 65, 875, 470, 93, .86),
-            new("party_panel", "Gestão de Equipe", "party_panel.png", 120, 109, 178, 25, 30, 75, 340, 90, .82),
-            new("party_empty", "Nenhuma equipe", "party_create.png", 76, 440, 273, 26, 25, 390, 355, 120, .80),
-            new("party_create_confirm", "Confirmar criar equipe", "party_create.png", 885, 479, 150, 28, 810, 440, 310, 110, .84),
-            new("party_invite_prompt", "Inserir nome do convidado", "party_invite.png", 744, 443, 435, 54, 690, 402, 530, 130, .82),
-            new("party_dissolve", "Dissolver equipe", "party_panel.png", 308, 252, 71, 26, 250, 175, 150, 500, .84),
-            new("party_dissolve_confirm", "Confirmar dissolver equipe", "party_dissolve.png", 814, 480, 288, 28, 745, 425, 430, 115, .84),
-            new("party_received_title", "Convite para equipe", "party_received.png", 51, 84, 216, 21, 20, 40, 370, 115, .82),
-            new("party_received_question", "Deseja aceitar equipe", "party_received.png", 140, 107, 143, 20, 45, 75, 325, 95, .82),
-            new("party_received_ok", "Aceitar convite", "party_received.png", 218, 218, 155, 42, 170, 170, 230, 115, .82),
-            new("party_member_card", "Atalho F1 do integrante", "party_member.png", 953, 923, 23, 15, 520, 845, 850, 98, .82),
             new("reconnect_login_ok", "Confirmar aviso na tela de login", "reconnect_inactivity.png", 864, 611, 192, 50, 820, 580, 280, 110, .84),
             new("reconnect_login_dim_touch", "Tela de login sob aviso", "reconnect_inactivity.png", 881, 796, 166, 28, 820, 750, 285, 105, .82),
             new("reconnect_touch", "Toque na tela de login", "reconnect_touch.png", 880, 795, 165, 30, 820, 750, 285, 105, .82),

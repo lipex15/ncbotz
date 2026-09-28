@@ -8,6 +8,7 @@ public partial class MainWindow
     internal void ShowSpecialRoutinesForScreenshot()
     {
         ShowRoutinesForScreenshot();
+        RoutineExpander1.IsExpanded = true;
         UpdateLayout();
         GlobalRoutineCard.BringIntoView();
     }

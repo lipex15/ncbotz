@@ -9,6 +9,10 @@
         Background="{StaticResource BackgroundBrush}" FontFamily="Segoe UI"
         Loaded="OnWindowLoaded">
     <Window.Resources>
+<Style x:Key="CompactCard" TargetType="Border">
+<Setter Property="Background" Value="{StaticResource CardBrush}"/><Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="16"/><Setter Property="Padding" Value="18"/>
+</Style>
+<Style x:Key="DiscreetHelp" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MutedBrush}"/><Setter Property="FontSize" Value="11"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Margin" Value="0,6,0,0"/><Setter Property="LineHeight" Value="16"/></Style>
         <Style x:Key="OverviewExpander" TargetType="Expander">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="FontSize" Value="14" />
@@ -46,18 +50,20 @@
         </Style>
     </Window.Resources>
     <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="230" />
+            <ColumnDefinition Width="218" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Background="#0B1425" BorderBrush="#263850" BorderThickness="0,0,1,0">
-            <Grid Margin="20,24">
+        <Border Grid.RowSpan="2" Background="#0B1425" BorderBrush="#263850" BorderThickness="0,0,1,0">
+            <Grid Margin="14,20">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="28" />
+                    <RowDefinition Height="20" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal">
@@ -73,16 +79,16 @@
                 </StackPanel>
                 <StackPanel Grid.Row="2">
                     <Button x:Name="OverviewNavigationButton" Content="🏠   Início"
-                            HorizontalContentAlignment="Left" Background="#275796"
+                            HorizontalContentAlignment="Left" Background="#153D50"
                             BorderThickness="0" Click="OnShowOverview" />
                     <Button x:Name="StatisticsNavigationButton" Content="◈   Estatísticas" Click="OnShowStatistics"
                             Visibility="Collapsed" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Margin="0,4,0,0"/>
                     <TextBlock Text="FARM" Foreground="#8299B7" FontSize="10"
-                               FontWeight="Bold" Margin="13,18,0,9" />
+                               FontWeight="Bold" Margin="13,12,0,7" />
                     <Button x:Name="SapherasNavigationButton" Content="⛏️   Sapheras" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0"
                             Click="OnShowSapheras" />
-                    <Button x:Name="TaNavigationButton" Content="🗺️   T.A 1 / T.A 2 / T.A 3" HorizontalContentAlignment="Left"
+                    <Button x:Name="TaNavigationButton" Content="◇   Terra Avassaladora" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarm" />
                     <Button x:Name="AbbeyNavigationButton" Content="🏰   Abadia / Anônima" HorizontalContentAlignment="Left"
@@ -92,7 +98,7 @@
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowFarmSchedule" />
                     <TextBlock Text="AUTOMAÇÃO" Foreground="#8299B7" FontSize="10"
-                               FontWeight="Bold" Margin="13,18,0,9" />
+                               FontWeight="Bold" Margin="13,12,0,7" />
                     <Button x:Name="RoutinesNavigationButton" Content="📋   Rotinas diárias" HorizontalContentAlignment="Left"
                             Background="Transparent" BorderThickness="0" Margin="0,4,0,0"
                             Click="OnShowRoutines" />
@@ -117,7 +123,7 @@
                         </Grid>
                     </Button>
                 </StackPanel>
-                <Border Grid.Row="3" x:Name="RunIndicator" VerticalAlignment="Bottom" Margin="0,20,0,20"
+                <Border Grid.Row="4" x:Name="RunIndicator" VerticalAlignment="Bottom" Margin="0,8,0,8"
                         Padding="14" CornerRadius="22" Background="#102B30" BorderBrush="#27625A" BorderThickness="1">
                     <StackPanel>
                         <TextBlock x:Name="RunIndicatorTitle" Text="Pronto para começar" Foreground="#75E4BD" FontWeight="SemiBold" TextWrapping="Wrap" />
@@ -125,7 +131,7 @@
                         <ProgressBar x:Name="RunPulse" IsIndeterminate="True" Height="3" Margin="0,12,0,0" Foreground="#45D8A5" Visibility="Collapsed" />
                     </StackPanel>
                 </Border>
-                <StackPanel Grid.Row="4">
+                <StackPanel Grid.Row="5">
                     <TextBlock x:Name="ApplicationVersionText" Text="PEXBOT" Foreground="#52647A"
                                FontSize="10" Margin="2,0,0,0" />
                 </StackPanel>
@@ -133,115 +139,101 @@
         </Border>
 
         <local:StatisticsPanel x:Name="UserStatisticsPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed"/>
-        <Grid x:Name="OverviewPanel" Grid.Column="1" Margin="28,22,28,24">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="22" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="18" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel>
-                    <TextBlock Text="Visão geral" FontSize="27" FontWeight="Bold" />
-                    <TextBlock Text="Automação visual do Night Crows"
-                               Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
-                </StackPanel>
-                <Border Grid.Column="1" x:Name="StatusBadge" Background="#142237"
-                        BorderBrush="#2B4059" BorderThickness="1" CornerRadius="18"
-                        Padding="16,8" VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal">
-                        <Ellipse x:Name="StatusDot" Width="8" Height="8"
-                                 Fill="#7F91A6" Margin="0,0,8,0" />
-                        <TextBlock x:Name="StatusBadgeText" Text="PARADO"
-                                   Foreground="#AFC0D2" FontSize="11" FontWeight="Bold" />
-                    </StackPanel>
-                </Border>
-            </Grid>
-
-            <Grid Grid.Row="2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1.22*" />
-                    <ColumnDefinition Width="18" />
-                    <ColumnDefinition Width="0.9*" />
-                </Grid.ColumnDefinitions>
-                <ScrollViewer x:Name="OverviewScrollViewer" VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="0,0,6,0">
-                    <Border Background="{StaticResource CardBrush}"
+        <Grid x:Name="OverviewPanel" Grid.Column="1" Margin="28,22,28,18">
+<Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="18"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+<Grid><StackPanel><TextBlock Text="Início" FontSize="30" FontWeight="Bold"/><TextBlock Text="Suas contas, seus destinos. Configure e deixe o farm seguir." Style="{StaticResource DiscreetHelp}"/></StackPanel>
+<Button x:Name="RefreshButton" Content="↻  Atualizar clientes" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnRefreshClients" Background="#0D1C2A" BorderBrush="#39BFD7" Padding="14,9"/></Grid>
+<ScrollViewer x:Name="OverviewScrollViewer" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+<StackPanel Margin="0,0,6,0">
+<TextBlock x:Name="ConfigurationLockHint" Text="Configuração da sessão · pare a execução para editar." Style="{StaticResource DiscreetHelp}" Foreground="#79DAB6" Visibility="Collapsed"/>
+<Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Grid.Column="0" VerticalAlignment="Top" Style="{StaticResource CompactCard}"><StackPanel>
+<CheckBox x:Name="EnableClient1CheckBox" Content="Cliente 1" FontSize="18" FontWeight="SemiBold" IsChecked="True" Checked="OnClient1EnabledChanged" Unchecked="OnClient1EnabledChanged"/>
+<TextBlock Text="JANELA DO JOGO" Style="{StaticResource FieldLabel}" Margin="0,16,0,6"/>
+<ComboBox x:Name="Client1ComboBox" DisplayMemberPath="DisplayName" Height="38"/>
+<TextBlock Text="Selecione a janela correspondente a esta conta." Style="{StaticResource DiscreetHelp}"/>
+<TextBlock Text="DESTINO DE FARM" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/>
+<ComboBox x:Name="Ta1ComboBox" Height="38" SelectionChanged="OnTaDestinationChanged"/>
+<TextBlock Text="Pontos e favoritos são configurados na aba Terra Avassaladora." Style="{StaticResource DiscreetHelp}"/>
+<Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,15,0,12"/>
+<WrapPanel>
+<CheckBox x:Name="Client1SapherasCheckBox" Content="Sapheras" IsChecked="True" Margin="0,0,20,0"/>
+<CheckBox x:Name="Client1KeepRestCheckBox" Content="Modo descanso" IsChecked="True"/>
+</WrapPanel>
+<TextBlock Text="Sapheras segue o horário configurado. Descanso desligado mantém o farm com a tela aberta." Style="{StaticResource DiscreetHelp}"/>
+</StackPanel></Border><Border Grid.Column="2" VerticalAlignment="Top" Style="{StaticResource CompactCard}"><StackPanel>
+<CheckBox x:Name="EnableClient2CheckBox" Content="Cliente 2" FontSize="18" FontWeight="SemiBold" IsChecked="False" Checked="OnClient2EnabledChanged" Unchecked="OnClient2EnabledChanged"/>
+<TextBlock Text="JANELA DO JOGO" Style="{StaticResource FieldLabel}" Margin="0,16,0,6"/>
+<ComboBox x:Name="Client2ComboBox" DisplayMemberPath="DisplayName" Height="38"/>
+<TextBlock Text="Selecione a janela correspondente a esta conta." Style="{StaticResource DiscreetHelp}"/>
+<TextBlock Text="DESTINO DE FARM" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/>
+<ComboBox x:Name="Ta2ComboBox" Height="38" SelectionChanged="OnTaDestinationChanged"/>
+<TextBlock Text="Pontos e favoritos são configurados na aba Terra Avassaladora." Style="{StaticResource DiscreetHelp}"/>
+<Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,15,0,12"/>
+<WrapPanel>
+<CheckBox x:Name="Client2SapherasCheckBox" Content="Sapheras" IsChecked="False" Margin="0,0,20,0"/>
+<CheckBox x:Name="Client2KeepRestCheckBox" Content="Modo descanso" IsChecked="True"/>
+</WrapPanel>
+<TextBlock Text="Sapheras segue o horário configurado. Descanso desligado mantém o farm com a tela aberta." Style="{StaticResource DiscreetHelp}"/>
+</StackPanel></Border></Grid>
+<Border Margin="0,14,0,0" Style="{StaticResource CompactCard}"><StackPanel><TextBlock Text="Acontecendo agora" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10"/>
+<Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<StackPanel Grid.Column="0">
+<DockPanel><TextBlock Text="Cliente 1" FontWeight="SemiBold" Margin="0,0,12,0"/><TextBlock x:Name="Client1AudioStateText" Text="Aguardando início" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"/></DockPanel>
+<TextBlock x:Name="Client1ActivityText" Text="Aguardando início" Style="{StaticResource DiscreetHelp}" MaxHeight="48"/>
+<TextBlock x:Name="Client1AgendaLiveText" Foreground="#65CEFA" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+</StackPanel><StackPanel Grid.Column="2">
+<DockPanel><TextBlock Text="Cliente 2" FontWeight="SemiBold" Margin="0,0,12,0"/><TextBlock x:Name="Client2AudioStateText" Text="Aguardando início" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"/></DockPanel>
+<TextBlock x:Name="Client2ActivityText" Text="Aguardando início" Style="{StaticResource DiscreetHelp}" MaxHeight="48"/>
+<TextBlock x:Name="Client2AgendaLiveText" Foreground="#65CEFA" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+</StackPanel></Grid></StackPanel></Border>
+<TextBlock Text="Durante o farm, a vigilância é em segundo plano. A janela só é acionada quando uma ação é necessária." Style="{StaticResource DiscreetHelp}"/>
+<Border  Background="#101A2C" Visibility="Collapsed"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="28" Padding="20">
-                        <StackPanel>
-                            <TextBlock Text="Clientes e ciclo de farm" Foreground="#65CEFA"
-                                       FontSize="16" FontWeight="Bold" />
-                            <TextBlock Text="Ative um cliente ou os dois. Quando ambos estiverem ativos, o Cliente 1 tem prioridade."
-                                       Foreground="{StaticResource MutedBrush}"
-                                       FontSize="12" TextWrapping="Wrap" Margin="0,5,0,18" />
-                            <TextBlock x:Name="ConfigurationLockHint" Text="🔒 Configuração desta sessão · pare a execução para editar"
-                                       Foreground="#79DAB6" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,12" Visibility="Collapsed" />
-                            <TextBlock Text="JANELA DO JOGO · DESTINO T.A" Style="{StaticResource FieldLabel}" />
-                            <Grid Margin="0,7,0,8">
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="10" />
-                                    <ColumnDefinition Width="145" />
-                                </Grid.ColumnDefinitions>
-                                <CheckBox x:Name="EnableClient1CheckBox" Content="Cliente 1"
-                                          IsChecked="True" VerticalAlignment="Center"
-                                          Checked="OnClient1EnabledChanged" Unchecked="OnClient1EnabledChanged" />
-                                <ComboBox x:Name="Client1ComboBox" Grid.Row="1" Margin="0,8,0,8" Height="40"
-                                          DisplayMemberPath="DisplayName" />
-                                <ComboBox x:Name="Ta1ComboBox" Grid.Column="2" Grid.Row="1" Height="40" SelectionChanged="OnTaDestinationChanged" />
-                                <CheckBox x:Name="Client1SapherasCheckBox" Grid.Column="2"
-                                          Content="Sapheras" IsChecked="True"
-                                          VerticalAlignment="Center" HorizontalAlignment="Right" />
+                            CornerRadius="16" Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="10" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid>
+                                <TextBlock Text="Atividade recente" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="#AFC2DE" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="Técnico" Padding="8,3" FontSize="10" Margin="0,0,7,0" Click="OnExpandLog" />
+                                    <Button x:Name="CopyLogButton" Content="Copiar diagnóstico" Margin="0,0,7,0"
+                                            Padding="8,3" FontSize="10" Click="OnCopyLog" />
+                                    <Button Content="Limpar" Padding="8,3" FontSize="10" Click="OnClearLog" />
+                                </StackPanel>
                             </Grid>
-                            <Grid Margin="0,0,0,8">
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="10" />
-                                    <ColumnDefinition Width="145" />
-                                </Grid.ColumnDefinitions>
-                                <CheckBox x:Name="EnableClient2CheckBox" Content="Cliente 2"
-                                          IsChecked="False" VerticalAlignment="Center"
-                                          Checked="OnClient2EnabledChanged" Unchecked="OnClient2EnabledChanged" />
-                                <ComboBox x:Name="Client2ComboBox" Grid.Row="1" Margin="0,8,0,8" Height="40"
-                                          DisplayMemberPath="DisplayName" />
-                                <ComboBox x:Name="Ta2ComboBox" Grid.Column="2" Grid.Row="1" Height="40" SelectionChanged="OnTaDestinationChanged" />
-                                <CheckBox x:Name="Client2SapherasCheckBox" Grid.Column="2"
-                                          Content="Sapheras" IsChecked="False"
-                                          VerticalAlignment="Center" HorizontalAlignment="Right" />
-                            </Grid>
-                            <WrapPanel HorizontalAlignment="Right">
-                            <Button Content="Sapheras: Ambos" Margin="0,0,8,0"
-                                    Padding="9,5" Height="36" Click="OnSelectBothSapheras" />
-                            <Button x:Name="RefreshButton" Content="Atualizar clientes"
-                                    HorizontalAlignment="Right" Height="36" Margin="0,0,0,0"
-                                    Click="OnRefreshClients" />
-                            </WrapPanel>
-                        </StackPanel>
+                            <ListBox x:Name="LogListBox" Grid.Row="2"
+                                     Visibility="Visible" HorizontalContentAlignment="Stretch"
+                                     Background="Transparent" BorderThickness="0"
+                                     Foreground="#AFC0D8" FontFamily="Segoe UI" FontSize="11"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="12" Background="#14263B" Padding="10" Margin="0,3,4,4">
+                                            <StackPanel>
+                                                <DockPanel><TextBlock Text="{Binding Time}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="#849AB4" FontSize="10"/>
+                                                    <TextBlock Text="{Binding Client}" Foreground="{Binding Tone}" FontWeight="SemiBold" FontSize="10"/></DockPanel>
+                                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,5,0,0" Foreground="#E1ECF7" FontSize="12"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
                     </Border>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="20" Padding="20" Margin="0,12,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Tela durante o farm" FontSize="16" FontWeight="Bold" Foreground="#65CEFA" />
-                            <TextBlock Text="Manter descanso durante o farm" Margin="0,10,0,8" />
-                            <WrapPanel>
-                                <CheckBox x:Name="Client1KeepRestCheckBox" Content="Cliente 1" IsChecked="True" Margin="0,0,24,0" />
-                                <CheckBox x:Name="Client2KeepRestCheckBox" Content="Cliente 2" IsChecked="True" />
-                            </WrapPanel>
-                            <TextBlock Text="Desmarcado: farma com a tela aberta. O descanso continua disponível temporariamente para deslocamento e leitura de informações." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,10,0,0" />
-                        </StackPanel>
-                    </Border>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="12,7" Margin="0,10,0,0">
-                        <Expander Style="{StaticResource OverviewExpander}" Header="Pontos de farm e horário de Sapheras">
-                        <StackPanel>
-                            <Border Background="#111C29" BorderBrush="#2A3B4D" BorderThickness="1"
+</StackPanel></ScrollViewer>
+<TextBlock x:Name="DatabasePathText" Grid.Row="3" FontSize="9" Foreground="#52647A" TextTrimming="CharacterEllipsis" Margin="0,8,0,0"/>
+</Grid>
+<Grid x:Name="TaSettingsPanel" Grid.Column="1" Margin="28,22,28,18" Visibility="Collapsed">
+<Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="18"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+<StackPanel><TextBlock Text="Terra Avassaladora" FontSize="27" FontWeight="Bold"/><TextBlock Text="Configure o ponto de cada cliente para o destino escolhido. T.A 1, T.A 2 e T.A 3 mantêm pontos separados." Style="{StaticResource DiscreetHelp}"/></StackPanel>
+<ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="0,0,6,0"><Border  Style="{StaticResource CompactCard}"><StackPanel><Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+<StackPanel Grid.Column="0"><TextBlock Text="CLIENTE 1 · DESTINO" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/><ComboBox Height="38" ItemsSource="{Binding ItemsSource, ElementName=Ta1ComboBox}" SelectedItem="{Binding SelectedItem, ElementName=Ta1ComboBox, Mode=TwoWay}" IsEnabled="{Binding IsEnabled, ElementName=Ta1ComboBox}"/></StackPanel><StackPanel Grid.Column="2"><TextBlock Text="CLIENTE 2 · DESTINO" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/><ComboBox Height="38" ItemsSource="{Binding ItemsSource, ElementName=Ta2ComboBox}" SelectedItem="{Binding SelectedItem, ElementName=Ta2ComboBox, Mode=TwoWay}" IsEnabled="{Binding IsEnabled, ElementName=Ta2ComboBox}"/></StackPanel></Grid>
+<Border Background="#111C29" BorderBrush="#2A3B4D" BorderThickness="1"
                                     CornerRadius="20" Padding="12" Margin="0,0,0,15">
                                 <StackPanel>
                                     <TextBlock Text="PONTO DE FARM PERSONALIZADO"
@@ -289,7 +281,11 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
-                            <StackPanel Margin="0,0,0,14">
+<TextBlock Text="T.A 1: abra o mapa no zoom mínimo e capture o ponto. T.A 2/3: sem ponto personalizado, mantenha o farm na primeira posição dos favoritos e o teleporte opcional na segunda." Style="{StaticResource DiscreetHelp}"/></StackPanel></Border></StackPanel></ScrollViewer></Grid>
+<Grid x:Name="SapherasPanel" Grid.Column="1" Margin="28,22,28,18" Visibility="Collapsed">
+<Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="18"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+<StackPanel><TextBlock Text="Sapheras" FontSize="27" FontWeight="Bold"/><TextBlock Text="Horário, duração e ponto de farm. A ativação de cada cliente fica no Início." Style="{StaticResource DiscreetHelp}"/></StackPanel>
+<ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="0,0,6,0"><Border  Style="{StaticResource CompactCard}"><StackPanel><StackPanel Margin="0,0,0,14">
                                 <TextBlock Text="PONTO PERSONALIZADO — SAPHERAS" Style="{StaticResource FieldLabel}" />
                                 <TextBlock Text="Abra o mapa de Sapheras com as abas laterais abertas, capture seu ponto e mantenha o mesmo zoom. Desmarcado: usa o TP aleatório."
                                            TextWrapping="Wrap" Foreground="#9CB0C3" Margin="0,5,0,8" />
@@ -366,182 +362,22 @@
                             </Grid>
                             <TextBlock Text="Sapheras tem prioridade apenas nos clientes em que estiver habilitada e exige passe. Favoritos: farm na 1ª posição; teleporte opcional na 2ª."
                                        Foreground="#7F91A6" FontSize="11" Margin="0,10,0,0"
-                                       TextWrapping="Wrap" />
-                        </StackPanel>
-                        </Expander>
-                    </Border>
-                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="12,7" Margin="0,10,0,0">
-                        <Expander x:Name="PartyExpander" Style="{StaticResource OverviewExpander}" Header="Grupo automático · até 5 pessoas" IsExpanded="False">
-                        <StackPanel>
-                            <Border Background="#302A20" CornerRadius="10" Padding="12">
-                                <TextBlock Text="Para usar grupo, desmarque ‘Manter descanso durante o farm’ em cada cliente participante. Convites ficam ocultos no descanso." Foreground="#F7C66C" TextWrapping="Wrap" FontSize="12" />
-                            </Border>
-                            <TextBlock Text="CLIENTE 1" Foreground="#65CEFA" FontWeight="Bold" Margin="0,16,0,8" />
-                            <ComboBox x:Name="Client1PartyRole" SelectedIndex="0"><ComboBoxItem Content="Desativado"/><ComboBoxItem Content="Líder: criar e convidar"/><ComboBoxItem Content="Membro: receber convites"/></ComboBox>
-                            <StackPanel>
-                                <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=Client1PartyRole}" Value="1"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-                            <TextBlock Text="Nicks para convidar — um por linha, até 4" Margin="0,8,0,4" />
-                            <TextBox x:Name="Client1PartyNames" AcceptsReturn="True" Height="80" VerticalScrollBarVisibility="Auto" />
-                            </StackPanel>
-                            <StackPanel>
-                                <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=Client1PartyRole}" Value="2"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-                            <TextBlock Text="Nome preferido de quem convida (opcional)" TextWrapping="Wrap" Margin="0,8,0,4" />
-                            <TextBox x:Name="Client1PartyInviter" />
-                            </StackPanel>
-                            <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,18,0,0" />
-                            <TextBlock Text="CLIENTE 2" Foreground="#65CEFA" FontWeight="Bold" Margin="0,16,0,8" />
-                            <ComboBox x:Name="Client2PartyRole" SelectedIndex="0"><ComboBoxItem Content="Desativado"/><ComboBoxItem Content="Líder: criar e convidar"/><ComboBoxItem Content="Membro: receber convites"/></ComboBox>
-                            <StackPanel>
-                                <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=Client2PartyRole}" Value="1"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-                            <TextBlock Text="Nicks para convidar — um por linha, até 4" Margin="0,8,0,4" />
-                            <TextBox x:Name="Client2PartyNames" AcceptsReturn="True" Height="80" VerticalScrollBarVisibility="Auto" />
-                            </StackPanel>
-                            <StackPanel>
-                                <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=Client2PartyRole}" Value="2"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-                            <TextBlock Text="Nome preferido de quem convida (opcional)" TextWrapping="Wrap" Margin="0,8,0,4" />
-                            <TextBox x:Name="Client2PartyInviter" />
-                            </StackPanel>
-                            <TextBlock Text="Cole os nicks exatos, incluindo símbolos. Até 5 convites por pessoa sem aceite; reinicie o bot para tentar novamente. PT confirmada: nenhuma checagem de grupo até reconectar ou reiniciar." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource MutedBrush}" Margin="0,14,0,0" />
-                        </StackPanel>
-                        </Expander>
-                    </Border>
-                </StackPanel>
-                </ScrollViewer>
+                                       TextWrapping="Wrap" /></StackPanel></Border></StackPanel></ScrollViewer></Grid>
 
-                <Grid Grid.Column="2">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="14" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="14" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <Border Background="{StaticResource CardBrush}"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="28" Padding="20">
-                        <StackPanel>
-                            <TextBlock Text="Sua execução" Foreground="#65CEFA"
-                                       FontSize="16" FontWeight="Bold" />
-                            <TextBlock x:Name="CurrentStateText" Text="Bot parado"
-                                       FontSize="18" FontWeight="SemiBold" Margin="0,15,0,0" />
-                            <TextBlock x:Name="CurrentDetailText"
-                                       Text="Configure o módulo e clique em Iniciar."
-                                       Foreground="{StaticResource MutedBrush}"
-                                       TextWrapping="Wrap" Margin="0,5,0,17" />
-                            <Button x:Name="StartButton" Content="▶  Iniciar PEXBOT"
-                                    Height="48" Background="#2475C5" BorderThickness="0" Click="OnPreviewStart" />
-                            <Button x:Name="RestoreStartPreviewButton" Content="Mostrar resumo ao iniciar"
-                                    Visibility="Collapsed" HorizontalAlignment="Right" FontSize="10" Padding="4,3"
-                                    Background="Transparent" BorderThickness="0" Foreground="#9CB7CF"
-                                    Click="OnRestoreStartPreview" />
-                            <Grid Margin="0,10,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="8" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="INICIAR DEPOIS DE (MIN)"
-                                               Style="{StaticResource FieldLabel}" />
-                                    <TextBox x:Name="StartDelayMinutesTextBox"
-                                             Height="36" Margin="0,4,0,0" Text="0" />
-                                </StackPanel>
-                                <Button x:Name="ScheduleStartButton" Grid.Column="2"
-                                        Content="Programar início" VerticalAlignment="Bottom"
-                                        Padding="11,8" Click="OnScheduleStart" />
-                            </Grid>
-                            <Grid Margin="0,10,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="10" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Button x:Name="PauseButton" Content="Pausar"
-                                        Foreground="#DDE8F2" Opacity="0.45"
-                                        IsHitTestVisible="False" Click="OnPauseResume" />
-                                <Button x:Name="StopButton" Grid.Column="2" Content="Parar"
-                                        Foreground="#FFDCE2" Opacity="0.45"
-                                        IsHitTestVisible="False" Background="#49202A"
-                                        BorderBrush="#7C3544" Click="OnStopBot" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="2" Background="{StaticResource CardBrush}"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="28" Padding="16">
-                        <StackPanel>
-                            <TextBlock Text="ACONTECENDO AGORA" FontSize="11" FontWeight="Bold" />
-                            <Grid Margin="0,11,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="72" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Cliente 1" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" x:Name="Client1AudioStateText"
-                                           Text="Aguardando início" Foreground="#7F91A6"
-                                           FontWeight="SemiBold" />
-                            </Grid>
-                            <TextBlock x:Name="Client1ActivityText" Text="Aguardando início" FontSize="11" Foreground="#B7C9DE" TextWrapping="Wrap" MaxHeight="48" Margin="0,6,0,8" />
-                            <TextBlock x:Name="Client1AgendaLiveText" Foreground="#65CEFA" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10" />
-                            <Grid Margin="0,9,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="72" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Cliente 2" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" x:Name="Client2AudioStateText"
-                                           Text="Aguardando início" Foreground="#7F91A6"
-                                           FontWeight="SemiBold" />
-                            </Grid>
-                            <TextBlock x:Name="Client2ActivityText" Text="Aguardando início" FontSize="11" Foreground="#B7C9DE" TextWrapping="Wrap" MaxHeight="48" Margin="0,6,0,0" />
-                            <TextBlock x:Name="Client2AgendaLiveText" Foreground="#65CEFA" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,0" />
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="4" Background="#101A2C" Visibility="Collapsed"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="28" Padding="16">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="10" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <Grid>
-                                <TextBlock Text="Atividade recente" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="#AFC2DE" />
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Content="Técnico" Padding="8,3" FontSize="10" Margin="0,0,7,0" Click="OnExpandLog" />
-                                    <Button x:Name="CopyLogButton" Content="Copiar diagnóstico" Margin="0,0,7,0"
-                                            Padding="8,3" FontSize="10" Click="OnCopyLog" />
-                                    <Button Content="Limpar" Padding="8,3" FontSize="10" Click="OnClearLog" />
-                                </StackPanel>
-                            </Grid>
-                            <ListBox x:Name="LogListBox" Grid.Row="2"
-                                     Visibility="Visible" HorizontalContentAlignment="Stretch"
-                                     Background="Transparent" BorderThickness="0"
-                                     Foreground="#AFC0D8" FontFamily="Segoe UI" FontSize="11"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border CornerRadius="12" Background="#14263B" Padding="10" Margin="0,3,4,4">
-                                            <StackPanel>
-                                                <DockPanel><TextBlock Text="{Binding Time}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="#849AB4" FontSize="10"/>
-                                                    <TextBlock Text="{Binding Client}" Foreground="{Binding Tone}" FontWeight="SemiBold" FontSize="10"/></DockPanel>
-                                                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,5,0,0" Foreground="#E1ECF7" FontSize="12"/>
-                                            </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </Grid>
-                    </Border>
-                </Grid>
-            </Grid>
-            <TextBlock Grid.Row="4" x:Name="DatabasePathText" Foreground="#52647A"
-                       FontSize="10" TextTrimming="CharacterEllipsis" />
-        </Grid>
-
-        <Grid x:Name="RoutinesPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
+<Border Grid.Column="1" Grid.Row="1" Background="#0C1725" BorderBrush="#263C50" BorderThickness="0,1,0,0" Padding="24,12">
+<Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="8"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+<DockPanel><Border x:Name="StatusBadge" Background="#142237" CornerRadius="8" Padding="8,3" Margin="0,0,10,0"><StackPanel Orientation="Horizontal"><Ellipse x:Name="StatusDot" Width="7" Height="7" Fill="#7F91A6" Margin="0,0,6,0"/><TextBlock x:Name="StatusBadgeText" Text="PARADO" FontSize="9"/></StackPanel></Border>
+<TextBlock x:Name="CurrentStateText" Text="Bot parado" FontWeight="SemiBold" Margin="0,0,12,0" VerticalAlignment="Center"/>
+<TextBlock x:Name="CurrentDetailText" Text="Configure os clientes e clique em Iniciar." FontSize="11" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></DockPanel>
+<Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="185"/><ColumnDefinition Width="10"/><ColumnDefinition Width="100"/><ColumnDefinition Width="10"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
+<StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Em (min)" FontSize="11" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/><TextBox x:Name="StartDelayMinutesTextBox" Text="0" Width="48" Height="36"/>
+<Button x:Name="ScheduleStartButton" Content="Programar" Click="OnScheduleStart" Margin="6,0,0,0" Padding="10,8"/>
+<Button x:Name="RestoreStartPreviewButton" Content="Resumo" Visibility="Collapsed" FontSize="10" Padding="5,3" Margin="4,0,0,0" Background="Transparent" Click="OnRestoreStartPreview"/></StackPanel>
+<Button x:Name="StartButton" Grid.Column="2" Content="▶  Iniciar PEXBOT" Background="#25C7E0" Foreground="#051722" BorderThickness="0" Height="42" Click="OnPreviewStart"/>
+<Button x:Name="PauseButton" Grid.Column="4" Content="Pausar" Opacity="0.45" IsHitTestVisible="False" Click="OnPauseResume"/>
+<Button x:Name="StopButton" Grid.Column="6" Content="Parar" Opacity="0.45" IsHitTestVisible="False" Background="#291A29" Foreground="#FF728A" BorderBrush="#B74761" Click="OnStopBot"/>
+</Grid></Grid></Border>
+<Grid x:Name="RoutinesPanel" Grid.Column="1" Margin="28,22,28,24" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="18" />
@@ -553,19 +389,13 @@
                            Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0" />
             </StackPanel>
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <Border Grid.Row="4" Grid.ColumnSpan="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,12,0,0">
-                        <StackPanel>
-                            <WrapPanel><TextBlock Text="Buff da cidade" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" Margin="0,0,18,0"/><TextBlock Text="⚠ SOMENTE SERVIDOR BOOST" Foreground="#FFD166" FontWeight="Bold" VerticalAlignment="Center"/></WrapPanel>
+                <StackPanel Margin="0,0,6,0"><Border Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander0" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Buff da cidade" FontWeight="SemiBold" FontSize="14"/><TextBlock Text="⚠ SOMENTE SERVIDOR BOOST" Foreground="#FFD166" FontSize="10" Margin="0,3,0,0"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=BoostBuffScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
+
                             <ComboBox x:Name="BoostBuffScopeComboBox" Width="180" Height="36" HorizontalAlignment="Left" Margin="0,10,0,8"/>
                             <TextBlock Text="Renova gratuitamente no Patrocinador a cada 24h após confirmação. Usa teleporte 7 e retorna ao farm. Pode interromper a Global e consumir uma nova entrada ao voltar a uma masmorra." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12"/>
-                        </StackPanel>
-                    </Border>
-                    <Border x:Name="GlobalRoutineCard" Grid.Row="5" Grid.ColumnSpan="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="14" Padding="16" Margin="0,12,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Masmorra Global · Grande Deserto Candellium" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        </StackPanel></Expander></Border>
+<Border x:Name="GlobalRoutineCard" Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander1" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Masmorra Global · Grande Deserto Candellium" FontWeight="SemiBold" FontSize="14"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=GlobalScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
+
                             <TextBlock Text="Quintas e domingos · 21:01–23:00 (UTC−3). Prioridade sobre farm e diárias; proteção e renovação do buff continuam ativas." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,6,0,10"/>
                             <WrapPanel>
                                 <StackPanel Margin="0,0,18,8"><TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}"/><ComboBox x:Name="GlobalScopeComboBox" Width="180" Height="36" Margin="0,6,0,0"/></StackPanel>
@@ -574,12 +404,9 @@
                             <TextBlock Text="Abra M na Global e capture o ponto. Mantenha o mesmo zoom e a aba Inform. de Área aberta. Coordenadas independentes por cliente." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,3,0,8"/>
                             <WrapPanel><Button x:Name="CaptureGlobal1Button" Content="Cliente 1 · Capturar ponto" Click="OnCaptureGlobal1"/><TextBlock x:Name="Global1PointText" Text="Não definida" Margin="12,0" VerticalAlignment="Center"/></WrapPanel>
                             <WrapPanel><Button x:Name="CaptureGlobal2Button" Content="Cliente 2 · Capturar ponto" Click="OnCaptureGlobal2"/><TextBlock x:Name="Global2PointText" Text="Não definida" Margin="12,0" VerticalAlignment="Center"/></WrapPanel>
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="3" Grid.ColumnSpan="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,14,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Guardar itens automaticamente" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                        </StackPanel></Expander></Border>
+<Border Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander2" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Guardar itens automaticamente" FontWeight="SemiBold" FontSize="14"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=AutoStorageScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
+
                             <TextBlock Text="Após o intervalo, aguarda a próxima ida normal à cidade. Usa Armazenar Autom. e retoma o fluxo, sem teleporte extra, venda ou descarte de itens."
                                        Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,12" />
                             <WrapPanel>
@@ -592,12 +419,9 @@
                                     <TextBox x:Name="AutoStorageIntervalTextBox" Text="120" Width="150" Height="40" HorizontalAlignment="Left" Margin="0,7,0,0" />
                                 </StackPanel>
                             </WrapPanel>
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,7,14">
-                        <StackPanel>
-                            <TextBlock Text="Missões Diárias" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                        </StackPanel></Expander></Border>
+<Border Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander3" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Missões Diárias" FontWeight="SemiBold" FontSize="14"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=DailyMissionsScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
+
                             <TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
                             <ComboBox x:Name="DailyMissionsScopeComboBox" Width="180" Height="40"
                                       HorizontalAlignment="Left" Margin="0,0,0,12" />
@@ -606,12 +430,9 @@
                                      HorizontalAlignment="Left" Margin="0,7,0,0" />
                             <TextBlock Text="O ciclo diário redefine às 04:00. O bot aceita tudo, abre a missão roxa, teleporta e inicia Campanha automática."
                                        Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="0" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="7,0,0,14">
-                        <StackPanel>
-                            <TextBlock Text="Diretivas de Guilda" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                        </StackPanel></Expander></Border>
+<Border Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander4" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Diretivas de Guilda" FontWeight="SemiBold" FontSize="14"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=GuildDirectiveScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
+
                             <TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
                             <ComboBox x:Name="GuildDirectiveScopeComboBox" Width="180" Height="40"
                                       HorizontalAlignment="Left" Margin="0,0,0,12" />
@@ -632,22 +453,16 @@
                             </Grid>
                             <TextBlock Text="Ao aceitar, o jogo conclui as cinco diretivas do local escolhido. Mapa Aberto é combinado com as Diárias."
                                        Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="2" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="7,0,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Correio de recursos" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                        </StackPanel></Expander></Border>
+<Border Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander5" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Correio de recursos" FontWeight="SemiBold" FontSize="14"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=MailScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
+
                             <TextBlock Text="Resgatar as entregas das 01:00 e 07:00 para os clientes escolhidos."
                                        Foreground="{StaticResource MutedBrush}" Margin="0,7,0,12" />
                             <ComboBox x:Name="MailScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" />
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="1" Grid.Column="1" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="7,0,0,14">
-                        <StackPanel>
+                        </StackPanel></Expander></Border>
+<Border Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander6" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Compra diária na Loja" FontWeight="SemiBold" FontSize="14"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=DailyShopScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
                             <StackPanel>
-                                <TextBlock Text="Compra diária na Loja" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+
                                 <TextBlock Text="Compra Comum e Invocação; o novo ciclo começa às 13:01."
                                            Foreground="{StaticResource MutedBrush}" Margin="0,7,0,12" TextWrapping="Wrap" />
                                 <ComboBox x:Name="DailyShopScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" />
@@ -656,13 +471,9 @@
                                 <TextBlock Text="HORÁRIO" Style="{StaticResource FieldLabel}" />
                                 <TextBox x:Name="DailyShopTimeTextBox" Text="13:05" Width="150" Height="40" HorizontalAlignment="Left" Margin="0,7,0,0" />
                             </StackPanel>
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="2" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,7,0">
-                        <StackPanel>
-                            <TextBlock Text="Boss do Amor · Trashi" Foreground="#65CEFA"
-                                       FontSize="17" FontWeight="SemiBold" />
+                        </StackPanel></Expander></Border>
+<Border Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander7" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Boss do Amor · Trashi" FontWeight="SemiBold" FontSize="14"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=LoveBossScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
+
                             <TextBlock Text="FAZER PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
                             <ComboBox x:Name="LoveBossScopeComboBox" Width="180" Height="40"
                                       HorizontalAlignment="Left" />
@@ -672,21 +483,16 @@
                             <TextBlock Text="Interrompe o farm na T.A ou masmorra, confirma a vitória, resgata a recompensa e retoma a rota. Sapheras mantém prioridade."
                                        Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                                        Margin="0,7,0,0" />
-                        </StackPanel>
-                    </Border>
-                    <Border Grid.Row="1" Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20" Margin="0,0,7,14">
-                        <StackPanel>
-                            <TextBlock Text="Check-in e doações da Guilda" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
+                        </StackPanel></Expander></Border>
+<Border Style="{StaticResource CompactCard}" Padding="14,10" Margin="0,0,0,9"><Expander x:Name="RoutineExpander8" Style="{StaticResource OverviewExpander}"><Expander.Header><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Check-in e doações da Guilda" FontWeight="SemiBold" FontSize="14"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding SelectedItem, ElementName=GuildCheckinScopeComboBox}" Foreground="#67CBDE" FontSize="11" VerticalAlignment="Center" Margin="14,0,8,0"/></Grid></Expander.Header><StackPanel>
+
                             <TextBlock Text="Check-in e até 3 doações de 10.000 ouro. Nunca usa Morion ou diamantes. Reinicia à 00:00 (UTC−3)."
                                        Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,12" />
                             <TextBlock Text="EXECUTAR PARA" Style="{StaticResource FieldLabel}" />
                             <ComboBox x:Name="GuildCheckinScopeComboBox" Width="180" Height="40" HorizontalAlignment="Left" Margin="0,7,0,12" />
                             <TextBlock Text="HORÁRIO DE EXECUÇÃO" Style="{StaticResource FieldLabel}" />
                             <TextBox x:Name="GuildCheckinTimeTextBox" Text="00:05" Width="150" Height="40" HorizontalAlignment="Left" Margin="0,7,0,0" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
+                        </StackPanel></Expander></Border></StackPanel>
             </ScrollViewer>
         </Grid>
 
@@ -706,7 +512,7 @@
                     <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="28" Padding="20">
+                            BorderThickness="1" CornerRadius="16" Padding="20">
                         <StackPanel>
                             <TextBlock Text="Abadia da Lembrança" FontSize="21" FontWeight="Bold" />
                             <TextBlock Text="Farm individual com ponto opcional" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,16" />
@@ -739,7 +545,7 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Column="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="28" Padding="20">
+                    <Border Grid.Column="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="20">
                         <StackPanel>
                             <TextBlock Text="Masmorra Anônima" FontSize="21" FontWeight="Bold" />
                             <TextBlock Text="Estreito de Tenerys" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,16" />
@@ -789,7 +595,7 @@
             </StackPanel>
             <Border Grid.Row="2" Background="{StaticResource CardBrush}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                    CornerRadius="28" Padding="22" VerticalAlignment="Top">
+                    CornerRadius="16" Padding="22" VerticalAlignment="Top">
                 <StackPanel>
                     <TextBlock Text="Anti Over Kill" Foreground="#65CEFA" FontSize="17" FontWeight="SemiBold" />
                     <TextBlock Text="ATIVAR PARA" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
@@ -877,7 +683,7 @@
                                     <Button Grid.Column="6" Content="Adicionar" Click="OnAddClient1ScheduleStep" />
                                 </Grid>
                                 <TextBlock Text="DESTINO · DURAÇÃO EM MINUTOS" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
-                                <ListBox x:Name="Client1ScheduleListBox" MinHeight="150" MaxHeight="260"
+                                <ListBox x:Name="Client1ScheduleListBox" MinHeight="90" MaxHeight="210"
                                          ItemsSource="{Binding Client1ScheduleSteps}" DisplayMemberPath="DisplayText"
                                          Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
                                 <TextBlock x:Name="Client1ScheduleTotalText" Text="Tempo total: 0 min" Margin="0,9,0,0" Foreground="#AFC2D9" />
@@ -908,7 +714,7 @@
                                     <Button Grid.Column="6" Content="Adicionar" Click="OnAddClient2ScheduleStep" />
                                 </Grid>
                                 <TextBlock Text="DESTINO · DURAÇÃO EM MINUTOS" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
-                                <ListBox x:Name="Client2ScheduleListBox" MinHeight="150" MaxHeight="260"
+                                <ListBox x:Name="Client2ScheduleListBox" MinHeight="90" MaxHeight="210"
                                          ItemsSource="{Binding Client2ScheduleSteps}" DisplayMemberPath="DisplayText"
                                          Background="#0E1726" BorderBrush="#2A405D" Padding="5" />
                                 <TextBlock x:Name="Client2ScheduleTotalText" Text="Tempo total: 0 min" Margin="0,9,0,0" Foreground="#AFC2D9" />
@@ -946,7 +752,7 @@
             </StackPanel>
             <Border Grid.Row="2" Background="{StaticResource CardBrush}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                    CornerRadius="28" Padding="24" VerticalAlignment="Top">
+                    CornerRadius="16" Padding="24" VerticalAlignment="Top">
                 <StackPanel>
                     <TextBlock Text="VERSÃO INSTALADA" Style="{StaticResource FieldLabel}" />
                     <TextBlock x:Name="InstalledVersionText" FontSize="22" FontWeight="SemiBold"
@@ -1000,7 +806,7 @@
                 </Grid>
             </Border>
         </Grid>
-        <Grid x:Name="StartPreviewOverlay" Grid.ColumnSpan="2" Panel.ZIndex="100"
+        <Grid x:Name="StartPreviewOverlay" Grid.ColumnSpan="2" Grid.RowSpan="2" Panel.ZIndex="100"
               Background="#C0081020" Visibility="Collapsed">
             <Border Width="620" Padding="30" CornerRadius="24" VerticalAlignment="Center" HorizontalAlignment="Center"
                     Background="#14263D" BorderBrush="#3C6888" BorderThickness="1">

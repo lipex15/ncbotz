@@ -5,7 +5,7 @@ namespace BotNC.App.Services;
 // Installed on the WPF dispatcher. Observes only event metadata, never typed text.
 internal sealed class HumanInteractionMonitor : IDisposable
 {
-    private readonly HashSet<nint> _windows;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<nint, byte> _windows;
     private readonly HookProc _mouseProc, _keyboardProc;
     private nint _mouse, _keyboard;
     private long _lastAt;
@@ -15,7 +15,7 @@ internal sealed class HumanInteractionMonitor : IDisposable
     private delegate nint HookProc(int code, nint message, nint data);
     internal HumanInteractionMonitor(IEnumerable<nint> windows)
     {
-        _windows = windows.ToHashSet();
+        _windows = new(windows.Distinct().Select(handle => new KeyValuePair<nint, byte>(handle, 0)));
         _lastAt = Environment.TickCount64 - 10000;
         _mouseProc = (code, message, data) => Observe(code, message, data, true);
         _keyboardProc = (code, message, data) => Observe(code, message, data, false);
@@ -28,9 +28,14 @@ internal sealed class HumanInteractionMonitor : IDisposable
             throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Não foi possível observar a interação manual com o jogo.");
         }
     }
+    internal void ReplaceWindow(nint previous, nint current)
+    {
+        _windows.TryRemove(previous, out _);
+        _windows[current] = 0;
+    }
     private nint Observe(int code, nint message, nint data, bool mouse)
     {
-        if (code >= 0 && _windows.Contains(GetForegroundWindow()))
+        if (code >= 0 && _windows.ContainsKey(GetForegroundWindow()))
         {
             var flags = Marshal.ReadInt32(data, mouse ? 12 : 8);
             if (IsPhysicalEvent(mouse, flags))

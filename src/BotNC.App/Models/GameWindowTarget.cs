@@ -5,7 +5,9 @@ public sealed record GameWindowTarget(
     string Title,
     int ProcessId,
     bool IsMinimized,
-    bool IsVisible)
+    bool IsVisible,
+    string? ExecutablePath = null,
+    DateTime? ProcessStartedAt = null)
 {
     public string DisplayName => IsMinimized
         ? $"{Title} · minimizado · PID {ProcessId}"

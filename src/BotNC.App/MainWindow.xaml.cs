@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private bool _skipStartPreview;
     private static string StartPreviewPreferenceKey => $"users.{ActivationService.ProfileKey}.ui.skipStartPreview";
     private bool _environmentReady;
+    internal bool IsReadyForPreview => _environmentReady;
     private BotRunState _stateBeforePause = BotRunState.Waiting;
     private string? _savedClient1Title;
     private string? _savedClient2Title;
@@ -75,9 +76,16 @@ public partial class MainWindow : Window
             _database);
         _diagnosticTimer.Tick += async (_, _) =>
         {
+            RefreshStoppedClientWindows();
             if (ExpandedLogOverlay.Visibility == Visibility.Visible) await RefreshDiagnosticAsync();
         };
         _diagnosticTimer.Start();
+        _engine.WindowTargetChanged += (label, target) => Dispatcher.BeginInvoke(() =>
+        {
+            var selector = label == "Cliente 1" ? Client1ComboBox : Client2ComboBox;
+            selector.ItemsSource = _gameWindows.Discover();
+            selector.SelectedItem = selector.Items.Cast<GameWindowTarget>().FirstOrDefault(w => w.Handle == target.Handle);
+        });
         _engine.Log += OnEngineLog;
         _engine.StatusChanged += OnEngineStatusChanged;
         _engine.AudioStatusChanged += OnEngineAudioStatusChanged;
@@ -166,7 +174,7 @@ public partial class MainWindow : Window
         ProtectionPanel.Visibility = Visibility.Collapsed;
         UpdatesPanel.Visibility = Visibility.Collapsed;
         FarmSchedulePanel.Visibility = Visibility.Collapsed;
-        OverviewNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        OverviewNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
         UpdatesNavigationButton.Background = Brushes.Transparent;
         AbbeyNavigationButton.Background = Brushes.Transparent;
         RoutinesNavigationButton.Background = Brushes.Transparent;
@@ -196,16 +204,18 @@ public partial class MainWindow : Window
     {
         OnShowOverview(sender, e);
         OverviewNavigationButton.Background = Brushes.Transparent;
-        SapherasNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
-        SapherasSettingsSection.BringIntoView();
+        SapherasNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
+        OverviewPanel.Visibility = Visibility.Collapsed;
+        SapherasPanel.Visibility = Visibility.Visible;
     }
 
     private void OnShowFarm(object sender, RoutedEventArgs e)
     {
         OnShowOverview(sender, e);
         OverviewNavigationButton.Background = Brushes.Transparent;
-        TaNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
-        OverviewScrollViewer.ScrollToTop();
+        TaNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
+        OverviewPanel.Visibility = Visibility.Collapsed;
+        TaSettingsPanel.Visibility = Visibility.Visible;
     }
 
     private async void OnShowUpdates(object sender, RoutedEventArgs e)
@@ -222,7 +232,7 @@ public partial class MainWindow : Window
         RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
         FarmScheduleNavigationButton.Background = Brushes.Transparent;
-        UpdatesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        UpdatesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
         UpdatesNotificationDot.Visibility = Visibility.Collapsed;
         if (_availableUpdate is not null)
         {
@@ -242,7 +252,7 @@ public partial class MainWindow : Window
         AbbeyPanel.Visibility = Visibility.Visible;
         OverviewNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
-        AbbeyNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        AbbeyNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
         RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
         FarmScheduleNavigationButton.Background = Brushes.Transparent;
@@ -261,7 +271,7 @@ public partial class MainWindow : Window
         AbbeyNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
-        RoutinesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        RoutinesNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
         FarmScheduleNavigationButton.Background = Brushes.Transparent;
     }
 
@@ -278,7 +288,7 @@ public partial class MainWindow : Window
         AbbeyNavigationButton.Background = Brushes.Transparent;
         RoutinesNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
-        ProtectionNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        ProtectionNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
         FarmScheduleNavigationButton.Background = Brushes.Transparent;
     }
 
@@ -296,7 +306,7 @@ public partial class MainWindow : Window
         RoutinesNavigationButton.Background = Brushes.Transparent;
         ProtectionNavigationButton.Background = Brushes.Transparent;
         UpdatesNavigationButton.Background = Brushes.Transparent;
-        FarmScheduleNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        FarmScheduleNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
     }
 
     internal void ShowUpdatesForScreenshot() => OnShowUpdates(this, new RoutedEventArgs());
@@ -305,6 +315,8 @@ public partial class MainWindow : Window
 
     private void HideStatistics()
     {
+        SapherasPanel.Visibility = Visibility.Collapsed;
+        TaSettingsPanel.Visibility = Visibility.Collapsed;
         ExpandedLogOverlay.Visibility = Visibility.Collapsed;
         DiagnosticsNavigationButton.Background = Brushes.Transparent;
         SapherasNavigationButton.Background = Brushes.Transparent;
@@ -319,8 +331,10 @@ public partial class MainWindow : Window
         OverviewPanel.Visibility = Visibility.Collapsed;
         OverviewNavigationButton.Background = Brushes.Transparent;
         UserStatisticsPanel.Visibility = Visibility.Visible;
-        StatisticsNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        StatisticsNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
     }
+    internal void ShowSapherasForScreenshot() => OnShowSapheras(this, new RoutedEventArgs());
+    internal void ShowTaForScreenshot() => OnShowFarm(this, new RoutedEventArgs());
     internal void ShowAbbeyForScreenshot() => OnShowAbbey(this, new RoutedEventArgs());
     internal void ShowProtectionForScreenshot() => OnShowProtection(this, new RoutedEventArgs());
     internal void ShowRoutinesForScreenshot() => OnShowRoutines(this, new RoutedEventArgs());
@@ -580,13 +594,10 @@ public partial class MainWindow : Window
         var clients = _gameWindows.Discover();
         Client1ComboBox.ItemsSource = clients;
         Client2ComboBox.ItemsSource = clients;
-        Client1ComboBox.SelectedItem = clients.FirstOrDefault(client => client.Title == previousClient1)
-            ?? clients.FirstOrDefault(client => client.Title == "NIGHT CROWS(1)")
-            ?? clients.FirstOrDefault();
-        Client2ComboBox.SelectedItem = clients.FirstOrDefault(client => client.Title == previousClient2)
-            ?? clients.FirstOrDefault(client => client.Title == "NIGHT CROWS(2)")
-            ?? clients.Skip(1).FirstOrDefault()
-            ?? clients.FirstOrDefault();
+        _savedClient1Title = previousClient1 ?? "NIGHT CROWS(1)";
+        _savedClient2Title = previousClient2 ?? "NIGHT CROWS(2)";
+        Client1ComboBox.SelectedItem = UniqueTitle(clients, _savedClient1Title);
+        Client2ComboBox.SelectedItem = UniqueTitle(clients, _savedClient2Title);
         AddLog(clients.Count switch
         {
             0 => "Nenhum cliente NIGHT CROWS encontrado.",
@@ -927,7 +938,6 @@ public partial class MainWindow : Window
         lines.Add($"Diárias: {DailyMissionsScopeComboBox.SelectedItem} · Diretiva: {GuildDirectiveScopeComboBox.SelectedItem}");
         lines.Add($"Loja: {DailyShopScopeComboBox.SelectedItem} · Guilda: {GuildCheckinScopeComboBox.SelectedItem}");
         lines.Add($"Boss do Amor: {LoveBossScopeComboBox.SelectedItem} · Agenda: {FarmScheduleScopeComboBox.SelectedItem}");
-        lines.Add($"Grupo: Cliente 1 {(Client1PartyRole.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content} · Cliente 2 {(Client2PartyRole.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content}");
         lines.Add($"Descanso no farm: Cliente 1 {(Client1KeepRestCheckBox.IsChecked == true ? "ligado" : "desligado")} · Cliente 2 {(Client2KeepRestCheckBox.IsChecked == true ? "ligado" : "desligado")}");
         StartPreviewText.Text = string.Join(Environment.NewLine, lines);
         StartPreviewOverlay.Visibility = Visibility.Visible;
@@ -1212,8 +1222,6 @@ public partial class MainWindow : Window
             emergencyKeyName);
         try
         {
-            if (enableClient1) _ = ReadPartyOptions(1);
-            if (enableClient2) _ = ReadPartyOptions(2);
             if (enableClient1) _ = ReadGlobalOptions(1);
             if (enableClient2) _ = ReadGlobalOptions(2);
         }
@@ -1248,7 +1256,7 @@ public partial class MainWindow : Window
                 Client1SapherasCustomCheckBox.IsChecked == true ? _client1SapherasCoordinate : null,
                 ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 1), storageInterval,
                 Client1AnonymousCustomCheckBox.IsChecked == true ? _client1AnonymousCoordinate : null,
-                ReadPartyOptions(1), Client1KeepRestCheckBox.IsChecked == true,
+                Client1KeepRestCheckBox.IsChecked == true,
                 ScopeIncludesClient(BoostBuffScopeComboBox.SelectedItem, 1), ReadGlobalOptions(1)));
         }
 
@@ -1282,7 +1290,7 @@ public partial class MainWindow : Window
                     Client2SapherasCustomCheckBox.IsChecked == true ? _client2SapherasCoordinate : null,
                     ScopeIncludesClient(AutoStorageScopeComboBox.SelectedItem, 2), storageInterval,
                     Client2AnonymousCustomCheckBox.IsChecked == true ? _client2AnonymousCoordinate : null,
-                    ReadPartyOptions(2), Client2KeepRestCheckBox.IsChecked == true,
+                    Client2KeepRestCheckBox.IsChecked == true,
                     ScopeIncludesClient(BoostBuffScopeComboBox.SelectedItem, 2), ReadGlobalOptions(2)));
         }
 
@@ -1460,7 +1468,7 @@ public partial class MainWindow : Window
         OnShowOverview(sender, e);
         OverviewPanel.Visibility = Visibility.Collapsed;
         OverviewNavigationButton.Background = Brushes.Transparent;
-        DiagnosticsNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#266FEA"));
+        DiagnosticsNavigationButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#153D50"));
         ExpandedLogOverlay.Visibility = Visibility.Visible;
         await RefreshDiagnosticAsync();
     }
@@ -1721,9 +1729,7 @@ public partial class MainWindow : Window
         BoostBuffScopeComboBox.IsEnabled = GlobalScopeComboBox.IsEnabled = GlobalDurationTextBox.IsEnabled = !isRunning;
         CaptureGlobal1Button.IsEnabled = CaptureGlobal2Button.IsEnabled = !isRunning;
         AutoStorageIntervalTextBox.IsEnabled = !isRunning;
-        foreach (var control in new System.Windows.Controls.Control[] { Client1PartyRole, Client2PartyRole,
-            Client1PartyNames, Client2PartyNames, Client1PartyInviter, Client2PartyInviter,
-            Client1KeepRestCheckBox, Client2KeepRestCheckBox }) control.IsEnabled = !isRunning;
+        foreach (var control in new System.Windows.Controls.Control[] { Client1KeepRestCheckBox, Client2KeepRestCheckBox }) control.IsEnabled = !isRunning;
         DailyShopScopeComboBox.IsEnabled = !isRunning;
         LoveBossScopeComboBox.IsEnabled = !isRunning;
         DailyShopTimeTextBox.IsEnabled = !isRunning;
@@ -1904,7 +1910,7 @@ public partial class MainWindow : Window
         MailScopeComboBox.SelectedItem = mailScope ?? "Ambos";
         AutoStorageScopeComboBox.SelectedItem = await _database.GetSettingAsync("routines.storage.scope") ?? "Nenhum";
         AutoStorageIntervalTextBox.Text = await _database.GetSettingAsync("routines.storage.intervalMinutes") ?? "120";
-        await LoadPartySettingsAsync();
+        await LoadFarmDisplaySettingsAsync();
         DailyShopScopeComboBox.SelectedItem = dailyShopScope ?? "Nenhum";
         LoveBossScopeComboBox.SelectedItem = loveBossScope ?? "Nenhum";
         DailyShopTimeTextBox.Text = string.IsNullOrWhiteSpace(dailyShopTime) ? "13:05" : dailyShopTime;
@@ -1940,7 +1946,7 @@ public partial class MainWindow : Window
 
     private async Task SaveSettingsAsync(BotRunOptions runOptions)
     {
-        await SavePartySettingsAsync();
+        await SaveFarmDisplaySettingsAsync();
         await SaveAnonymousCoordinateAsync(1, _client1AnonymousCoordinate, Client1AnonymousCustomCheckBox.IsChecked == true);
         await SaveAnonymousCoordinateAsync(2, _client2AnonymousCoordinate, Client2AnonymousCustomCheckBox.IsChecked == true);
         await SaveSapherasCoordinateAsync(1, _client1SapherasCoordinate, Client1SapherasCustomCheckBox.IsChecked == true);
