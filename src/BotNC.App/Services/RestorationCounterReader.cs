@@ -58,6 +58,7 @@ public sealed partial class RestorationCounterReader
         PixelFrame frame,
         CancellationToken cancellationToken = default)
     {
+        frame = VisualRecognitionService.NormalizeForReferenceMatching(frame);
         var standard = await ReadHeaderCropAsync(CropHeading(frame, true), cancellationToken);
         if (standard.State != RestorationCountState.Unknown) return standard;
         // Narrower header excludes the animated world and item list. In the
@@ -67,6 +68,8 @@ public sealed partial class RestorationCounterReader
             (standard.RawText + tight.RawText).Contains("EQUIPAMENTO", StringComparison.Ordinal) &&
             (standard.RawText + tight.RawText).Contains("DANIF", StringComparison.Ordinal))
         {
+            if (MatchesKnownEquipmentDigit(frame, EquipmentZeroReference.Value))
+                return new(RestorationTab.Equipment, 0, null, standard.RawText + " | greenCounter=0; visualShape=true");
             if (MatchesKnownEquipmentOne(frame))
                 return new(RestorationTab.Equipment, 1, null, standard.RawText + " | greenCounter=1; visualShape=true");
             var engine = OcrEngine.TryCreateFromLanguage(new Language("pt-BR")) ?? OcrEngine.TryCreateFromUserProfileLanguages();
@@ -99,10 +102,19 @@ public sealed partial class RestorationCounterReader
         return new PixelFrame(image.PixelWidth, image.PixelHeight, stride, pixels);
     });
 
-    private static bool MatchesKnownEquipmentOne(PixelFrame frame)
+    private static readonly Lazy<PixelFrame?> EquipmentZeroReference = new(() =>
     {
-        var reference = EquipmentOneReference.Value;
-        if (reference is null || frame.Width != 1920 || frame.Height != 1040) return false;
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "References", "restoration_equipment_zero_report.png");
+        return File.Exists(path) ? VisualRecognitionService.NormalizeForReferenceMatching(
+            VisualRecognitionService.Decode(File.ReadAllBytes(path))) : null;
+    });
+
+    private static bool MatchesKnownEquipmentOne(PixelFrame frame)
+        => MatchesKnownEquipmentDigit(frame, EquipmentOneReference.Value);
+
+    private static bool MatchesKnownEquipmentDigit(PixelFrame frame, PixelFrame? reference)
+    {
+        if (reference is null || frame.Width != 1920 || frame.Height is not (1040 or 1080)) return false;
         static bool Green(PixelFrame image, int x, int y)
         {
             var offset = y * image.Stride + x * 4;

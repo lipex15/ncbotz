@@ -1088,6 +1088,22 @@ public partial class App : Application
         }
 
         var restorationReader = new RestorationCounterReader();
+        foreach (var (file, expected) in new[] {
+            ("restoration_equipment_zero_report.png", RestorationCountState.Empty),
+            ("restoration_equipment_pending_regression.png", RestorationCountState.Pending),
+            ("agenda_tela.png", RestorationCountState.Unknown) })
+        {
+            var result = await restorationReader.ReadClientFrameAsync(VisualRecognitionService.Decode(
+                await File.ReadAllBytesAsync(Path.Combine(referenceDirectory, file))));
+            if (result.State != expected) throw new InvalidOperationException($"Restauração regressão {file}: {result}");
+            if (file == "restoration_equipment_zero_report.png")
+            {
+                var desktop = VisualRecognitionService.Decode(await File.ReadAllBytesAsync(Path.Combine(referenceDirectory, file)));
+                var client = new PixelFrame(1920, 1040, desktop.Stride, desktop.Pixels);
+                if ((await restorationReader.ReadClientFrameAsync(client)).State != RestorationCountState.Empty)
+                    throw new InvalidOperationException("Zero de equipamento não reconhecido na captura de cliente.");
+            }
+        }
         var restorationCases = new[]
         {
             ("perda_exp.png", RestorationTab.Experience, 1, RestorationCountState.Pending),
