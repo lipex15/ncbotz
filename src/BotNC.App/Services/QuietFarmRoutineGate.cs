@@ -6,7 +6,7 @@ internal sealed class QuietFarmRoutineGate
 {
     private readonly Dictionary<string, string> attempts = new();
     internal bool CanRun(string routine, string cycle, bool farming, bool foreground) =>
-        !farming || foreground || !attempts.TryGetValue(routine, out var previous) || previous != cycle;
+        !farming || !attempts.TryGetValue(routine, out var previous) || previous != cycle;
     internal void Started(string routine, string cycle) => attempts[routine] = cycle;
     internal void NewWorkObserved(string routine) => attempts.Remove(routine);
 }

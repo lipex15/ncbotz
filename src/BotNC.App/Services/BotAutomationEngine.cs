@@ -1239,6 +1239,8 @@ public sealed partial class BotAutomationEngine(
             while (DateTime.Now < finishesAt)
             {
                 await CheckpointAsync(pause, cancellationToken);
+                if (await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, cancellationToken)) continue;
+                if (HasPendingProtection) { await Task.Delay(100, cancellationToken); continue; }
                 await ServiceReconnectsAsync(sessions, sapheras, antiOverkill, pause, cancellationToken);
                 await ServiceStartupSkillsAsync(sessions, pause, cancellationToken);
                 await ServiceSpecialRoutinesAsync(sessions, sapheras, pause, cancellationToken);
@@ -1678,6 +1680,17 @@ public sealed partial class BotAutomationEngine(
     }
 
     private async Task EnterConfiguredFarmAsync(
+        ClientSession session, PauseController pause, CancellationToken cancellationToken, bool isEmergency)
+    {
+        await EnterConfiguredFarmCoreAsync(session, pause, cancellationToken, isEmergency);
+        if (session.IsFarmingTa && !session.InDailyCampaign && !session.NeedsDeathRestoration)
+        {
+            SetStatus(BotRunState.Running, $"{session.Options.Label}: farm confirmado", ConfiguredFarmName(session));
+            PublishCurrentClientActivity(session);
+        }
+    }
+
+    private async Task EnterConfiguredFarmCoreAsync(
         ClientSession session,
         PauseController pause,
         CancellationToken cancellationToken,
@@ -3454,6 +3467,8 @@ public sealed partial class BotAutomationEngine(
             return false;
         }
 
+        var mailCycle = today + (dueAt07 ? ":07" : ":01") + (now.Minute < 10 && (now.Hour == 1 || now.Hour == 7) ? ":delivery" : ":settled");
+        if (!session.QuietRoutineGate.CanRun("mail", mailCycle, session.IsFarmingTa || session.SapherasFarmConfirmed, false)) return false;
         session.NextMailAttemptAt = DateTime.UtcNow.AddMinutes(3);
         try
         {
@@ -3465,6 +3480,7 @@ public sealed partial class BotAutomationEngine(
                 return false;
             }
 
+            session.QuietRoutineGate.Started("mail", mailCycle);
             var claimed = await CollectServerMailAsync(session, pause, cancellationToken);
             // O servidor pode entregar o lote poucos minutos depois da hora
             // cheia. Se a caixa estiver vazia nesse intervalo, reabrimos em
@@ -3493,7 +3509,10 @@ public sealed partial class BotAutomationEngine(
         }
         catch (Exception exception)
         {
-            WriteLog(session, $"Correio não pôde ser confirmado: {exception.GetBaseException().Message}. Nova tentativa em 3 minutos.");
+            WriteLog(session, $"Correio não pôde ser confirmado: {exception.GetBaseException().Message}. " +
+                (session.IsFarmingTa || session.SapherasFarmConfirmed
+                    ? "Farm preservado; sem reabrir repetidamente neste ciclo."
+                    : "Nova tentativa em 3 minutos."));
             WritePersistentOnly(session, exception.ToString());
         }
 
@@ -6504,6 +6523,8 @@ public sealed partial class BotAutomationEngine(
         }
         if (exception is ProtectionTransitionException)
         {
+            if (!session.IsFarmingTa && !session.InDailyCampaign && !session.InAgenda && !session.LoveBossInside)
+                session.NextRecoveryAttemptAt = DateTime.UtcNow;
             WritePersistentOnly(session, $"workflow_interrupted action={action}; reason=background_tp; retryPenalty=false; locationRequiresVerification=true");
             return;
         }
@@ -7433,7 +7454,15 @@ public sealed partial class BotAutomationEngine(
             !MayTreatMissingTombstoneAsNoLoss(false, false))
             throw new InvalidOperationException(
                 "Uma morte confirmada ou restauração pendente não pode ser tratada como ausência de perdas.");
+        foreach (var tab in Enum.GetValues<RestorationTab>())
+        foreach (var state in Enum.GetValues<RestorationCountState>())
+            if (MayRepeatEquipmentRepair(tab, state) !=
+                (tab == RestorationTab.Equipment && state == RestorationCountState.Pending))
+                throw new InvalidOperationException("Segundo clique de reparo autorizado fora de equipamento pendente.");
     }
+
+    private static bool MayRepeatEquipmentRepair(RestorationTab tab, RestorationCountState state) =>
+        tab == RestorationTab.Equipment && state == RestorationCountState.Pending;
 
     private async Task<bool> ConfirmRestorationIconAbsentAsync(
         ClientSession session,
@@ -7487,6 +7516,18 @@ public sealed partial class BotAutomationEngine(
                 $"em ({clickX}, {clickY}) — clique {attempt}.");
             var restorePoint = gameWindows.MapReferencePoint(session.Options.Target, clickX, clickY);
             await input.ClickAsync(restorePoint.X, restorePoint.Y, cancellationToken);
+            if (expectedTab == RestorationTab.Equipment)
+            {
+                // One immediate observation, not the long completion timeout. Never
+                // send the second click to a closed panel or a different tab.
+                var repeatFrame = await CaptureClientFrameAsync(session, cancellationToken);
+                var repeatCounter = await _restorationCounterReader.ReadClientFrameAsync(repeatFrame, cancellationToken);
+                if (MayRepeatEquipmentRepair(repeatCounter.Tab, repeatCounter.State))
+                {
+                    WriteLog(session, "Reparo: segundo clique da sequência; equipamento pendente ainda confirmado.");
+                    await input.ClickAsync(restorePoint.X, restorePoint.Y, cancellationToken);
+                }
+            }
             var afterClick = await WaitForRestorationCounterAsync(
                 session, TimeSpan.FromSeconds(8), pause, cancellationToken, expectedTab);
             if (afterClick.Tab == expectedTab && afterClick.State == RestorationCountState.Empty)

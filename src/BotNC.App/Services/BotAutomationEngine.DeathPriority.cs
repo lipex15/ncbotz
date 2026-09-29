@@ -101,6 +101,14 @@ public sealed partial class BotAutomationEngine
         try { ThrowIfDeathPending(second); } catch (ProtectionTransitionException) { blocked = true; }
         if (!blocked) throw new InvalidOperationException("TP não invalidou a etapa antiga.");
         second.PendingVisualLowHp = 0;
+        second.PendingVisualDeath = 1;
+        if (!ShouldYieldToEmergency(first, second))
+            throw new InvalidOperationException("Morte do outro cliente deve interromper preparação normal.");
+        first.HandlingDeath = true;
+        if (ShouldYieldToEmergency(first, second))
+            throw new InvalidOperationException("Recuperações de morte não podem interromper uma à outra.");
+        first.HandlingDeath = false;
+        second.PendingVisualDeath = 0;
         second.EmergencyTeleportInFlight = 1;
         blocked = false;
         try { ThrowIfDeathPending(second); } catch (ProtectionTransitionException) { blocked = true; }

@@ -27,8 +27,8 @@ public sealed partial class BotAutomationEngine
 
     private static bool ShouldYieldToEmergency(ClientSession current, ClientSession other) =>
         current != other && !current.ServicingEmergencyInput && !other.ReconnectPending && !other.HandlingDeath &&
-        Volatile.Read(ref other.PendingVisualDeath) == 0 &&
-        Volatile.Read(ref other.PendingVisualLowHp) != 0 &&
+        (Volatile.Read(ref other.PendingVisualDeath) != 0 && !current.HandlingDeath && !current.HandlingProtection ||
+        Volatile.Read(ref other.PendingVisualDeath) == 0 && Volatile.Read(ref other.PendingVisualLowHp) != 0) &&
         Volatile.Read(ref other.EmergencyTeleportInFlight) == 0;
 
     private void BindWorkflowClient(ClientSession session)
@@ -71,6 +71,13 @@ public sealed partial class BotAutomationEngine
         session.RestPreference.Request();
         try
         {
+            while (HasPendingProtection)
+                if (!await ServicePendingProtectionAsync(sessions, sapheras, antiOverkill, pause, token))
+                {
+                    session.NextRecoveryAttemptAt = DateTime.UtcNow;
+                    return;
+                }
+            BindWorkflowClient(session);
             await InitializeClientActivityCoreAsync(sessions, session, sapheras, antiOverkill, routines, pause, token, nextSapheras);
         }
         finally
@@ -87,6 +94,13 @@ public sealed partial class BotAutomationEngine
     {
         if (session.ReconnectPending && !session.HandlingReconnect) return;
         if (await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, token)) return;
+        if (session.Options.EnableBoostBuff && SpecialRoutinePolicy.BuffDue(DateTimeOffset.UtcNow, session.LastBoostBuffAt) &&
+            DateTime.UtcNow >= session.NextBoostAttemptAt)
+        {
+            session.NextBoostAttemptAt = DateTime.UtcNow.AddMinutes(10);
+            WriteLog(session, "Buff Boost vencido; renovando antes de iniciar a viagem ao farm.");
+            await RenewBoostBuffAsync(session, pause, token);
+        }
         if (GlobalHasPriority(session) && (session.GlobalInside || DateTime.UtcNow >= session.NextGlobalAttemptAt))
         {
             await EnterConfiguredFarmAsync(session, pause, token, isEmergency: false);

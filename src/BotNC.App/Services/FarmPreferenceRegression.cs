@@ -16,7 +16,7 @@ internal static class FarmPreferenceRegression
             Check(!quiet.CanRun("directive", "today", true, false), "retentativa não rouba foco durante farm");
         Check(quiet.CanRun("directive", "tomorrow", true, false), "novo ciclo mantém horário");
         Check(quiet.CanRun("daily", "today", true, false), "rotinas independentes");
-        Check(quiet.CanRun("directive", "today", true, true), "retomar com jogo já visível");
+        Check(!quiet.CanRun("directive", "today", true, true), "foco deixado pelo bot não libera retentativa no farm");
         Check(quiet.CanRun("directive", "today", false, false), "retomar fora do farm");
         quiet.NewWorkObserved("directive");
         Check(quiet.CanRun("directive", "today", true, false), "nova tarefa comprovada permite ação");
