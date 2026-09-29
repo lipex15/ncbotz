@@ -966,7 +966,7 @@ public sealed partial class BotAutomationEngine(
             }
 
             await CheckStartupSkillAsync(session, pause, cancellationToken);
-            if (hadRest)
+            if (hadRest && !session.InitialPreparationActive)
             {
                 var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
                 session.SafeInRest = rest is not null;
@@ -3606,7 +3606,7 @@ public sealed partial class BotAutomationEngine(
                 await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
             }
 
-            if (resumeRest)
+            if (resumeRest && !session.InitialPreparationActive)
             {
                 var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
                 session.SafeInRest = rest is not null;
@@ -3970,7 +3970,7 @@ public sealed partial class BotAutomationEngine(
         finally
         {
             await CloseGuildScreenBestEffortAsync(session, pause, cancellationToken);
-            if (resumeRest && await FindRestStateAsync(session, cancellationToken) is null)
+            if (resumeRest && !session.InitialPreparationActive && await FindRestStateAsync(session, cancellationToken) is null)
             {
                 var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
                 session.SafeInRest = rest is not null;
@@ -4085,7 +4085,7 @@ public sealed partial class BotAutomationEngine(
                 }
             }
 
-            if (resumeRest && await FindRestStateAsync(session, cancellationToken) is null)
+            if (resumeRest && !session.InitialPreparationActive && await FindRestStateAsync(session, cancellationToken) is null)
             {
                 var rest = await TryOpenRestPanelAsync(session, pause, cancellationToken);
                 session.SafeInRest = rest is not null;
@@ -8456,6 +8456,7 @@ public sealed partial class BotAutomationEngine(
         public bool SapherasFarmConfirmed { get; set; }
         public volatile bool ReconnectPending;
         public bool StartupSkillChecked;
+        public bool InitialPreparationActive;
         public DateTime NextStartupSkillCheck;
         public bool HandlingReconnect;
         public bool ReconnectAfterLogin, ReconnectWorldInitialized, ReconnectSkillSent;

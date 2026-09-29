@@ -1,5 +1,12 @@
 # PEXBOT Teste 0.11.3 — responsividade
 
+## Promoção para uso normal
+
+- Novo layout e melhorias de responsividade promovidos após validação automatizada e teste do usuário.
+- Preparação inicial contínua: não retorna ao descanso entre verificações de lápide/skill, correio, loja e guilda. Deslocamentos, recuperação e proteções mantêm seus próprios controles.
+- Configurações e agenda do uso normal permanecem no mesmo banco.
+- Para reversão, o instalador 0.10.59 continua disponível no histórico de releases. Faça backup dos dados antes de atualizar.
+
 - Fluxo de automação executado fora da fila da interface; pausa, cancelamento e proteções preservados.
 - Inicialização das referências, descoberta de janelas e leitura de estatísticas fora da interface. Descobertas não se sobrepõem e não ativam o jogo.
 - Estados visuais consolidados por cliente, sem acumular atualizações antigas nem redesenhar áudio inalterado.

@@ -38,7 +38,7 @@ public sealed partial class BotAutomationEngine
         }
         finally
         {
-            if (hadRest && !session.ReconnectPending)
+            if (hadRest && !session.ReconnectPending && !session.InitialPreparationActive)
                 session.SafeInRest = await TryOpenRestPanelAsync(session, pause, token) is not null;
         }
     }

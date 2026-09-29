@@ -10,7 +10,7 @@ public sealed partial class BotAutomationEngine
         if (HumanOwnsInterface || HasPendingProtection) return;
         foreach (var session in sessions)
         {
-            if (!session.RestPreference.Pending || session.ReconnectPending || !session.StartupRestorationChecked ||
+            if (session.InitialPreparationActive || !session.RestPreference.Pending || session.ReconnectPending || !session.StartupRestorationChecked ||
                 session.NeedsDeathRestoration || session.HandlingDeath || session.HandlingProtection ||
                 session.InAgenda || session.LoveBossInside || session.VisualCaptureFaulted ||
                 session.UserInterfaceBusy || session.NextRecoveryAttemptAt != default ||

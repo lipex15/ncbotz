@@ -66,6 +66,25 @@ public sealed partial class BotAutomationEngine
         AntiOverkillOptions antiOverkill, DailyRoutineOptions routines, PauseController pause,
         CancellationToken token, DateTime? nextSapheras)
     {
+        var previous = session.InitialPreparationActive;
+        session.InitialPreparationActive = true;
+        session.RestPreference.Request();
+        try
+        {
+            await InitializeClientActivityCoreAsync(sessions, session, sapheras, antiOverkill, routines, pause, token, nextSapheras);
+        }
+        finally
+        {
+            session.InitialPreparationActive = previous;
+            session.RestPreference.Request();
+        }
+    }
+
+    private async Task InitializeClientActivityCoreAsync(
+        IReadOnlyList<ClientSession> sessions, ClientSession session, SapherasOptions sapheras,
+        AntiOverkillOptions antiOverkill, DailyRoutineOptions routines, PauseController pause,
+        CancellationToken token, DateTime? nextSapheras)
+    {
         if (session.ReconnectPending && !session.HandlingReconnect) return;
         if (await RunStartupRestorationSafelyAsync(session, sapheras, antiOverkill, pause, token)) return;
         if (GlobalHasPriority(session) && (session.GlobalInside || DateTime.UtcNow >= session.NextGlobalAttemptAt))

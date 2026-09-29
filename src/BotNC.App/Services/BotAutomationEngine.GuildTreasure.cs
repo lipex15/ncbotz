@@ -161,7 +161,7 @@ public sealed partial class BotAutomationEngine
                         await CloseGuildScreenAsync(session, pause, token);
                     if ((await recognition.FindAsync("guild_treasure_panel", token)).Found)
                         throw new TimeoutException("Guilda continua aberta após conferir o baú; descanso não será presumido.");
-                    if (resumeRest && session.NextRecoveryAttemptAt == default)
+                    if (resumeRest && !session.InitialPreparationActive && session.NextRecoveryAttemptAt == default)
                         session.SafeInRest = await TryOpenRestPanelAsync(session, pause, token) is not null;
                 }
                 catch (OperationCanceledException) { throw; }
