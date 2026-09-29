@@ -75,6 +75,16 @@ public sealed partial class RestorationCounterReader
             var engine = OcrEngine.TryCreateFromLanguage(new Language("pt-BR")) ?? OcrEngine.TryCreateFromUserProfileLanguages();
             if (engine is not null)
             {
+                // Independent evidence from the bottom of the equipment panel:
+                // the remaining-items label and disabled repair text. Never
+                // conclude empty solely because an item card was not detected.
+                using var footerBitmap = MakeOcrBitmap(CropRegion(frame, 90, 845, 330, 65), null);
+                var footer = Normalize((await engine.RecognizeAsync(footerBitmap).AsTask(cancellationToken)).Text);
+                if (footer.Contains("EQUIP", StringComparison.Ordinal) &&
+                    Regex.IsMatch(footer, @"\(\s*[0O]\s*\)") &&
+                    HasDisabledRepairText(frame))
+                    return new(RestorationTab.Equipment, 0, null,
+                        standard.RawText + " | footer=" + footer + "; repairDisabled=true");
                 using var bitmap = MakeOcrBitmap(CropHeading(frame, true, tight: true), -1);
                 var text = (await engine.RecognizeAsync(bitmap).AsTask(cancellationToken)).Text.Trim();
                 if (Regex.IsMatch(text, @"^\d{1,2}$") && int.TryParse(text, out var count) && count <= 50)
@@ -86,9 +96,37 @@ public sealed partial class RestorationCounterReader
             standard with { RawText = standard.RawText + " | tight=" + tight.RawText };
     }
 
-    // A positive-only fallback for the supplied real failure. Compare the green
-    // digit shape, not the scenery, after the equipment heading was identified.
-    // Never infer zero or a restored resource from this fallback.
+    private static PixelFrame CropRegion(PixelFrame frame, int x, int y, int width, int height)
+    {
+        var stride = width * 4;
+        var pixels = new byte[stride * height];
+        for (var row = 0; row < height; row++)
+            Buffer.BlockCopy(frame.Pixels, (y + row) * frame.Stride + x * 4,
+                pixels, row * stride, stride);
+        return new PixelFrame(width, height, stride, pixels);
+    }
+
+    private static bool HasDisabledRepairText(PixelFrame frame)
+    {
+        if (frame.Width < 440 || frame.Height < 920) return false;
+        var muted = 0;
+        var brightGold = 0;
+        // Fixed label, excluding the green parenthesized count and the world.
+        for (var y = 867; y < 890; y++)
+        for (var x = 170; x < 335; x++)
+        {
+            var offset = y * frame.Stride + x * 4;
+            var b = frame.Pixels[offset];
+            var g = frame.Pixels[offset + 1];
+            var r = frame.Pixels[offset + 2];
+            if (r > 170 && g > 150 && b > 95 && r > b * 1.12) brightGold++;
+            if (r is >= 65 and <= 145 && g >= 60 && g <= r && b >= 40 && r > b * 1.08) muted++;
+        }
+        return muted >= 60 && brightGold < 20;
+    }
+
+    // Compare the green digit shape, not the scenery, only after identifying
+    // the equipment heading. Zero and one have separate regression references.
     private static readonly Lazy<PixelFrame?> EquipmentOneReference = new(() =>
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Assets", "References", "restoration_equipment_pending_regression.png");
@@ -114,7 +152,8 @@ public sealed partial class RestorationCounterReader
 
     private static bool MatchesKnownEquipmentDigit(PixelFrame frame, PixelFrame? reference)
     {
-        if (reference is null || frame.Width != 1920 || frame.Height is not (1040 or 1080)) return false;
+        if (reference is null || Math.Abs(frame.Width - 1920) > 2 ||
+            (Math.Abs(frame.Height - 1040) > 2 && Math.Abs(frame.Height - 1080) > 2)) return false;
         static bool Green(PixelFrame image, int x, int y)
         {
             var offset = y * image.Stride + x * 4;

@@ -1099,9 +1099,25 @@ public partial class App : Application
             if (file == "restoration_equipment_zero_report.png")
             {
                 var desktop = VisualRecognitionService.Decode(await File.ReadAllBytesAsync(Path.Combine(referenceDirectory, file)));
-                var client = new PixelFrame(1920, 1040, desktop.Stride, desktop.Pixels);
+                var client = new PixelFrame(desktop.Width, 1040, desktop.Stride, desktop.Pixels);
                 if ((await restorationReader.ReadClientFrameAsync(client)).State != RestorationCountState.Empty)
                     throw new InvalidOperationException("Zero de equipamento não reconhecido na captura de cliente.");
+                var obscuredPixels = (byte[])desktop.Pixels.Clone();
+                for (var y = 106; y < 141; y++)
+                    Array.Clear(obscuredPixels, y * desktop.Stride + 403 * 4, 33 * 4);
+                var obscured = new PixelFrame(desktop.Width, desktop.Height, desktop.Stride, obscuredPixels);
+                if ((await restorationReader.ReadClientFrameAsync(obscured)).State != RestorationCountState.Empty)
+                    throw new InvalidOperationException("Reparo concluído não reconhecido sem o contador superior.");
+            }
+            if (file == "restoration_equipment_pending_regression.png")
+            {
+                var pending = VisualRecognitionService.Decode(await File.ReadAllBytesAsync(Path.Combine(referenceDirectory, file)));
+                var hiddenCount = (byte[])pending.Pixels.Clone();
+                for (var y = 106; y < 141; y++)
+                    Array.Clear(hiddenCount, y * pending.Stride + 403 * 4, 33 * 4);
+                if ((await restorationReader.ReadClientFrameAsync(new PixelFrame(
+                    pending.Width, pending.Height, pending.Stride, hiddenCount))).State == RestorationCountState.Empty)
+                    throw new InvalidOperationException("Equipamento quebrado confundido com reparado sem contador superior.");
             }
         }
         var restorationCases = new[]

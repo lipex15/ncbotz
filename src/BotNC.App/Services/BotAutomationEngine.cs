@@ -7207,6 +7207,7 @@ public sealed partial class BotAutomationEngine(
         }
         if (initialObservation == StartupRestorationObservation.Unknown)
         {
+            await ResetUnreadableRestorationPanelAsync(session, cancellationToken);
             // Refresh a stale/partial capture before the next attempt; merely
             // waiting and reading the same invalid surface cannot make progress.
             await ReconnectWindowCaptureAsync(session, cancellationToken);
@@ -7229,6 +7230,7 @@ public sealed partial class BotAutomationEngine(
                     session, "painel_restauracao", cancellationToken, requireObservable: true)).Found)
             {
                 var diagnostic = await recognition.SaveDiagnosticAsync($"restauracao_contador_{session.Options.Priority}");
+                await ResetUnreadableRestorationPanelAsync(session, cancellationToken);
                 throw new RecoveryObservationPendingException(
                     $"{session.Options.Label}: painel de restauração aberto, mas contador ilegível; " +
                     $"não vou tratar a perda como concluída. Diagnóstico: {diagnostic}");
@@ -7503,15 +7505,14 @@ public sealed partial class BotAutomationEngine(
                 $"em ({clickX}, {clickY}) — clique {attempt}.");
             var restorePoint = gameWindows.MapReferencePoint(session.Options.Target, clickX, clickY);
             await input.ClickAsync(restorePoint.X, restorePoint.Y, cancellationToken);
-            if (expectedTab == RestorationTab.Equipment)
+            if (MayRepeatEquipmentRepair(current.Tab, current.State))
             {
-                // One immediate observation, not the long completion timeout. Never
-                // send the second click to a closed panel or a different tab.
-                var repeatFrame = await CaptureClientFrameAsync(session, cancellationToken);
-                var repeatCounter = await _restorationCounterReader.ReadClientFrameAsync(repeatFrame, cancellationToken);
-                if (MayRepeatEquipmentRepair(repeatCounter.Tab, repeatCounter.State))
+                // This fixed repair button remains in place after repair. Send
+                // the pair without an OCR round trip, but never into another app.
+                await Task.Delay(180, cancellationToken);
+                if (gameWindows.IsForeground(session.Options.Target))
                 {
-                    WriteLog(session, "Reparo: segundo clique da sequência; equipamento pendente ainda confirmado.");
+                    WriteLog(session, "Reparo: segundo clique da sequência no botão fixo; verificando resultado em seguida.");
                     await input.ClickAsync(restorePoint.X, restorePoint.Y, cancellationToken);
                 }
             }
@@ -7523,15 +7524,29 @@ public sealed partial class BotAutomationEngine(
                 return;
             }
             if (afterClick.Tab != expectedTab || afterClick.State == RestorationCountState.Unknown)
+            {
+                await ResetUnreadableRestorationPanelAsync(session, cancellationToken);
                 throw new InvalidOperationException(
                     $"{session.Options.Label}: leitura de {tabName} ficou incerta após o clique; " +
                     "a restauração permanece pendente.");
+            }
             WriteLog(session, $"Lista de {tabName} ainda em {afterClick.Count}; verificando progresso antes do próximo clique.");
         }
 
         throw new InvalidOperationException(
             $"{session.Options.Label}: a lista de {tabName} não ficou vazia após 50 cliques com leitura; " +
             "não vou retornar ao farm com restauração pendente.");
+    }
+
+    private async Task ResetUnreadableRestorationPanelAsync(ClientSession session, CancellationToken cancellationToken)
+    {
+        var frame = await CaptureClientFrameAsync(session, cancellationToken);
+        var counter = await _restorationCounterReader.ReadClientFrameAsync(frame, cancellationToken);
+        if (counter.State != RestorationCountState.Unknown ||
+            !RestorationCounterReader.HasRestorationHeading(counter.RawText) ||
+            !gameWindows.IsForeground(session.Options.Target)) return;
+        await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
+        WriteLog(session, "Painel de restauração ilegível fechado uma vez; próxima tentativa reavalia a lápide, sem presumir reparo concluído.");
     }
 
     private async Task<RestorationCounterResult> ReadRestorationCounterAsync(
