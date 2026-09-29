@@ -224,7 +224,7 @@ public sealed partial class BotAutomationEngine
                 }
                 if (session.LastReconnectActionScreen == screen) session.ReconnectStepAttempts++;
                 else { session.LastReconnectActionScreen = screen; session.ReconnectStepAttempts = 1; }
-                if (session.ReconnectStepAttempts > 3)
+                if (session.ReconnectStepAttempts > 3 && screen is not (ReconnectScreen.Touch or ReconnectScreen.ServerReady or ReconnectScreen.Character))
                 {
                     session.NextReconnectAction = DateTime.UtcNow.AddSeconds(3);
                     session.ReconnectStepAttempts = 0;
@@ -242,10 +242,13 @@ public sealed partial class BotAutomationEngine
                     case ReconnectScreen.Touch:
                     case ReconnectScreen.ServerReady:
                         await ClickReconnectPointAsync(session, 960, 540, token);
+                        // Re-observe before every click; slow clients may ignore
+                        // early input. Continue for as long as this login is visible.
+                        session.NextReconnectAction = DateTime.UtcNow.AddSeconds(1);
                         break;
                     case ReconnectScreen.Character:
                         await ClickReconnectPointAsync(session, 1813, 1012, token);
-                        session.NextReconnectAction = DateTime.UtcNow.AddSeconds(10);
+                        session.NextReconnectAction = DateTime.UtcNow.AddSeconds(3);
                         break;
                 }
             }
