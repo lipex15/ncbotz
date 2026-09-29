@@ -18,8 +18,13 @@ internal static class FarmPreferenceRegression
         Check(quiet.CanRun("daily", "today", true, false), "rotinas independentes");
         Check(!quiet.CanRun("directive", "today", true, true), "foco deixado pelo bot não libera retentativa no farm");
         Check(quiet.CanRun("directive", "today", false, false), "retomar fora do farm");
-        quiet.NewWorkObserved("directive");
-        Check(quiet.CanRun("directive", "today", true, false), "nova tarefa comprovada permite ação");
+        quiet.Started("mail", "today:01");
+        Check(!quiet.CanRun("mail", "today:01", true, true), "correio não repete no mesmo horário");
+        Check(quiet.CanRun("mail", "today:07", true, false), "próximo horário de correio permanece disponível");
+        Check(quiet.CanRun("mail", "tomorrow:01", true, false), "correio volta no próximo dia");
+        Check(AppUpdateService.DisplayVersion(new Version(11, 6, 0, 0)) == "11.6", "versão simplificada");
+        Check(AppUpdateService.DisplayVersion(new Version(11, 6, 1)) == "11.6.1", "correção da versão deve permanecer visível");
+        Check(new Version(11, 6, 0) > new Version(0, 11, 5, 0), "versão nova compatível com atualização anterior");
         Check(preference.Pending, "preferência deve ser aplicada no início");
         preference.Complete();
         for (var idleTick = 0; idleTick < 600; idleTick++)

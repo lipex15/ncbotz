@@ -8,5 +8,4 @@ internal sealed class QuietFarmRoutineGate
     internal bool CanRun(string routine, string cycle, bool farming, bool foreground) =>
         !farming || !attempts.TryGetValue(routine, out var previous) || previous != cycle;
     internal void Started(string routine, string cycle) => attempts[routine] = cycle;
-    internal void NewWorkObserved(string routine) => attempts.Remove(routine);
 }

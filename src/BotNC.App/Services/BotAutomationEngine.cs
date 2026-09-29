@@ -3467,7 +3467,7 @@ public sealed partial class BotAutomationEngine(
             return false;
         }
 
-        var mailCycle = today + (dueAt07 ? ":07" : ":01") + (now.Minute < 10 && (now.Hour == 1 || now.Hour == 7) ? ":delivery" : ":settled");
+        var mailCycle = today + (dueAt07 ? ":07" : ":01");
         if (!session.QuietRoutineGate.CanRun("mail", mailCycle, session.IsFarmingTa || session.SapherasFarmConfirmed, false)) return false;
         session.NextMailAttemptAt = DateTime.UtcNow.AddMinutes(3);
         try
@@ -3481,27 +3481,22 @@ public sealed partial class BotAutomationEngine(
             }
 
             session.QuietRoutineGate.Started("mail", mailCycle);
-            var claimed = await CollectServerMailAsync(session, pause, cancellationToken);
-            // O servidor pode entregar o lote poucos minutos depois da hora
-            // cheia. Se a caixa estiver vazia nesse intervalo, reabrimos em
-            // três minutos em vez de perder a entrega do dia.
-            var waitFor01 = !claimed && now.Hour == 1 && now.Minute < 10;
-            var waitFor07 = !claimed && now.Hour == 7 && now.Minute < 10;
-            if (dueAt01 && !waitFor01)
+            await CollectServerMailAsync(session, pause, cancellationToken, async () =>
             {
-                session.Mail01Date = today;
-                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.mail.01Date", today);
-            }
-
-            if (dueAt07 && !waitFor07)
-            {
-                session.Mail07Date = today;
-                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.mail.07Date", today);
-            }
-
-            WriteLog(session, waitFor01 || waitFor07
-                ? "Correio ainda vazio próximo ao horário de entrega; conferindo novamente em 3 minutos."
-                : "Correio das 01:00/07:00 conferido; fluxo normal retomado.");
+                // Persist before closing UI/rest: a later interruption must not
+                // undo an already confirmed empty inbox or completed collection.
+                if (dueAt01)
+                {
+                    session.Mail01Date = today;
+                    await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.mail.01Date", today);
+                }
+                if (dueAt07)
+                {
+                    session.Mail07Date = today;
+                    await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.mail.07Date", today);
+                }
+                WriteLog(session, "Correio conferido e registrado; próxima consulta somente no próximo horário de entrega.");
+            });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -3522,7 +3517,8 @@ public sealed partial class BotAutomationEngine(
     private async Task<bool> CollectServerMailAsync(
         ClientSession session,
         PauseController pause,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Task> onConfirmed)
     {
         await ActivateGameAsync(session, cancellationToken);
         var resumeRest = session.IsFarmingTa || session.SafeInRest ||
@@ -3586,6 +3582,7 @@ public sealed partial class BotAutomationEngine(
             if (!pendingMail)
             {
                 WriteLog(session, "Correio do Servidor sem notificação de mensagem pendente.");
+                await onConfirmed();
                 return false;
             }
 
@@ -3612,6 +3609,7 @@ public sealed partial class BotAutomationEngine(
             WriteLog(session, itemsShown
                 ? "Recompensas do Correio recebidas e aviso Item Obtido fechado."
                 : "Notificação do Correio removida após Receber Tudo; seguindo sem aviso Item Obtido.");
+            await onConfirmed();
             return true;
         }
         finally
@@ -3679,19 +3677,6 @@ public sealed partial class BotAutomationEngine(
 
         var now = DateTime.Now;
         var cycle = DailyCycleKey(now);
-        if (options.EnableGuildDirective && session.Options.EnableGuildDirective &&
-            session.DirectiveCycle == cycle && session.DirectiveState == "active" &&
-            DateTime.UtcNow >= session.NextDirectivePresenceCheckAt)
-        {
-            session.NextDirectivePresenceCheckAt = DateTime.UtcNow.AddMinutes(2);
-            var sidebar = await ReadGuildDirectiveSidebarStableAsync(session, pause, cancellationToken);
-            if (sidebar.State == GuildDirectiveSidebarState.Available)
-            {
-                session.DirectiveCycle = null;
-                session.QuietRoutineGate.NewWorkObserved("directive");
-                WriteLog(session, "Nova Diretiva disponível após a anterior; conferindo a próxima, sem repetir uma concluída.");
-            }
-        }
         var dailyDue = options.EnableDailyMissions && session.Options.EnableDailyMissions && session.DailyCompletedCycle != cycle &&
                        (session.DailyCycle == cycle || now >= ScheduledInCycle(now, options.DailyMissionsAt));
         var directiveDue = options.EnableGuildDirective && session.Options.EnableGuildDirective &&
@@ -3757,9 +3742,7 @@ public sealed partial class BotAutomationEngine(
             session.QuietRoutineGate.Started("guild", guildCheckinCycle);
             try
             {
-                await CompleteGuildCheckinAsync(session, pause, cancellationToken);
-                session.GuildCheckinCycle = guildCheckinCycle;
-                await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.guildCheckinCycle", guildCheckinCycle);
+                await CompleteGuildCheckinAsync(session, guildCheckinCycle, pause, cancellationToken);
                 WriteLog(session, "Check-in e doações em ouro da Guilda concluídos ou já realizados neste ciclo.");
             }
             catch (HumanInteractionException) { throw; }
@@ -3901,6 +3884,7 @@ public sealed partial class BotAutomationEngine(
 
     private async Task CompleteGuildCheckinAsync(
         ClientSession session,
+        string guildCheckinCycle,
         PauseController pause,
         CancellationToken cancellationToken)
     {
@@ -3980,6 +3964,8 @@ public sealed partial class BotAutomationEngine(
                 WriteLog(session, $"Doação em ouro confirmada; {remaining} restantes.");
             }
 
+            session.GuildCheckinCycle = guildCheckinCycle;
+            await database.SaveSettingAsync($"{SessionSettingPrefix(session)}.routines.guildCheckinCycle", guildCheckinCycle);
             await input.PressKeyAsync(KeyEscape, cancellationToken: cancellationToken);
             await WaitForReferenceToDisappearAsync("guild_donation_panel", TimeSpan.FromSeconds(8), pause, cancellationToken);
             await Task.Delay(250, cancellationToken);
@@ -4090,6 +4076,7 @@ public sealed partial class BotAutomationEngine(
                 await ConfirmDailyBulkPurchaseAsync(session, pause, cancellationToken, "Invocação", summon: true);
                 await MarkDailyShopCategoryHandledAsync(session, shopCycle, summon: true);
             }
+            await MarkDailyShopHandledAsync(session, shopCycle);
         }
         finally
         {
@@ -8460,7 +8447,6 @@ public sealed partial class BotAutomationEngine(
         public CancellationTokenSource? RecoveryActionCancellation;
         public int LastFarmSpot { get; set; } = -1;
         public string DirectiveState { get; set; } = "unknown";
-        public DateTime NextDirectivePresenceCheckAt { get; set; }
         public bool ResumeDailyAfterLoveBoss { get; set; }
         public bool? LastAudioHealthy { get; set; }
         public DateTime NextDailyListToggleAt { get; set; }

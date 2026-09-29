@@ -18,6 +18,8 @@ public sealed class AppUpdateService
     private static readonly HttpClient Client = CreateClient();
 
     public static Version CurrentVersion => Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0);
+    public static string DisplayVersion(Version version) => version.Build <= 0
+        ? version.ToString(2) : version.ToString(3);
 
     public Task<AvailableUpdate?> CheckAsync(CancellationToken cancellationToken) =>
         CheckAsync(CurrentVersion, cancellationToken);

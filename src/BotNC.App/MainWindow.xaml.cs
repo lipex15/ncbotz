@@ -164,10 +164,10 @@ public partial class MainWindow : Window
         {
             UpdatesIntroText.Text = "Canal de testes: atualizações independentes da versão usada pelos demais.";
         }
-        InstalledVersionText.Text = $"v{AppUpdateService.CurrentVersion.ToString(3)}";
+        InstalledVersionText.Text = $"v{AppUpdateService.DisplayVersion(AppUpdateService.CurrentVersion)}";
         ApplicationVersionText.Text = AppIdentity.IsTesting
-            ? $"TESTE · v{AppUpdateService.CurrentVersion.ToString(3)}"
-            : $"v{AppUpdateService.CurrentVersion.ToString(3)}";
+            ? $"TESTE · v{AppUpdateService.DisplayVersion(AppUpdateService.CurrentVersion)}"
+            : $"v{AppUpdateService.DisplayVersion(AppUpdateService.CurrentVersion)}";
         DatabasePathText.Text = $"Dados: {_database.DatabasePath} · Log: {_engine.RuntimeLogPath}";
         _updateCheckTimer.Tick += async (_, _) => await CheckForUpdatesAsync(userInitiated: false);
     }
@@ -487,7 +487,7 @@ public partial class MainWindow : Window
             _availableUpdate = checkedUpdate;
             UpdateStatusText.Text = _availableUpdate is null
                 ? "Nenhuma atualização disponível. Sua versão está em dia."
-                : $"Versão v{_availableUpdate.Version.ToString(3)} disponível para instalar.";
+                : $"Versão v{AppUpdateService.DisplayVersion(_availableUpdate.Version)} disponível para instalar.";
             InstallUpdateButton.IsEnabled = _availableUpdate is not null;
             if (_availableUpdate is not null && UpdatesPanel.Visibility == Visibility.Visible)
             {
