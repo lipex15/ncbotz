@@ -10,17 +10,33 @@ public partial class MainWindow
         return matches.Length == 1 ? matches[0] : null;
     }
 
-    private void RefreshStoppedClientWindows()
+    private bool _discoveringWindows;
+    private async Task RefreshClientsAsync(bool automatic = false)
+    {
+        if (_discoveringWindows) return;
+        _discoveringWindows = true;
+        try
+        {
+            var discovered = await Task.Run(_gameWindows.Discover);
+            if (_runCancellation is not null || _capturingCustomCoordinate ||
+                Client1ComboBox.IsDropDownOpen || Client2ComboBox.IsDropDownOpen) return;
+            var listed = Client1ComboBox.Items.Cast<GameWindowTarget>().ToArray();
+            if (automatic && discovered.Count == listed.Length && discovered.Zip(listed).All(pair =>
+                pair.First.Handle == pair.Second.Handle && pair.First.ProcessId == pair.Second.ProcessId &&
+                pair.First.ProcessStartedAt == pair.Second.ProcessStartedAt && pair.First.Title == pair.Second.Title)) return;
+            RefreshClients(discovered);
+        }
+        catch (Exception exception)
+        {
+            if (!automatic) AddLog($"Não foi possível atualizar os clientes: {exception.GetBaseException().Message}");
+        }
+        finally { _discoveringWindows = false; }
+    }
+
+    private async Task RefreshStoppedClientWindowsAsync()
     {
         if (!_environmentReady || _runCancellation is not null || _capturingCustomCoordinate ||
             Client1ComboBox.IsDropDownOpen || Client2ComboBox.IsDropDownOpen) return;
-        var discovered = _gameWindows.Discover();
-        var listed = Client1ComboBox.Items.Cast<GameWindowTarget>().ToArray();
-        // No activation, maximize, screenshots or list churn on this timer.
-        if (discovered.Count == listed.Length && discovered.Zip(listed).All(pair =>
-            pair.First.Handle == pair.Second.Handle && pair.First.ProcessId == pair.Second.ProcessId &&
-            pair.First.ProcessStartedAt == pair.Second.ProcessStartedAt && pair.First.Title == pair.Second.Title))
-            return;
-        RefreshClients();
+        await RefreshClientsAsync(automatic: true);
     }
 }

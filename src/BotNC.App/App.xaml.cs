@@ -417,6 +417,21 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        var uiProbe = isScreenshotMode && e.Args.Contains("--ui-performance-probe", StringComparer.Ordinal);
+        var uiClock = System.Diagnostics.Stopwatch.StartNew();
+        var uiLastTick = 0L;
+        var uiGaps = new List<long>();
+        var steadyUiGaps = new List<long>();
+        var uiTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
+            { Interval = TimeSpan.FromMilliseconds(25) };
+        uiTimer.Tick += (_, _) =>
+        {
+            var now = uiClock.ElapsedMilliseconds;
+            uiGaps.Add(now - uiLastTick);
+            if (uiLastTick >= 2000) steadyUiGaps.Add(now - uiLastTick);
+            uiLastTick = now;
+        };
+        if (uiProbe) uiTimer.Start();
         var window = new MainWindow();
         _ = Task.Run(() => VisualRecognitionService.CleanupOldDiagnosticsAsync());
         if (isScreenshotMode)
@@ -471,6 +486,14 @@ public partial class App : Application
 
         for (var readinessAttempt = 0; readinessAttempt < 120 && !window.IsReadyForPreview; readinessAttempt++)
             await Task.Delay(250);
+        if (uiProbe)
+        {
+            await Task.Delay(8000);
+            uiTimer.Stop();
+            var orderedGaps = uiGaps.Order().ToArray();
+            await File.WriteAllTextAsync(Path.GetFullPath(e.Args[screenshotIndex + 1]) + ".responsiveness.txt",
+                $"samples={orderedGaps.Length}; maxGapMs={orderedGaps.DefaultIfEmpty().Max()}; steadyMaxGapMs={steadyUiGaps.DefaultIfEmpty().Max()}; p95GapMs={(orderedGaps.Length == 0 ? 0 : orderedGaps[(int)((orderedGaps.Length - 1) * .95)])}; ready={window.IsReadyForPreview}; noGameInput=true");
+        }
         if (e.Args.Contains("--small-preview", StringComparer.Ordinal))
         {
             window.Width = window.MinWidth;
@@ -516,6 +539,7 @@ public partial class App : Application
 
     private static async Task RunSelfTestAsync(string outputPath)
     {
+        await UiPerformanceRegression.VerifyAsync(outputPath);
         await WindowsInputService.VerifyDeferredFocusAsync();
         BotAutomationEngine.VerifyHuntActivationPolicy();
         BotAutomationEngine.VerifyRecoveryObservationPolicy();

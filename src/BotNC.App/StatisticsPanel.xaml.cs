@@ -78,8 +78,9 @@ public partial class StatisticsPanel : UserControl
             var since = Period.SelectedIndex == 1 ? DateTimeOffset.MinValue :
                 new DateTimeOffset(DateTime.Today.AddDays(Period.SelectedIndex == 2 ? -6 : 0));
             int? client = Client.SelectedIndex is 1 or 2 ? Client.SelectedIndex : null;
-            var rows = await _store.ReadAsync(ActivationService.ProfileKey, since, now.AddTicks(1), client,
-                Period.SelectedIndex == 1 ? _session?.Invoke() ?? "not-started" : null);
+            var profile = ActivationService.ProfileKey;
+            var session = Period.SelectedIndex == 1 ? _session?.Invoke() ?? "not-started" : null;
+            var rows = await Task.Run(() => _store.ReadAsync(profile, since, now.AddTicks(1), client, session));
             var nick = Nick1.Text.Trim();
             var salutation = now.Hour is >= 6 and < 12 ? "Bom dia" : now.Hour is >= 12 and < 18 ? "Boa tarde" : "Boa noite";
             Greeting.Text = nick.Length == 0 ? $"{salutation}! Seu progresso, de perto." : $"{salutation}, {nick}!";

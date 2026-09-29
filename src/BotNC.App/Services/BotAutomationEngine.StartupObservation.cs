@@ -68,6 +68,15 @@ public sealed partial class BotAutomationEngine
                 (await recognition.FindAsync("reconnect_skill_on", frame, token)).Found;
             var icon = await TombstoneIconReader.ReadAsync(recognition, frame, token, session.NeedsDeathRestoration);
             var counter = await _restorationCounterReader.ReadClientFrameAsync(frame, token);
+            // Some PCs render the menu differently. A readable town NPC shortcut
+            // with distance is independent evidence of the uncovered world HUD.
+            // Never use this startup-only fallback to clear a known death loss.
+            if (!openControls && HasStartupTownHudEvidence(session.NeedsDeathRestoration,
+                    hp.Found, hud.Confidence, counter.RawText))
+            {
+                openControls = true;
+                WritePersistentOnly(session, "restoration_world_fallback=npc_shortcut_and_menu_and_hp; pendingDeath=false");
+            }
             if (session.NeedsDeathRestoration && hp.Found && icon.AreaInspection)
             {
                 onConfirmedIcon?.Invoke(icon);
@@ -119,8 +128,21 @@ public sealed partial class BotAutomationEngine
     internal static bool HasSufficientRestorationHud(bool menu, bool hp, bool pending) =>
         menu && hp;
 
+    internal static bool HasStartupTownHudEvidence(bool pending, bool hp, double menuConfidence, string text) =>
+        !pending && hp && menuConfidence >= 0.65 &&
+        System.Text.RegularExpressions.Regex.IsMatch(text, @"\b[A-Z,]*RTIGOS\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
+        System.Text.RegularExpressions.Regex.IsMatch(text, @"\b\d{1,3}\s*M\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
     internal static void VerifyStartupObservationPolicy()
     {
+        const string town = ",RTIGOS NEW 15M | ,RTIGOS";
+        if (!HasStartupTownHudEvidence(false, true, 0.681, town) ||
+            HasStartupTownHudEvidence(true, true, 0.681, town) ||
+            HasStartupTownHudEvidence(false, false, 0.681, town) ||
+            HasStartupTownHudEvidence(false, true, 0.4, town) ||
+            HasStartupTownHudEvidence(false, true, 0.681, "ARTIGOS") ||
+            HasStartupTownHudEvidence(false, true, 0.681, "15M"))
+            throw new InvalidOperationException("Town HUD fallback requires independent startup evidence and cannot clear death recovery.");
         if (ClassifyStartupRestoration(true, false, false, false, false,
                 restorationPending: true, restVisible: true) != StartupRestorationObservation.Unknown)
             throw new InvalidOperationException("HP no descanso não prova ausência de lápide.");

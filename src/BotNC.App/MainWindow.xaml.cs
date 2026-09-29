@@ -52,6 +52,9 @@ public partial class MainWindow : Window
     private string? _lastSeenUpdateVersion;
     private DateTime? _runStartedAt;
     private readonly DispatcherTimer _executionClock = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly LatestUiUpdates _uiUpdates = new();
+    private readonly DispatcherTimer _uiRefresh = new(DispatcherPriority.Background)
+        { Interval = TimeSpan.FromMilliseconds(150) };
     private readonly DispatcherTimer _diagnosticTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     private readonly DispatcherTimer _updateCheckTimer = new()
     {
@@ -61,6 +64,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _uiRefresh.Tick += (_, _) => { foreach (var update in _uiUpdates.Drain()) update(); };
+        _uiRefresh.Start();
         _executionClock.Tick += (_, _) =>
         {
             if (_runStartedAt is { } started)
@@ -76,24 +81,26 @@ public partial class MainWindow : Window
             _database);
         _diagnosticTimer.Tick += async (_, _) =>
         {
-            RefreshStoppedClientWindows();
+            await RefreshStoppedClientWindowsAsync();
             if (ExpandedLogOverlay.Visibility == Visibility.Visible) await RefreshDiagnosticAsync();
         };
         _diagnosticTimer.Start();
         _engine.WindowTargetChanged += (label, target) => Dispatcher.BeginInvoke(() =>
         {
             var selector = label == "Cliente 1" ? Client1ComboBox : Client2ComboBox;
-            selector.ItemsSource = _gameWindows.Discover();
+            selector.ItemsSource = selector.Items.Cast<GameWindowTarget>()
+                .Where(window => window.Title != target.Title).Append(target)
+                .OrderBy(window => window.Title, StringComparer.Ordinal).ToArray();
             selector.SelectedItem = selector.Items.Cast<GameWindowTarget>().FirstOrDefault(w => w.Handle == target.Handle);
         });
         _engine.Log += OnEngineLog;
         _engine.StatusChanged += OnEngineStatusChanged;
         _engine.AudioStatusChanged += OnEngineAudioStatusChanged;
-        _engine.ClientActivityChanged += (label, activity) => Dispatcher.BeginInvoke(() =>
+        _engine.ClientActivityChanged += (label, activity) => _uiUpdates.Set("activity:" + label, () =>
         {
             (label == "Cliente 1" ? Client1ActivityText : Client2ActivityText).Text = activity;
         });
-        _engine.FarmScheduleProgressChanged += (label, text) => Dispatcher.InvokeAsync(() =>
+        _engine.FarmScheduleProgressChanged += (label, text) => _uiUpdates.Set("schedule:" + label, () =>
         {
             if (label.EndsWith("2", StringComparison.Ordinal))
                 Client2AgendaLiveText.Text = Client2ScheduleLiveText.Text = text;
@@ -565,7 +572,7 @@ public partial class MainWindow : Window
         SetStatus(BotRunState.Waiting, "Preparando o aplicativo", "Cadastrando referências visuais…");
         try
         {
-            await _database.InitializeAsync();
+            await Task.Run(() => _database.InitializeAsync());
             _databaseReady = true;
             ValidateEnvironment();
             _environmentReady = true;
@@ -573,7 +580,7 @@ public partial class MainWindow : Window
             try { await UserStatisticsPanel.ConfigureAsync(_database, () => _engine.StatisticsSessionId); }
             catch (Exception exception) { AddLog($"Painel de estatísticas indisponível: {exception.Message}"); }
             _lastSeenUpdateVersion = await _database.GetSettingAsync("updates.lastSeenVersion");
-            RefreshClients();
+            await RefreshClientsAsync();
             SetStatus(BotRunState.Stopped, "Bot parado", "Configure o módulo e clique em Iniciar.");
             AddLog("PEXBOT iniciado.");
             AddLog("Banco de imagens carregado com sucesso.");
@@ -595,13 +602,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnRefreshClients(object sender, RoutedEventArgs e) => RefreshClients();
+    private async void OnRefreshClients(object sender, RoutedEventArgs e) => await RefreshClientsAsync();
 
-    private void RefreshClients()
+    private void RefreshClients(IReadOnlyList<GameWindowTarget> clients)
     {
         var previousClient1 = (Client1ComboBox.SelectedItem as GameWindowTarget)?.Title ?? _savedClient1Title;
         var previousClient2 = (Client2ComboBox.SelectedItem as GameWindowTarget)?.Title ?? _savedClient2Title;
-        var clients = _gameWindows.Discover();
         Client1ComboBox.ItemsSource = clients;
         Client2ComboBox.ItemsSource = clients;
         _savedClient1Title = previousClient1 ?? "NIGHT CROWS(1)";
@@ -1339,6 +1345,7 @@ public partial class MainWindow : Window
         await SaveSettingsAsync(runOptions);
 
         _runCancellation = new CancellationTokenSource();
+        _uiUpdates.Drain();
         Client1AgendaLiveText.Text = Client1ScheduleLiveText.Text = string.Empty;
         Client2AgendaLiveText.Text = Client2ScheduleLiveText.Text = string.Empty;
         _runFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1350,7 +1357,9 @@ public partial class MainWindow : Window
 
         try
         {
-            await _engine.RunAsync(runOptions, _pause, _runCancellation.Token);
+            var runToken = _runCancellation.Token;
+            // Keep recognition, database and Win32 work off the UI context.
+            await Task.Run(() => _engine.RunAsync(runOptions, _pause, runToken), runToken);
         }
         catch (OperationCanceledException)
         {
@@ -1372,6 +1381,7 @@ public partial class MainWindow : Window
         {
             _runCancellation.Dispose();
             _runCancellation = null;
+            _uiUpdates.Drain();
             SetRunControls(isRunning: false);
             _runFinished?.TrySetResult(true);
             _runFinished = null;
@@ -1505,11 +1515,12 @@ public partial class MainWindow : Window
         _diagnosticReading = true;
         try
         {
-            await using var stream = new FileStream(_engine.RuntimeLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var reader = new StreamReader(stream);
-            var text = await reader.ReadToEndAsync();
-            TechnicalLogText.Text = string.Join(Environment.NewLine, text.Split('\n').TakeLast(1500));
-            TechnicalLogText.ScrollToEnd();
+            var text = await Task.Run(() => DiagnosticLogTail.Read(_engine.RuntimeLogPath));
+            if (TechnicalLogText.Text != text)
+            {
+                TechnicalLogText.Text = text;
+                TechnicalLogText.ScrollToEnd();
+            }
         }
         catch (IOException) { TechnicalLogText.Text = "O diagnóstico será preenchido ao iniciar a execução."; }
         finally { _diagnosticReading = false; }
@@ -1602,11 +1613,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnEngineLog(string message) =>
-        Dispatcher.BeginInvoke(() => AddLog(message));
+    private void OnEngineLog(string message)
+    {
+        if (UserActivityLog.Describe(message) is not null)
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, () => AddLog(message));
+    }
 
     private void OnEngineStatusChanged(BotRunState state, string title, string detail) =>
-        Dispatcher.BeginInvoke(
+        _uiUpdates.Set("state",
             () =>
             {
                 if (!_pause.IsPaused)
@@ -1617,11 +1631,13 @@ public partial class MainWindow : Window
             });
 
     private void OnEngineAudioStatusChanged(AudioClientStatus status) =>
-        Dispatcher.BeginInvoke(() => UpdateAudioStatus(status));
+        _uiUpdates.Set("audio:" + status.Label, () => UpdateAudioStatus(status));
 
     private void UpdateAudioStatus(AudioClientStatus status)
     {
         var stateText = status.Label == "Cliente 1" ? Client1AudioStateText : Client2AudioStateText;
+        var next = !status.IsHealthy ? "Sem captura" : status.IsArmed ? "Protegido" : "Em preparação";
+        if (stateText.Text == next) return;
         if (!status.IsHealthy)
         {
             stateText.Text = "Sem captura";
@@ -1651,7 +1667,7 @@ public partial class MainWindow : Window
             LogListBox.Items.RemoveAt(0);
         }
 
-        if (LogListBox.Items.Count > 0)
+        if (LogListBox.IsVisible && LogListBox.Items.Count > 0)
         {
             LogListBox.ScrollIntoView(LogListBox.Items[LogListBox.Items.Count - 1]);
         }
@@ -2293,6 +2309,8 @@ public partial class MainWindow : Window
     {
         _updateCheckTimer.Stop();
         _diagnosticTimer.Stop();
+        _uiRefresh.Stop();
+        _uiUpdates.Drain();
         CancelScheduledStart();
         _runCancellation?.Cancel();
         _updateDownloadCancellation?.Cancel();
