@@ -10,6 +10,27 @@ public sealed partial class BotAutomationEngine
         if (HumanOwnsInterface || HasPendingProtection) return;
         foreach (var session in sessions)
         {
+            if (session.RestPreference.ObserveIdle(Environment.TickCount64,
+                _humanInteraction?.LastPhysicalAt ?? Environment.TickCount64,
+                session.Options.KeepRestMode,
+                (session.IsFarmingTa || session.SapherasFarmConfirmed) && !session.InDailyCampaign &&
+                !session.InitialPreparationActive && !session.SpecialRoutineBusy && !session.ReconnectPending &&
+                !session.NeedsDeathRestoration && !session.HandlingDeath && !session.InAgenda && !session.LoveBossInside &&
+                !session.VisualCaptureFaulted && session.NextRecoveryAttemptAt == default,
+                session.OpenHudHunt == OpenHudHuntState.Active, session.RestHudVisible))
+            {
+                session.SafeInRest = false;
+                session.RestPreference.Request();
+            }
+            var manualAfterRequest = session.LastHumanObservation >= session.RestPreference.RequestedAt ||
+                _humanInteraction is { } human && human.LastWindow == session.Options.Target.Handle &&
+                human.LastAt >= session.RestPreference.RequestedAt;
+            if (!session.Options.KeepRestMode && manualAfterRequest)
+            {
+                session.RestPreference.Complete();
+            }
+            if (session.Options.KeepRestMode && manualAfterRequest &&
+                Environment.TickCount64 - (_humanInteraction?.LastPhysicalAt ?? Environment.TickCount64) < 180000) continue;
             if (session.InitialPreparationActive || !session.RestPreference.Pending || session.ReconnectPending || !session.StartupRestorationChecked ||
                 session.NeedsDeathRestoration || session.HandlingDeath || session.HandlingProtection ||
                 session.InAgenda || session.LoveBossInside || session.VisualCaptureFaulted ||

@@ -282,6 +282,8 @@ public sealed class AppDatabase
             new("reconnect_start", "Iniciar personagem", "reconnect_character.png", 1698, 978, 188, 44, 1640, 945, 280, 95, .83),
             new("reconnect_skill_off", "Skill 6 desativada", "reconnect_skill_off.png", 9, 14, 69, 66, 1025, 915, 130, 120, .80),
             new("reconnect_skill_on", "Skill 6 ativada", "reconnect_skill_on.png", 16, 20, 76, 78, 1025, 915, 130, 120, .80),
+            new("skill6_compact_off", "Skill 6 compacta - desenho", "skill6_compact_off.png", 18, 19, 51, 49, 600, 900, 700, 135, .86),
+            new("skill6_compact_on", "Skill 6 compacta - desenho ativo", "skill6_compact_on.png", 22, 19, 51, 49, 600, 900, 700, 135, .86),
             new("menu_guild", "Ícone Guilda", "menu_guild.png", 0, 0, 87, 99, 1535, 275, 155, 150, 0.68),
             new("guild_page", "Página da Guilda", "guild_page.png", 24, 30, 280, 80, 0, 15, 390, 130, 0.68),
             new("guild_checkin_available", "Check-in disponível", "guild_checkin_page.png", 803, 880, 155, 50, 755, 830, 250, 125, 0.72),

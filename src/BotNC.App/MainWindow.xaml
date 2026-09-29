@@ -230,7 +230,7 @@
 <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,15,0,12"/>
 <WrapPanel>
 <CheckBox x:Name="Client1SapherasCheckBox" Style="{StaticResource FarmSwitch}" Content="Sapheras" IsChecked="True" Margin="0,0,20,0"/>
-<CheckBox x:Name="Client1KeepRestCheckBox" Style="{StaticResource FarmSwitch}" Content="Modo descanso" IsChecked="True"/>
+<CheckBox x:Name="Client1KeepRestCheckBox" Style="{StaticResource FarmSwitch}" Content="Modo descanso" IsChecked="True" ToolTip="Ativado: volta ao descanso no farm após 3 minutos sem interação no PC. Desativado: respeita o modo escolhido manualmente; o fluxo pode usar descanso temporário."/>
 </WrapPanel>
 <TextBlock Text="Sapheras segue o horário configurado. Descanso desligado mantém o farm com a tela aberta." Style="{StaticResource DiscreetHelp}"/>
 </StackPanel></Border><Border Grid.Column="2" VerticalAlignment="Top" Style="{StaticResource CompactCard}"><StackPanel>
@@ -244,7 +244,7 @@
 <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,15,0,12"/>
 <WrapPanel>
 <CheckBox x:Name="Client2SapherasCheckBox" Style="{StaticResource FarmSwitch}" Content="Sapheras" IsChecked="False" Margin="0,0,20,0"/>
-<CheckBox x:Name="Client2KeepRestCheckBox" Style="{StaticResource FarmSwitch}" Content="Modo descanso" IsChecked="True"/>
+<CheckBox x:Name="Client2KeepRestCheckBox" Style="{StaticResource FarmSwitch}" Content="Modo descanso" IsChecked="True" ToolTip="Ativado: volta ao descanso no farm após 3 minutos sem interação no PC. Desativado: respeita o modo escolhido manualmente; o fluxo pode usar descanso temporário."/>
 </WrapPanel>
 <TextBlock Text="Sapheras segue o horário configurado. Descanso desligado mantém o farm com a tela aberta." Style="{StaticResource DiscreetHelp}"/>
 </StackPanel></Border></Grid>

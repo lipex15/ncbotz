@@ -335,6 +335,26 @@ public sealed partial class BotAutomationEngine
             (await visual.FindAsync("reconnect_skill_on", frame, CancellationToken.None)).Found)
             throw new InvalidOperationException("Skill 6 desligada não foi distinguida da borda ativa.");
         var activeIcon = load("reconnect_skill_on.png");
+        var reportedBar = load("skill6_bar_report.png");
+        var reportedBarPixels = new byte[1920 * 1040 * 4];
+        for (var y = 0; y < reportedBar.Height; y++)
+            Buffer.BlockCopy(reportedBar.Pixels, y * reportedBar.Stride, reportedBarPixels,
+                (800 + y) * 1920 * 4 + 400 * 4, reportedBar.Width * 4);
+        if (await SkillSixReader.ReadAsync(visual, new PixelFrame(1920, 1040, 1920 * 4, reportedBarPixels), CancellationToken.None) != SkillSixState.Active)
+            throw new InvalidOperationException("Barra enviada pelo usuário: skill 6 ativa não reconhecida entre habilidades vizinhas.");
+        if (await SkillSixReader.ReadAsync(visual, new PixelFrame(1920, 1040, 1920 * 4, new byte[1920 * 1040 * 4]), CancellationToken.None) != SkillSixState.Unknown)
+            throw new InvalidOperationException("Tela sem habilidade não pode autorizar tecla 6.");
+        foreach (var (file, expected) in new[] { ("skill6_compact_on.png", SkillSixState.Active), ("skill6_compact_off.png", SkillSixState.Inactive) })
+        foreach (var x in new[] { 920, 1010, 1080 })
+        {
+            var icon = load(file);
+            var pixels = new byte[1920 * 1040 * 4];
+            for (var y = 0; y < icon.Height; y++)
+                Buffer.BlockCopy(icon.Pixels, y * icon.Stride, pixels, (930 + y) * 1920 * 4 + x * 4, icon.Width * 4);
+            var evidence = new List<string>();
+            var detected = await SkillSixReader.ReadAsync(visual, new PixelFrame(1920, 1040, 1920 * 4, pixels), CancellationToken.None, evidence.Add);
+            if (detected != expected) throw new InvalidOperationException($"Skill compacta {file} x={x}: {detected}, esperado {expected}. {string.Join("; ", evidence)}");
+        }
         if (await SkillSixReader.ReadAsync(visual, frame, CancellationToken.None) != SkillSixState.Inactive)
             throw new InvalidOperationException("Skill 6 desligada: leitura da borda não confirmou Inactive.");
         var activePixels = (byte[])frame.Pixels.Clone();

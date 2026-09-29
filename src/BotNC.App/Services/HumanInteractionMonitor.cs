@@ -9,6 +9,8 @@ internal sealed class HumanInteractionMonitor : IDisposable
     private readonly HookProc _mouseProc, _keyboardProc;
     private nint _mouse, _keyboard;
     private long _lastAt;
+    private long _lastPhysicalAt = Environment.TickCount64;
+    internal long LastPhysicalAt => Interlocked.Read(ref _lastPhysicalAt);
     internal long LastAt => Interlocked.Read(ref _lastAt);
     internal nint LastWindow { get; private set; }
     internal bool IsBusy => Environment.TickCount64 - Interlocked.Read(ref _lastAt) < 2500;
@@ -35,13 +37,17 @@ internal sealed class HumanInteractionMonitor : IDisposable
     }
     private nint Observe(int code, nint message, nint data, bool mouse)
     {
-        if (code >= 0 && _windows.ContainsKey(GetForegroundWindow()))
+        if (code >= 0)
         {
             var flags = Marshal.ReadInt32(data, mouse ? 12 : 8);
             if (IsPhysicalEvent(mouse, flags))
             {
-                LastWindow = GetForegroundWindow();
-                Interlocked.Exchange(ref _lastAt, Environment.TickCount64);
+                Interlocked.Exchange(ref _lastPhysicalAt, Environment.TickCount64);
+                if (_windows.ContainsKey(GetForegroundWindow()))
+                {
+                    LastWindow = GetForegroundWindow();
+                    Interlocked.Exchange(ref _lastAt, Environment.TickCount64);
+                }
             }
         }
         return CallNextHookEx(0, code, message, data);

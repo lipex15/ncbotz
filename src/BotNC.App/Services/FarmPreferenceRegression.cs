@@ -9,6 +9,17 @@ internal static class FarmPreferenceRegression
         foreach (var hud in new[] { OpenHudHuntState.Active, OpenHudHuntState.Inactive })
             Check(!RestPreferencePolicy.ShouldClose(false, "caca_automatica", false, hud), "HUD aberto não pode provocar L/foco por falso descanso");
         var preference = new RestPreferenceRuntime();
+        var idle = new RestPreferenceRuntime();
+        const long start = 1000000;
+        Check(!idle.ObserveIdle(start, start, true, true, true, false), "descanso não volta imediatamente");
+        Check(!idle.ObserveIdle(start + 179999, start, true, true, true, false), "aguarda três minutos");
+        Check(idle.ObserveIdle(start + 180000, start, true, true, true, false), "descanso volta após inatividade");
+        Check(!idle.ObserveIdle(start + 180001, start, true, true, true, false), "não repete solicitação de foco");
+        Check(!idle.ObserveIdle(start + 400000, start + 399999, true, true, true, false), "uso do PC adia descanso");
+        Check(!idle.ObserveIdle(start + 600000, start, false, true, true, false), "desmarcado não força descanso");
+        Check(!idle.ObserveIdle(start + 800000, start, true, false, true, false), "não aciona fora do farm");
+        Check(!idle.ObserveIdle(start + 1000000, start, true, true, true, true), "descanso existente é preservado");
+        Check(!idle.ObserveIdle(start + 1200000, start, true, true, false, false), "HUD incerto não autoriza clique");
         var quiet = new QuietFarmRoutineGate();
         Check(quiet.CanRun("directive", "today", true, false), "horário agendado permite primeira execução");
         quiet.Started("directive", "today");
