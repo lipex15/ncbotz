@@ -8457,6 +8457,7 @@ public sealed partial class BotAutomationEngine(
         public volatile bool ReconnectPending;
         public bool StartupSkillChecked;
         public bool InitialPreparationActive;
+        public int ReconnectStartFallbackHits;
         public DateTime NextStartupSkillCheck;
         public bool HandlingReconnect;
         public bool ReconnectAfterLogin, ReconnectWorldInitialized, ReconnectSkillSent;

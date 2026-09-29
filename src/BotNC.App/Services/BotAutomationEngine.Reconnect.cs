@@ -6,6 +6,8 @@ public sealed partial class BotAutomationEngine
 {
     internal enum ReconnectScreen { Unknown, LoginNotice, Touch, Promotion, ServerReady, Character, World }
     private sealed class ReconnectTransitionException : InvalidOperationException;
+    internal static bool CanUseReconnectStartFallback(bool afterServer, bool start, double confidence,
+        bool hp, bool menu, bool auto) => afterServer && start && confidence >= .86 && !hp && !menu && !auto;
 
     internal static async Task<ReconnectScreen> ReadReconnectScreenAsync(VisualRecognitionService visual,
         PixelFrame frame, CancellationToken token, Action<string>? trace = null)
@@ -131,6 +133,26 @@ public sealed partial class BotAutomationEngine
                 var frame = await CaptureClientFrameAsync(session, token);
                 var screen = await ReadReconnectScreenAsync(recognition, frame, token,
                     evidence => WritePersistentOnly(session, evidence));
+                // A localized/missing character heading must not deadlock a login
+                // whose server step was already sent. Confirm the fixed Start
+                // control twice, with no gameplay HUD; never use this in the watchdog.
+                if (screen == ReconnectScreen.Unknown &&
+                    session.LastReconnectActionScreen is ReconnectScreen.ServerReady or ReconnectScreen.Character)
+                {
+                    var normalized = VisualRecognitionService.NormalizeForReferenceMatching(frame);
+                    var startButton = await recognition.FindAsync("reconnect_start", normalized, token);
+                    var menuButton = await recognition.FindAsync("game_hud_menu", normalized, token);
+                    var autoButton = await recognition.FindAsync("hud_auto_label", normalized, token);
+                    var candidate = CanUseReconnectStartFallback(true, startButton.Found, startButton.Confidence,
+                        HpBarAnalyzer.Measure(normalized).Found, menuButton.Found, autoButton.Found);
+                    session.ReconnectStartFallbackHits = candidate ? session.ReconnectStartFallbackHits + 1 : 0;
+                    if (session.ReconnectStartFallbackHits >= 2)
+                    {
+                        screen = ReconnectScreen.Character;
+                        WritePersistentOnly(session, "reconnect_character_fallback=confirmed_start_after_server; samples=2; noHud=true");
+                    }
+                }
+                else session.ReconnectStartFallbackHits = 0;
                 if (screen == ReconnectScreen.Unknown && session.ReconnectWorldInitialized &&
                     RestorationCounterReader.HasRestorationHeading((await _restorationCounterReader.ReadClientFrameAsync(frame, token)).RawText))
                     screen = ReconnectScreen.World;
@@ -189,6 +211,7 @@ public sealed partial class BotAutomationEngine
                     continue;
                 }
                 session.ReconnectWorldHits = 0;
+        session.ReconnectStartFallbackHits = 0;
                 if (screen == ReconnectScreen.Unknown) continue; // loading / network wait, no blind input
                 // A second disconnect during restoration starts a new login, including
                 // the one-shot skill activation. Loading alone does not reset it.
@@ -245,6 +268,14 @@ public sealed partial class BotAutomationEngine
     internal static async Task VerifyReconnectFixturesAsync(VisualRecognitionService visual,
         Func<string, PixelFrame> load)
     {
+        if (!CanUseReconnectStartFallback(true, true, .88, false, false, false) ||
+            CanUseReconnectStartFallback(false, true, .88, false, false, false) ||
+            CanUseReconnectStartFallback(true, true, .88, true, false, false) ||
+            CanUseReconnectStartFallback(true, true, .88, false, true, false) ||
+            CanUseReconnectStartFallback(true, true, .88, false, false, true) ||
+            CanUseReconnectStartFallback(true, false, .88, false, false, false) ||
+            CanUseReconnectStartFallback(true, true, .70, false, false, false))
+            throw new InvalidOperationException("Reconnect Start fallback must require prior server step and independent no-HUD evidence.");
         foreach (var (file, expected) in new[] {
             ("reconnect_inactivity.png", ReconnectScreen.LoginNotice),
             ("reconnect_inactivity_report_20260928.png", ReconnectScreen.LoginNotice),
